@@ -88,3 +88,28 @@ export interface SystemInfo {
   trash: { count: number; size: number }
   import_dir: string | null
 }
+
+export interface UpdateStatus {
+  current_version: string
+  latest_version: string | null
+  update_available: boolean
+  release: {
+    tag: string
+    name: string
+    url: string
+    notes: string
+    published_at: string | null
+    prerelease: boolean
+  } | null
+  checked_at: string | null
+  check_error: string | null
+  check_enabled: boolean
+  repo: string
+  install_mode: 'package' | 'docker' | 'source' | 'none'
+  can_auto_upgrade: boolean
+  auto_upgrade_blocker: string | null
+  instructions: string
+  phase: 'idle' | 'downloading' | 'verifying' | 'installing' | 'restarting' | 'failed'
+  message: string
+  error: string | null
+}

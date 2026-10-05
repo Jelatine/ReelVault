@@ -19,6 +19,7 @@ import { notifications } from '@mantine/notifications'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconDeviceDesktop, IconEdit, IconLogout } from '@tabler/icons-react'
 import { promptText } from '../components/prompt'
+import UpdatePanel from '../components/UpdatePanel'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatBytes, formatDate } from '../lib/format'
@@ -226,6 +227,9 @@ export default function SettingsPage() {
       <Title order={3}>设置</Title>
       <Paper withBorder p="md">
         <Devices />
+      </Paper>
+      <Paper withBorder p="md">
+        <UpdatePanel />
       </Paper>
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Paper withBorder p="md">

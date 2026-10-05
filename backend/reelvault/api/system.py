@@ -14,6 +14,7 @@ from ..db import get_db
 from ..jobs.manager import JobManager
 from ..library import VIDEO_EXTENSIONS, stem_of, store_file
 from ..models import Video
+from ..updates import UpdateError, Updater
 from .deps import get_jobs, get_settings
 
 router = APIRouter(tags=["system"])
@@ -85,3 +86,27 @@ def import_dir(
         jobs.submit(db, "ingest", {}, [video.id])
         imported += 1
     return {"imported": imported}
+
+
+def get_updater(request: Request) -> Updater:
+    updater: Updater = request.app.state.updater
+    return updater
+
+
+@router.get("/api/system/update", dependencies=[Depends(require_auth)])
+def update_status(updater: Updater = Depends(get_updater)) -> dict[str, Any]:
+    return updater.status()
+
+
+@router.post("/api/system/update/check", dependencies=[Depends(require_auth)])
+async def update_check(updater: Updater = Depends(get_updater)) -> dict[str, Any]:
+    return await updater.check()
+
+
+@router.post("/api/system/update/apply", dependencies=[Depends(require_auth)])
+async def update_apply(updater: Updater = Depends(get_updater)) -> dict[str, Any]:
+    try:
+        await updater.start_upgrade()
+    except UpdateError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+    return updater.status()

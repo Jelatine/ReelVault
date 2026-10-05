@@ -131,6 +131,20 @@ tail -f ~/ReelVault/reelvault.log            # 查看日志
 
 公网访问建议放在 HTTPS 反向代理之后，参考 [`deploy/nginx.conf.example`](deploy/nginx.conf.example)，并设置 `REELVAULT_SECURE_COOKIES=true`。
 
+## 版本检查与升级
+
+ReelVault 会定期（默认每 12 小时）检查 [GitHub Releases](https://github.com/Jelatine/ReelVault/releases) 上的最新版本。有新版本时，页面右上角会出现提示，在「设置 → 版本与更新」中可以查看发布说明并升级：
+
+| 部署方式 | 升级方式 |
+| --- | --- |
+| Ubuntu 安装包（`install.sh`） | **一键升级**：自动下载安装包、校验 SHA256、替换程序、安装依赖，然后自动重启；任何一步失败都会恢复到原版本。有任务正在运行时不允许升级 |
+| Docker | 页面给出 `docker compose pull && docker compose up -d` 等命令 |
+| 源码运行（含 macOS） | 页面给出 `git pull && make install && make build` 等步骤 |
+
+一键升级依赖 systemd 的 `Restart=on-failure`（安装脚本已配置）：升级完成后程序以退出码 75 退出，由 systemd 拉起新版本。数据库迁移会在新版本启动时自动执行。
+
+不希望服务器访问 GitHub 时，设置 `REELVAULT_UPDATE_CHECK=false` 关闭自动检查；`REELVAULT_ALLOW_SELF_UPDATE=false` 只保留检查、禁用一键升级。
+
 ## 配置
 
 所有配置通过环境变量（或 `.env` 文件）设置：
@@ -148,6 +162,13 @@ tail -f ~/ReelVault/reelvault.log            # 查看日志
 | `REELVAULT_LOGIN_MAX_FAILURES` / `REELVAULT_LOGIN_LOCK_MINUTES` | `5` / `5` | 登录失败锁定策略 |
 | `REELVAULT_IMPORT_DIR` | 空 | 可在设置页扫描导入的视频目录 |
 | `REELVAULT_FFMPEG` / `REELVAULT_FFPROBE` | `ffmpeg` / `ffprobe` | ffmpeg 可执行文件路径 |
+| `REELVAULT_UPDATE_CHECK` | `true` | 是否定期检查新版本 |
+| `REELVAULT_UPDATE_CHECK_INTERVAL_HOURS` | `12` | 检查间隔 |
+| `REELVAULT_UPDATE_INCLUDE_PRERELEASES` | `false` | 是否提示预发布版本（如 `-rc`） |
+| `REELVAULT_ALLOW_SELF_UPDATE` | `true` | 是否允许在页面中一键升级（仅 Ubuntu 安装包部署） |
+| `REELVAULT_GITHUB_TOKEN` | 空 | 可选，提高 GitHub API 调用限额 |
+| `REELVAULT_UPDATE_REPO` / `REELVAULT_UPDATE_API_URL` | `Jelatine/ReelVault` / `https://api.github.com` | 版本来源（可指向 fork、镜像或 GitHub Enterprise） |
+| `REELVAULT_INSTALL_MODE` | `auto` | 部署方式（`package`/`docker`/`source`），默认自动识别 |
 
 数据目录结构：
 
@@ -198,6 +219,10 @@ git tag v0.1.0 && git push origin v0.1.0
 ```
 
 GitHub Actions 会构建 `linux/amd64`、`linux/arm64` 镜像并推送到 `ghcr.io/jelatine/reelvault`，同时创建 Release 并附带 Ubuntu 安装包与 SHA256 校验文件。
+
+## 路线图
+
+后续计划（编辑能力、交互、评分/合集/全文搜索等）见 [TODO.md](TODO.md)。
 
 ## License
 

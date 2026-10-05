@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api, qs } from './api'
-import type { Folder, Job, Tag, Video, VideoPage } from './types'
+import type { Folder, Job, Tag, UpdateStatus, Video, VideoPage } from './types'
 
 export interface VideoQuery {
   q?: string
@@ -72,4 +72,17 @@ export function buildTree(folders: Folder[]): FolderNode[] {
 
 export function flattenTree(nodes: FolderNode[]): FolderNode[] {
   return nodes.flatMap((n) => [n, ...flattenTree(n.children)])
+}
+
+const UPGRADING = new Set(['downloading', 'verifying', 'installing', 'restarting'])
+
+export function useUpdateStatus() {
+  return useQuery({
+    queryKey: ['update'],
+    queryFn: () => api.get<UpdateStatus>('/api/system/update'),
+    staleTime: 10 * 60 * 1000,
+    // poll quickly while an upgrade is running
+    refetchInterval: (q) => (q.state.data && UPGRADING.has(q.state.data.phase) ? 1000 : false),
+    retry: false,
+  })
 }

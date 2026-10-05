@@ -33,6 +33,7 @@ RUN useradd --system --uid 1000 --home /data reelvault \
 USER reelvault
 
 ENV PATH=/app/.venv/bin:$PATH \
+    REELVAULT_IN_DOCKER=1 \
     REELVAULT_DATA_DIR=/data \
     REELVAULT_PORT=8080
 VOLUME /data

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+import signal
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -23,6 +25,7 @@ from .jobs.manager import JobManager
 from .media.ffmpeg import ffmpeg_version
 from .migrate import upgrade
 from .models import Upload, User
+from .updates import Updater
 
 log = logging.getLogger("reelvault")
 
@@ -97,15 +100,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         manager = JobManager(settings, app.state.sessionmaker, HANDLERS)
         app.state.jobs = manager
         await manager.start()
+
+        def request_restart() -> None:
+            # Stop uvicorn through its own flag: after a SIGTERM newer uvicorn re-raises
+            # the signal, and systemd treats death-by-SIGTERM as a clean stop (no restart).
+            # __main__ then exits with RESTART_EXIT_CODE so the service manager restarts us.
+            app.state.restart_requested = True
+            server = getattr(app.state, "server", None)
+            if server is not None:
+                server.should_exit = True
+            else:
+                os.kill(os.getpid(), signal.SIGTERM)
+
+        updater = Updater(
+            settings,
+            busy=lambda: len(manager.running) + manager.queue.qsize(),
+            request_restart=request_restart,
+        )
+        app.state.updater = updater
+        updater.start()
         log.info("ReelVault %s ready, data dir %s", __version__, settings.data_dir)
         try:
             yield
         finally:
+            await updater.stop()
             await manager.stop()
             engine.dispose()
 
     app = FastAPI(title="ReelVault", version=__version__, lifespan=lifespan)
     app.state.settings = settings
+    app.state.restart_requested = False
     app.state.login_limiter = LoginLimiter(
         settings.login_max_failures, settings.login_lock_minutes * 60
     )

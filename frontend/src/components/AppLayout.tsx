@@ -30,7 +30,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { VIDEO_ACCEPT } from '../lib/constants'
-import { useJobs } from '../lib/queries'
+import { useJobs, useUpdateStatus } from '../lib/queries'
 import { uploads } from '../lib/uploads'
 import FolderNav from './FolderNav'
 import UploadPanel from './UploadPanel'
@@ -46,6 +46,7 @@ export default function AppLayout() {
   const { setColorScheme } = useMantineColorScheme()
   const scheme = useComputedColorScheme('light')
   const jobs = useJobs()
+  const update = useUpdateStatus()
   const activeJobs = (jobs.data ?? []).filter((j) => j.status === 'running' || j.status === 'queued')
 
   const currentFolder = () => {
@@ -115,6 +116,20 @@ export default function AppLayout() {
             <ActionIcon size="lg" hiddenFrom="sm" onClick={() => fileInput.current?.click()}>
               <IconUpload size={18} />
             </ActionIcon>
+            {update.data?.update_available && (
+              <Tooltip label="查看新版本">
+                <Badge
+                  component={Link}
+                  to="/settings#update"
+                  color="orange"
+                  variant="light"
+                  style={{ cursor: 'pointer', textTransform: 'none' }}
+                  visibleFrom="xs"
+                >
+                  新版本 v{update.data.latest_version}
+                </Badge>
+              </Tooltip>
+            )}
             {activeJobs.length > 0 && (
               <Tooltip label="正在进行的任务">
                 <Badge component={Link} to="/jobs" variant="light" style={{ cursor: 'pointer' }}>

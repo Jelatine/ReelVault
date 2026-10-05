@@ -59,6 +59,7 @@ def settings(tmp_path: Path) -> Settings:
         workers=2,
         static_dir=tmp_path / "nostatic",
         login_max_failures=3,
+        update_check=False,
     )
 
 

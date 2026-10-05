@@ -46,6 +46,21 @@ class Settings(BaseSettings):
 
     upload_chunk_size: int = 8 * 1024 * 1024
 
+    # Update checks against GitHub Releases.
+    update_repo: str = "Jelatine/ReelVault"
+    # GitHub API base URL (change for GitHub Enterprise or a mirror).
+    update_api_url: str = "https://api.github.com"
+    update_check: bool = True
+    update_check_interval_hours: int = 12
+    update_include_prereleases: bool = False
+    # Optional token to raise the GitHub API rate limit.
+    github_token: str | None = None
+    # auto | package | docker | source | none
+    install_mode: str = "auto"
+    # Allow one-click upgrades from the web UI (release-package installs only).
+    allow_self_update: bool = True
+    uv: str = "uv"
+
     @property
     def library_dir(self) -> Path:
         return self.data_dir / "library"
