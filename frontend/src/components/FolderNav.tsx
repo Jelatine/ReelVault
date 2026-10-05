@@ -77,6 +77,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
       active={folder === String(node.id)}
       onClick={() => go({ folder: String(node.id) })}
       defaultOpened
+      disableRightSectionRotation
       childrenOffset={14}
       rightSection={
         <Group gap={2} wrap="nowrap" onClick={(e) => e.stopPropagation()}>

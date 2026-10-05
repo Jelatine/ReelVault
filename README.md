@@ -4,6 +4,20 @@
 
 [![CI](https://github.com/Jelatine/ReelVault/actions/workflows/ci.yml/badge.svg)](https://github.com/Jelatine/ReelVault/actions/workflows/ci.yml)
 
+![视频库](docs/screenshots/library.jpg)
+
+## 界面预览
+
+| 播放页：播放器、进度条缩略图、视频信息 | 多片段剪辑：时间轴上高亮保留的片段 |
+| --- | --- |
+| ![播放页](docs/screenshots/player.jpg) | ![剪辑](docs/screenshots/editor-trim.jpg) |
+| **合并多个视频：调整顺序、自动统一分辨率** | **压缩：编码、分辨率、画质与预估大小** |
+| ![合并](docs/screenshots/editor-merge.jpg) | ![压缩](docs/screenshots/editor-compress.jpg) |
+| **任务中心：后台 ffmpeg 任务实时进度** | **浅色主题 + 列表视图** |
+| ![任务中心](docs/screenshots/jobs.jpg) | ![浅色列表](docs/screenshots/library-light.jpg) |
+| **多设备登录管理** | **登录页：记住我 30 天免密** |
+| ![设备管理](docs/screenshots/devices.png) | ![登录](docs/screenshots/login.png) |
+
 ## 功能
 
 **播放**
@@ -70,6 +84,51 @@ journalctl -u reelvault -f
 sudo nano /etc/reelvault/reelvault.env && sudo systemctl restart reelvault
 ```
 
+### macOS（源码编译运行）
+
+适用于 Apple Silicon 与 Intel Mac。需要 [Homebrew](https://brew.sh)。
+
+**1. 安装依赖**
+
+```bash
+brew install ffmpeg uv node git
+```
+
+uv 会自动下载项目所需的 Python 3.12，无需单独安装 Python。
+
+**2. 获取源码并编译**
+
+```bash
+git clone https://github.com/Jelatine/ReelVault.git
+cd ReelVault
+make install   # 安装后端 (uv) 与前端 (npm) 依赖
+make build     # 构建前端，输出到 backend/reelvault/static
+```
+
+**3. 运行**
+
+```bash
+cd backend
+REELVAULT_DATA_DIR=~/ReelVault uv run reelvault
+```
+
+打开 <http://localhost:8080>，首次访问创建管理员账号。同一局域网内的手机、平板可通过 `http://<Mac 的 IP>:8080` 访问（首次运行时 macOS 可能弹出防火墙提示，选择「允许」）。
+
+**4. 后台常驻（可选）**
+
+用 launchd 让 ReelVault 随登录启动、崩溃自动重启：
+
+```bash
+./deploy/macos/install-launchd.sh            # 数据目录默认 ~/ReelVault
+./deploy/macos/install-launchd.sh ~/Movies/ReelVault   # 或指定数据目录
+tail -f ~/ReelVault/reelvault.log            # 查看日志
+./deploy/macos/install-launchd.sh --uninstall  # 卸载
+```
+
+**升级**：`git pull && make install && make build`，然后重启服务（再次运行 `install-launchd.sh` 即可）。
+
+> 也可以在 Docker Desktop 中直接使用上面的 Docker 方式运行，镜像同时提供 arm64 与 amd64。
+
 公网访问建议放在 HTTPS 反向代理之后，参考 [`deploy/nginx.conf.example`](deploy/nginx.conf.example)，并设置 `REELVAULT_SECURE_COOKIES=true`。
 
 ## 配置
@@ -103,11 +162,11 @@ data/
 
 ## 开发
 
-需要 Python 3.12（由 uv 自动管理）、Node.js 22+、ffmpeg。
+需要 Python 3.12（由 uv 自动管理）、Node.js 22+、ffmpeg。macOS 下用 `brew install ffmpeg uv node` 安装即可。
 
 ```bash
 make install   # 安装前后端依赖
-make dev       # 后端 :8080 + Vite 开发服务器 :5173（代理 /api）
+make dev       # 后端 :8080 + Vite 开发服务器 :5173（代理 /api，前端热更新）
 make test      # pytest + vitest
 make lint      # ruff、mypy、oxlint、tsc
 make build     # 构建前端并拷贝到 backend/reelvault/static

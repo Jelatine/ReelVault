@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- launchd agent for running ReelVault in the background on macOS.
+     install-launchd.sh fills in the repo path, data dir, uv binary and PATH. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.reelvault.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__UV__</string>
+    <string>run</string>
+    <string>--frozen</string>
+    <string>--no-dev</string>
+    <string>--project</string>
+    <string>__REPO__/backend</string>
+    <string>reelvault</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__REPO__/backend</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__PATH__</string>
+    <key>REELVAULT_DATA_DIR</key>
+    <string>__DATA__</string>
+    <key>REELVAULT_HOST</key>
+    <string>0.0.0.0</string>
+    <key>REELVAULT_PORT</key>
+    <string>8080</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__DATA__/reelvault.log</string>
+  <key>StandardErrorPath</key>
+  <string>__DATA__/reelvault.log</string>
+</dict>
+</plist>
