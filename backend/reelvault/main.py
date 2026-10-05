@@ -1,0 +1,135 @@
+from __future__ import annotations
+
+import logging
+import shutil
+import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import func, select
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+from . import __version__
+from .api import auth as auth_api
+from .api import folders, jobs, system, videos
+from .auth import LoginLimiter, hash_password
+from .config import Settings
+from .db import make_engine, make_sessionmaker
+from .jobs.handlers import HANDLERS
+from .jobs.manager import JobManager
+from .media.ffmpeg import ffmpeg_version
+from .migrate import upgrade
+from .models import Upload, User
+
+log = logging.getLogger("reelvault")
+
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+CSRF_HEADER = b"x-requested-with"
+
+
+class CSRFMiddleware:
+    """State-changing API calls must carry X-Requested-With, which browsers never add
+    to cross-site form posts. Together with SameSite cookies this blocks CSRF."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope["type"] == "http"
+            and scope["method"] not in SAFE_METHODS
+            and scope["path"].startswith("/api/")
+            and not any(k == CSRF_HEADER for k, _ in scope["headers"])
+        ):
+            response = JSONResponse({"detail": "缺少 X-Requested-With 请求头"}, status_code=403)
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+def bootstrap_admin(app: FastAPI, settings: Settings) -> None:
+    with app.state.sessionmaker() as db:
+        if db.scalar(select(func.count()).select_from(User)):
+            return
+        if settings.admin_user and settings.admin_password:
+            db.add(
+                User(
+                    username=settings.admin_user,
+                    password_hash=hash_password(settings.admin_password),
+                )
+            )
+            db.commit()
+            log.info("created admin user %s", settings.admin_user)
+
+
+def cleanup_stale_uploads(app: FastAPI, settings: Settings, max_age_days: int = 7) -> None:
+    cutoff = time.time() - max_age_days * 86400
+    with app.state.sessionmaker() as db:
+        for up in db.scalars(select(Upload)).all():
+            part = settings.tmp_dir / f"upload-{up.id}.part"
+            if not part.exists() or part.stat().st_mtime < cutoff:
+                part.unlink(missing_ok=True)
+                db.delete(up)
+        db.commit()
+    for d in settings.tmp_dir.glob("job-*"):
+        shutil.rmtree(d, ignore_errors=True)
+    for f in settings.tmp_dir.glob("frame-*"):
+        f.unlink(missing_ok=True)
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or Settings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        settings.data_dir = settings.data_dir.resolve()
+        settings.ensure_dirs()
+        engine = make_engine(settings.db_path)
+        upgrade(engine)
+        app.state.engine = engine
+        app.state.sessionmaker = make_sessionmaker(engine)
+        bootstrap_admin(app, settings)
+        cleanup_stale_uploads(app, settings)
+        app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)
+        manager = JobManager(settings, app.state.sessionmaker, HANDLERS)
+        app.state.jobs = manager
+        await manager.start()
+        log.info("ReelVault %s ready, data dir %s", __version__, settings.data_dir)
+        try:
+            yield
+        finally:
+            await manager.stop()
+            engine.dispose()
+
+    app = FastAPI(title="ReelVault", version=__version__, lifespan=lifespan)
+    app.state.settings = settings
+    app.state.login_limiter = LoginLimiter(
+        settings.login_max_failures, settings.login_lock_minutes * 60
+    )
+    app.add_middleware(CSRFMiddleware)
+
+    for r in (auth_api.router, videos.router, folders.router, jobs.router, system.router):
+        app.include_router(r)
+
+    static = settings.resolve_static_dir()
+    if static is not None:
+        mount_spa(app, static)
+    return app
+
+
+def mount_spa(app: FastAPI, root: Path) -> None:
+    root = root.resolve()
+    index = root / "index.html"
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def spa(path: str) -> FileResponse:
+        if path.startswith("api/"):
+            raise HTTPException(404)
+        candidate = (root / path).resolve()
+        if path and candidate.is_file() and candidate.is_relative_to(root):
+            cache = "public, max-age=31536000, immutable" if path.startswith("assets/") else None
+            return FileResponse(candidate, headers={"Cache-Control": cache} if cache else None)
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})

@@ -1,0 +1,90 @@
+export interface Video {
+  id: string
+  title: string
+  description: string
+  original_name: string
+  folder_id: number | null
+  status: 'processing' | 'ready' | 'error'
+  error: string | null
+  size: number
+  duration: number
+  width: number
+  height: number
+  fps: number
+  bitrate: number
+  container: string
+  video_codec: string
+  audio_codec: string | null
+  rotation: number
+  cover_time: number | null
+  tags: string[]
+  created_at: string
+  updated_at: string | null
+  deleted_at: string | null
+  stream_url: string
+  download_url: string
+  poster_url: string | null
+  preview_url: string | null
+  thumbnails_url: string | null
+}
+
+export interface VideoPage {
+  items: Video[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface Folder {
+  id: number
+  name: string
+  parent_id: number | null
+  count: number
+}
+
+export interface Tag {
+  name: string
+  count: number
+}
+
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+
+export interface Job {
+  id: string
+  kind: 'ingest' | 'edit'
+  status: JobStatus
+  params: { edit?: { op: string; [k: string]: unknown }; output?: { mode: string }; name?: string }
+  video_ids: string[]
+  result_video_id: string | null
+  has_result_file: boolean
+  progress: number
+  message: string
+  error: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export interface DeviceSession {
+  id: string
+  device_name: string
+  user_agent: string
+  ip: string
+  remember: boolean
+  created_at: string
+  last_seen_at: string
+  expires_at: string
+  current: boolean
+}
+
+export interface SystemInfo {
+  version: string
+  ffmpeg_version: string
+  workers: number
+  running_jobs: number
+  queued_jobs: number
+  disk: { total: number; used: number; free: number }
+  library: { count: number; size: number }
+  trash: { count: number; size: number }
+  import_dir: string | null
+}

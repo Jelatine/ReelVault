@@ -1,0 +1,23 @@
+[Unit]
+Description=ReelVault video server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=reelvault
+Group=reelvault
+WorkingDirectory=/opt/reelvault
+EnvironmentFile=/etc/reelvault/reelvault.env
+ExecStart=/opt/reelvault/.venv/bin/reelvault
+Restart=on-failure
+RestartSec=5
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/reelvault
+
+[Install]
+WantedBy=multi-user.target

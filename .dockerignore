@@ -1,0 +1,13 @@
+**/node_modules
+**/.venv
+**/__pycache__
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+frontend/dist
+backend/reelvault/static
+backend/data
+data
+dist
+.git
+.github

@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+backend/reelvault/static/
+backend/data/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Runtime data / build output
+data/
+dist/
+*.log
+.env
+.DS_Store
