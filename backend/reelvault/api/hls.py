@@ -4,7 +4,7 @@ import re
 import shutil
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..jobs.manager import JobManager
 from ..media.hls import estimated_bytes
 from ..media.probe import MediaInfo
@@ -39,9 +40,9 @@ def check_budget(
     )
     # Account for other queued/active HLS work as well as the current package.
     if shutil.disk_usage(settings.data_dir).free < estimate + reserved + 64 * 1024 * 1024:
-        raise HTTPException(507, "磁盘剩余空间不足，无法生成 HLS")
+        raise APIError(507, "磁盘剩余空间不足，无法生成 HLS", code="insufficient_storage")
     if packages_size(db) + reserved + estimate > settings.hls_max_cache_gb * 1024**3:
-        raise HTTPException(409, "HLS 缓存将超过上限，请清理缓存或增加上限")
+        raise APIError(409, "HLS 缓存将超过上限，请清理缓存或增加上限", code="hls_cache_limit")
 
 
 def active_jobs(db: Session, jobs: JobManager, video_id: str | None = None) -> list[Job]:
@@ -106,7 +107,7 @@ def set_hls_settings(
 def clear(db: Session, settings: Settings, jobs: JobManager, video_id: str | None) -> int:
     db.execute(text("BEGIN IMMEDIATE"))
     if active_jobs(db, jobs, video_id):
-        raise HTTPException(409, "请先结束或取消 HLS 生成任务，再清理缓存")
+        raise APIError(409, "请先结束或取消 HLS 生成任务，再清理缓存", code="hls_busy")
     query = select(HlsPackage)
     if video_id is not None:
         query = query.where(HlsPackage.video_id == video_id)
@@ -191,9 +192,9 @@ def submit_hls(
     db.execute(text("BEGIN IMMEDIATE"))
     video = ready_video(db, video_id)
     if not settings.hls_enabled:
-        raise HTTPException(409, "HLS 已关闭，请先在设置中开启")
+        raise APIError(409, "HLS 已关闭，请先在设置中开启", code="hls_disabled")
     if body.automatic and video.size < settings.hls_min_size_mb * 1024**2:
-        raise HTTPException(409, "此视频未达到自动生成大小阈值")
+        raise APIError(409, "此视频未达到自动生成大小阈值", code="hls_below_threshold")
     sig = signature(settings, video)
     active = active_jobs(db, jobs, video.id)
     if active:
@@ -237,17 +238,17 @@ def serve_hls(
     video = ready_video(db, video_id)
     package = db.get(HlsPackage, video_id)
     if not settings.hls_enabled:
-        raise HTTPException(409, "HLS 已关闭")
+        raise APIError(409, "HLS 已关闭", code="hls_disabled")
     if (
         not package
         or generation != package.generation
         or not re.fullmatch(r"[a-f0-9]{32}", generation)
     ):
-        raise HTTPException(404, "HLS 缓存不存在")
+        raise APIError(404, "HLS 缓存不存在", code="hls_cache_not_found")
     if package.signature != signature(settings, video):
-        raise HTTPException(409, "源文件已变化，请重新生成 HLS")
+        raise APIError(409, "源文件已变化，请重新生成 HLS", code="hls_source_changed")
     if not re.fullmatch(r"master\.m3u8|v[0-2]/(?:index\.m3u8|seg_\d{6}\.ts)", asset):
-        raise HTTPException(404, "HLS 资源不存在")
+        raise APIError(404, "HLS 资源不存在", code="hls_resource_not_found")
     root = (settings.derived_dir / video_id / "hls" / generation).resolve()
     path = (root / asset).resolve()
     if (
@@ -255,7 +256,7 @@ def serve_hls(
         or not path.is_relative_to(root)
         or not path.is_file()
     ):
-        raise HTTPException(404, "HLS 资源不存在")
+        raise APIError(404, "HLS 资源不存在", code="hls_resource_not_found")
     return FileResponse(
         path,
         media_type="application/vnd.apple.mpegurl" if path.suffix == ".m3u8" else "video/mp2t",

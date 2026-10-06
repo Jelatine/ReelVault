@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from .. import auth as A
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..models import AuthSession, User, utcnow
 from .deps import get_settings
 
@@ -71,7 +72,7 @@ def setup(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     if _user_count(db) > 0:
-        raise HTTPException(status.HTTP_409_CONFLICT, "管理员账号已存在")
+        raise APIError(status.HTTP_409_CONFLICT, "管理员账号已存在", code="admin_exists")
     user = User(username=body.username.strip(), password_hash=A.hash_password(body.password))
     db.add(user)
     db.commit()
@@ -94,7 +95,7 @@ def login(
     user = db.scalar(select(User).where(User.username == body.username.strip()))
     if user is None or not A.verify_password(user.password_hash, body.password):
         limiter.fail(ip)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户名或密码错误")
+        raise APIError(status.HTTP_401_UNAUTHORIZED, "用户名或密码错误", code="invalid_credentials")
     limiter.success(ip)
     device = body.device_name.strip() or "未命名设备"
     sess, token = A.create_session(db, settings, user, request, body.remember, device)
@@ -140,7 +141,9 @@ def change_password(
     user = db.get(User, auth.user_id)
     assert user is not None
     if not A.verify_password(user.password_hash, body.current_password):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "当前密码不正确")
+        raise APIError(
+            status.HTTP_400_BAD_REQUEST, "当前密码不正确", code="current_password_incorrect"
+        )
     user.password_hash = A.hash_password(body.new_password)
     user.password_changed_at = utcnow()
     revoked = 0
@@ -179,7 +182,7 @@ def rename_session(
 ) -> dict[str, Any]:
     sess = db.get(AuthSession, session_id)
     if sess is None or sess.user_id != auth.user_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "会话不存在")
+        raise APIError(status.HTTP_404_NOT_FOUND, "会话不存在", code="session_not_found")
     sess.device_name = body.device_name.strip()
     db.commit()
     return _session_dict(sess, auth.session_id)
@@ -195,7 +198,7 @@ def revoke_session(
 ) -> dict[str, bool]:
     sess = db.get(AuthSession, session_id)
     if sess is None or sess.user_id != auth.user_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "会话不存在")
+        raise APIError(status.HTTP_404_NOT_FOUND, "会话不存在", code="session_not_found")
     db.delete(sess)
     db.commit()
     if session_id == auth.session_id:

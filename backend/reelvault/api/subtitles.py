@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, Form, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..library import abs_path, rel_path
 from ..media.assets import AssetError, checked_asset, references
 from ..media.ffmpeg import FFmpegError, ffprobe_json
@@ -52,15 +53,17 @@ async def upload_subtitle(
     name = Path((file.filename or "").replace("\\", "/")).name[:255]
     ext = Path(name).suffix.lower()
     if ext not in FORMATS:
-        raise HTTPException(400, "请选择 SRT、ASS 或 VTT 字幕")
+        raise APIError(400, "请选择 SRT、ASS 或 VTT 字幕", code="subtitle_format_unsupported")
     data = await file.read(5 * 1024 * 1024 + 1)
     await file.close()
     if len(data) > 5 * 1024 * 1024:
-        raise HTTPException(413, "字幕不能超过 5 MiB")
+        raise APIError(413, "字幕不能超过 5 MiB", code="subtitle_too_large")
     try:
         normalized = data.decode("utf-8-sig" if encoding == "utf-8" else encoding).encode("utf-8")
     except UnicodeError as error:
-        raise HTTPException(400, "字幕编码不匹配，请选择正确编码") from error
+        raise APIError(
+            400, "字幕编码不匹配，请选择正确编码", code="subtitle_encoding_invalid"
+        ) from error
     asset_id = new_id()
     path = settings.assets_dir / f"{asset_id}{ext}"
     cache = settings.assets_dir / f"{asset_id}.webvtt"
@@ -84,7 +87,7 @@ async def upload_subtitle(
         committed = True
         return asset_dict(asset)
     except (FFmpegError, TimeoutError) as error:
-        raise HTTPException(400, "字幕没有有效片段或无法解析") from error
+        raise APIError(400, "字幕没有有效片段或无法解析", code="subtitle_invalid") from error
     finally:
         if not committed:
             path.unlink(missing_ok=True)
@@ -98,7 +101,7 @@ async def asset_vtt(
     try:
         asset = checked_asset(db, settings, asset_id, "subtitle")
     except AssetError as error:
-        raise HTTPException(404, str(error)) from error
+        raise APIError(404, str(error), code="subtitle_asset_not_found") from error
     cache = settings.assets_dir / f"{asset.id}.webvtt"
     if cache.is_file():
         data = cache.read_bytes()
@@ -106,7 +109,9 @@ async def asset_vtt(
         try:
             data = await to_vtt(settings.ffmpeg, abs_path(settings, asset.file_path))
         except (FFmpegError, TimeoutError) as error:
-            raise HTTPException(400, "字幕无法转换，请检查文件与 FFmpeg") from error
+            raise APIError(
+                400, "字幕无法转换，请检查文件与 FFmpeg", code="subtitle_conversion_failed"
+            ) from error
         cache.write_bytes(data)
     return Response(data, media_type="text/vtt", headers={"Cache-Control": "private, max-age=3600"})
 
@@ -128,13 +133,13 @@ async def attach(
     try:
         checked_asset(db, settings, body.asset_id, "subtitle")
     except AssetError as error:
-        raise HTTPException(400, str(error)) from error
+        raise APIError(400, str(error), code="subtitle_asset_invalid") from error
     if db.scalar(
         select(SubtitleTrack.id).where(
             SubtitleTrack.video_id == video_id, SubtitleTrack.asset_id == body.asset_id
         )
     ):
-        raise HTTPException(409, "这份字幕已添加到视频")
+        raise APIError(409, "这份字幕已添加到视频", code="subtitle_already_attached")
     track = SubtitleTrack(
         video_id=video_id,
         asset_id=body.asset_id,
@@ -151,7 +156,7 @@ async def detach(video_id: str, track_id: str, db: Session = Depends(get_db)) ->
     get_video(db, video_id, allow_deleted=True)
     track = db.get(SubtitleTrack, track_id)
     if track is None or track.video_id != video_id:
-        raise HTTPException(404, "字幕轨道不存在")
+        raise APIError(404, "字幕轨道不存在", code="subtitle_track_not_found")
     db.delete(track)
     db.commit()
     return {"ok": True}
@@ -165,10 +170,12 @@ async def embedded_tracks(db: Session, settings: Settings, video: Video) -> list
                 ffprobe_json(settings.ffprobe, str(abs_path(settings, source))), 30
             )
         except (FFmpegError, TimeoutError) as error:
-            raise HTTPException(400, "无法读取视频字幕轨道") from error
+            raise APIError(
+                400, "无法读取视频字幕轨道", code="subtitle_tracks_unreadable"
+            ) from error
         db.refresh(video)
         if video.file_path != source or video.asset_version != version:
-            raise HTTPException(409, "视频版本已变化，请刷新")
+            raise APIError(409, "视频版本已变化，请刷新", code="video_version_changed")
         video.meta = {**(video.meta or {}), "subtitle_streams": subtitle_streams(data)}
         db.commit()
     return list(video.meta["subtitle_streams"])
@@ -224,13 +231,15 @@ async def embedded_vtt(
     streams = await embedded_tracks(db, settings, video)
     stream = next((s for s in streams if s["index"] == index), None)
     if stream is None:
-        raise HTTPException(404, "内封字幕轨道不存在")
+        raise APIError(404, "内封字幕轨道不存在", code="subtitle_track_not_found")
     if not stream["text"]:
-        raise HTTPException(400, "图像字幕无法转换为文本，可选择烧录")
+        raise APIError(400, "图像字幕无法转换为文本，可选择烧录", code="subtitle_image_not_text")
     try:
         data = await to_vtt(settings.ffmpeg, abs_path(settings, video.file_path), index)
     except (FFmpegError, TimeoutError) as error:
-        raise HTTPException(400, "内封字幕无法转换，请检查文件与 FFmpeg") from error
+        raise APIError(
+            400, "内封字幕无法转换，请检查文件与 FFmpeg", code="subtitle_conversion_failed"
+        ) from error
     return Response(data, media_type="text/vtt", headers={"Cache-Control": "private, max-age=3600"})
 
 
@@ -240,12 +249,12 @@ async def delete_asset(
 ) -> dict[str, bool]:
     asset = db.get(MediaAsset, asset_id)
     if asset is None or asset.kind != "subtitle":
-        raise HTTPException(404, "字幕素材不存在")
+        raise APIError(404, "字幕素材不存在", code="subtitle_asset_not_found")
     if db.scalar(select(SubtitleTrack.id).where(SubtitleTrack.asset_id == asset_id)):
-        raise HTTPException(409, "字幕仍挂在视频上，请先移除轨道")
+        raise APIError(409, "字幕仍挂在视频上，请先移除轨道", code="subtitle_still_attached")
     for field in (Job.params, Video.edit_params, EditPreset.edit):
         if any(references(value, asset_id) for value in db.scalars(select(field))):
-            raise HTTPException(409, "字幕被任务、历史或预设引用，不能删除")
+            raise APIError(409, "字幕被任务、历史或预设引用，不能删除", code="asset_in_use")
     path = abs_path(settings, asset.file_path)
     db.delete(asset)
     db.commit()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..auth import CurrentAuth, require_auth
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..models import Bookmark, SceneAnalysis, Video
 from .deps import FiniteNumber, get_settings
 from .scenes import ready_video, signature
@@ -92,7 +93,9 @@ def save(
     if body.position > video.duration or (
         body.kind == "chapter" and body.position >= video.duration
     ):
-        raise HTTPException(422, "书签时间不能超过视频时长，章节须在结尾之前")
+        raise APIError(
+            422, "书签时间不能超过视频时长，章节须在结尾之前", code="bookmark_time_invalid"
+        )
     row.position, row.title, row.note, row.kind = (
         body.position,
         body.title.strip() or ("章节" if body.kind == "chapter" else "书签"),
@@ -115,14 +118,14 @@ def create_bookmark(
 ) -> dict[str, Any]:
     video = ready_video(db, video_id)
     if len(rows(db, video_id, auth.user_id)) >= 1000:
-        raise HTTPException(409, "每个视频最多保存 1000 个书签与手动章节")
+        raise APIError(409, "每个视频最多保存 1000 个书签与手动章节", code="bookmark_limit")
     return save(db, settings, video, body, Bookmark(video_id=video_id, user_id=auth.user_id))
 
 
 def owned(db: Session, video_id: str, bookmark_id: str, user_id: int) -> Bookmark:
     row = db.get(Bookmark, bookmark_id)
     if row is None or row.video_id != video_id or row.user_id != user_id:
-        raise HTTPException(404, "书签不存在")
+        raise APIError(404, "书签不存在", code="bookmark_not_found")
     return row
 
 

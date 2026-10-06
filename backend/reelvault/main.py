@@ -39,6 +39,7 @@ from .auth import LoginLimiter, hash_password
 from .backup import backup_before_migration, library_lock
 from .config import Settings
 from .db import make_engine, make_sessionmaker
+from .errors import install_error_handlers
 from .importer import Importer
 from .jobs.handlers import HANDLERS
 from .jobs.manager import JobManager
@@ -69,7 +70,14 @@ class CSRFMiddleware:
             and scope["path"].startswith("/api/")
             and not any(k == CSRF_HEADER for k, _ in scope["headers"])
         ):
-            response = JSONResponse({"detail": "缺少 X-Requested-With 请求头"}, status_code=403)
+            response = JSONResponse(
+                {
+                    "detail": "缺少 X-Requested-With 请求头",
+                    "code": "csrf_header_missing",
+                    "params": {},
+                },
+                status_code=403,
+            )
             await response(scope, receive, send)
             return
         await self.app(scope, receive, send)
@@ -181,6 +189,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 engine.dispose()
 
     app = FastAPI(title="ReelVault", version=__version__, lifespan=lifespan)
+    install_error_handlers(app)
     app.state.settings = settings
     app.state.restart_requested = False
     app.state.login_limiter = LoginLimiter(

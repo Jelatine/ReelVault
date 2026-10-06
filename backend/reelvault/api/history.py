@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..jobs.manager import JobManager, job_to_dict
 from ..library import abs_path
 from ..media import ops
@@ -136,12 +137,17 @@ def recreate(
     video = get_video(db, video_id, allow_deleted=True)
     sources = sources_of(video)
     if not video.edit_params or not sources:
-        raise HTTPException(400, "该视频没有可重新生成的编辑记录")
+        raise APIError(400, "该视频没有可重新生成的编辑记录", code="history_missing")
     resolved = []
     for source in sources:
         state = source_state(source, db, settings)
         if not state["available"]:
-            raise HTTPException(409, f"{state['title']}：{state['reason']}")
+            raise APIError(
+                409,
+                f"{state['title']}：{state['reason']}",
+                code="history_source_unavailable",
+                params={"title": state["title"]},
+            )
         resolved.append({**source, "id": state["id"]})
     edit: ops.EditParams = TypeAdapter(ops.EditParams).validate_python(video.edit_params)
     audio_sha256 = None
@@ -153,25 +159,25 @@ def recreate(
             asset = lut_asset(db, settings, edit)
             lut_sha256 = asset.sha256 if asset else None
         except AssetError as error:
-            raise HTTPException(409, str(error)) from error
+            raise APIError(409, str(error), code="asset_invalid") from error
     if isinstance(edit, ops.WatermarkParams):
         try:
             asset = image_asset(db, settings, edit)
             image_sha256 = asset.sha256 if asset else None
         except AssetError as error:
-            raise HTTPException(409, str(error)) from error
+            raise APIError(409, str(error), code="asset_invalid") from error
     if isinstance(edit, ops.SubtitleParams):
         try:
             asset = subtitle_asset(db, settings, edit)
             subtitle_sha256 = asset.sha256 if asset else None
         except AssetError as error:
-            raise HTTPException(409, str(error)) from error
+            raise APIError(409, str(error), code="asset_invalid") from error
     if isinstance(edit, ops.AudioParams):
         try:
             asset = audio_asset(db, settings, edit)
             audio_sha256 = asset.sha256 if asset else None
         except AssetError as error:
-            raise HTTPException(409, str(error)) from error
+            raise APIError(409, str(error), code="asset_invalid") from error
     ids = [source["id"] for source in resolved]
     if isinstance(edit, (ops.MergeParams, ops.CompositeParams)):
         edit.video_ids = ids

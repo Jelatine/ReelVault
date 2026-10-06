@@ -5,13 +5,14 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..library import abs_path, rel_path
 from ..media.assets import references
 from ..media.ffmpeg import FFmpegError, ffmpeg_args, run_command
@@ -51,10 +52,10 @@ async def upload_lut(
     committed = False
     try:
         if Path(name).suffix.lower() != ".cube":
-            raise HTTPException(400, "请选择 .cube 格式的 1D 或 3D LUT")
+            raise APIError(400, "请选择 .cube 格式的 1D 或 3D LUT", code="lut_format_unsupported")
         data = await file.read(20 * 1024 * 1024 + 1)
         if len(data) > 20 * 1024 * 1024:
-            raise HTTPException(413, "LUT 不能超过 20 MiB")
+            raise APIError(413, "LUT 不能超过 20 MiB", code="lut_too_large")
         normalized, meta = parse_cube(data)
         temporary.mkdir()
         (temporary / "grade.cube").write_bytes(normalized)
@@ -102,9 +103,9 @@ async def upload_lut(
         committed = True
         return asset_dict(asset)
     except ValueError as error:
-        raise HTTPException(400, str(error)) from error
+        raise APIError(400, str(error), code="lut_invalid") from error
     except (FFmpegError, TimeoutError) as error:
-        raise HTTPException(400, "当前 FFmpeg 无法读取该 LUT") from error
+        raise APIError(400, "当前 FFmpeg 无法读取该 LUT", code="lut_ffmpeg_unreadable") from error
     finally:
         await file.close()
         (temporary / "grade.cube").unlink(missing_ok=True)
@@ -122,10 +123,10 @@ def delete_lut(
 ) -> dict[str, bool]:
     asset = db.get(MediaAsset, asset_id)
     if asset is None or asset.kind != "lut":
-        raise HTTPException(404, "LUT 素材不存在")
+        raise APIError(404, "LUT 素材不存在", code="lut_asset_not_found")
     for field in (Job.params, Video.edit_params, EditPreset.edit):
         if any(references(value, asset_id) for value in db.scalars(select(field))):
-            raise HTTPException(409, "LUT 被任务、编辑历史或预设引用，不能删除")
+            raise APIError(409, "LUT 被任务、编辑历史或预设引用，不能删除", code="asset_in_use")
     path = abs_path(settings, asset.file_path)
     db.delete(asset)
     db.commit()

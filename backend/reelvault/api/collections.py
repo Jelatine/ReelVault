@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import require_auth
 from ..db import get_db
+from ..errors import APIError
 from ..library import video_to_dict
 from ..models import Collection, CollectionItem, Video
 
@@ -22,7 +23,7 @@ router = APIRouter(
 def get_collection(db: Session, collection_id: int) -> Collection:
     collection = db.get(Collection, collection_id)
     if collection is None:
-        raise HTTPException(404, "合集不存在")
+        raise APIError(404, "合集不存在", code="collection_not_found")
     return collection
 
 
@@ -81,7 +82,9 @@ def commit(db: Session) -> None:
         db.commit()
     except IntegrityError as error:
         db.rollback()
-        raise HTTPException(409, "同名合集已存在或合集内容已变化，请刷新后重试") from error
+        raise APIError(
+            409, "同名合集已存在或合集内容已变化，请刷新后重试", code="collection_conflict"
+        ) from error
 
 
 class CollectionCreate(CollectionBody):
@@ -96,14 +99,14 @@ def create_collection(body: CollectionCreate, db: Session = Depends(get_db)) -> 
             select(Video.id).where(Video.id.in_(ids), Video.deleted_at.is_(None))
         ).all()
         if len(existing) != len(ids):
-            raise HTTPException(404, "部分视频不存在或已删除")
+            raise APIError(404, "部分视频不存在或已删除", code="collection_videos_missing")
     collection = Collection(name=body.name, description=body.description)
     db.add(collection)
     try:
         db.flush()
     except IntegrityError as error:
         db.rollback()
-        raise HTTPException(409, "同名合集已存在") from error
+        raise APIError(409, "同名合集已存在", code="collection_name_conflict") from error
     db.add_all(
         [
             CollectionItem(collection_id=collection.id, video_id=video_id, position=index)
@@ -148,7 +151,7 @@ def add_items(
     ids = list(dict.fromkeys(body.video_ids))
     videos = db.scalars(select(Video).where(Video.id.in_(ids), Video.deleted_at.is_(None))).all()
     if len(videos) != len(ids):
-        raise HTTPException(404, "部分视频不存在或已删除")
+        raise APIError(404, "部分视频不存在或已删除", code="collection_videos_missing")
     maximum = db.scalar(
         select(func.max(CollectionItem.position)).where(
             CollectionItem.collection_id == collection_id
@@ -189,7 +192,9 @@ def reorder(collection_id: int, body: OrderBody, db: Session = Depends(get_db)) 
     ).all()
     visible = {video["id"] for video in detail(db, collection)["items"]}
     if len(set(body.video_ids)) != len(body.video_ids) or set(body.video_ids) != visible:
-        raise HTTPException(409, "排序必须包含全部当前可见成员，请刷新后重试")
+        raise APIError(
+            409, "排序必须包含全部当前可见成员，请刷新后重试", code="collection_order_changed"
+        )
     # Keep soft-deleted members so restoring a video also restores membership.
     hidden = [item.video_id for item in items if item.video_id not in visible]
     positions = {video_id: index for index, video_id in enumerate([*body.video_ids, *hidden])}

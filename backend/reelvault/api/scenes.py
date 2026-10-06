@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..jobs.manager import JobManager
 from ..library import abs_path
 from ..media.scenes import SceneParams, scene_chapters, source_signature
@@ -21,9 +22,9 @@ router = APIRouter(prefix="/api/videos", tags=["scenes"], dependencies=[Depends(
 def ready_video(db: Session, video_id: str) -> Video:
     video = db.get(Video, video_id)
     if video is None or video.deleted_at:
-        raise HTTPException(404, "视频不存在")
+        raise APIError(404, "视频不存在", code="video_not_found")
     if video.status != "ready":
-        raise HTTPException(409, "视频尚未就绪")
+        raise APIError(409, "视频尚未就绪", code="video_not_ready")
     return video
 
 
@@ -31,7 +32,7 @@ def signature(settings: Settings, video: Video) -> list[Any]:
     try:
         return source_signature(abs_path(settings, video.file_path))
     except OSError as error:
-        raise HTTPException(409, "源视频文件不可用") from error
+        raise APIError(409, "源视频文件不可用", code="source_file_unavailable") from error
 
 
 @router.get("/{video_id}/scenes")
@@ -91,7 +92,9 @@ def submit_scenes(
             active = candidate
             if all(active.params.get(key) == value for key, value in body.model_dump().items()):
                 return jobs.describe(db, active)
-            raise HTTPException(409, "已有未结束的场景检测，请完成或取消后调整参数")
+            raise APIError(
+                409, "已有未结束的场景检测，请完成或取消后调整参数", code="scene_detection_busy"
+            )
     job = jobs.submit(
         db,
         "scenes",

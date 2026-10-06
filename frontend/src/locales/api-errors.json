@@ -1,0 +1,474 @@
+{
+  "admin_exists": {
+    "en": "An administrator account already exists.",
+    "zh": "管理员账号已存在"
+  },
+  "animation_cannot_replace": {
+    "en": "Animated exports are downloadable files and cannot replace the source video.",
+    "zh": "动图为下载文件，不能替换原视频"
+  },
+  "asset_in_use": {
+    "en": "This asset is used by a task, edit history or preset and cannot be deleted.",
+    "zh": "字幕被任务、历史或预设引用，不能删除"
+  },
+  "asset_invalid": {
+    "en": "An editing asset is invalid, missing or has changed.",
+    "zh": "编辑素材无效、丢失或已变化"
+  },
+  "audio_asset_file_missing": {
+    "en": "The audio asset file is missing.",
+    "zh": "音频素材文件缺失"
+  },
+  "audio_asset_not_found": {
+    "en": "This audio asset no longer exists.",
+    "zh": "音频素材不存在"
+  },
+  "audio_duration_unavailable": {
+    "en": "Cannot determine the audio duration.",
+    "zh": "无法获取音频时长"
+  },
+  "audio_empty": {
+    "en": "The audio file is empty.",
+    "zh": "音频文件为空"
+  },
+  "audio_format_unsupported": {
+    "en": "Choose an MP3, WAV, M4A, AAC, FLAC or OGG audio file.",
+    "zh": "请选择 MP3、WAV、M4A、AAC、FLAC、OGG 等音频文件"
+  },
+  "audio_too_large": {
+    "en": "Audio files cannot exceed {{max_mb}} MiB.",
+    "zh": "音频文件不能超过 {{max_mb}} MiB"
+  },
+  "audio_track_missing": {
+    "en": "This file has no audio track.",
+    "zh": "文件中没有音轨"
+  },
+  "audio_unreadable": {
+    "en": "Cannot read this audio file.",
+    "zh": "音频文件无法读取"
+  },
+  "authentication_required": {
+    "en": "Sign in again; your session has expired.",
+    "zh": "未登录或登录已过期"
+  },
+  "bad_request": {
+    "en": "The request is invalid.",
+    "zh": "请求无效"
+  },
+  "batch_multi_source_unsupported": {
+    "en": "Multi-source operations cannot be applied independently to each video.",
+    "zh": "多源操作不能用于每视频独立批处理"
+  },
+  "bookmark_limit": {
+    "en": "A video can have at most 1,000 bookmarks and manual chapters.",
+    "zh": "每个视频最多保存 1000 个书签与手动章节"
+  },
+  "bookmark_not_found": {
+    "en": "This bookmark no longer exists.",
+    "zh": "书签不存在"
+  },
+  "bookmark_time_invalid": {
+    "en": "Bookmarks cannot be after the video ends; chapters must start before its end.",
+    "zh": "书签时间不能超过视频时长，章节须在结尾之前"
+  },
+  "bundled_font_missing": {
+    "en": "The bundled Chinese font is missing.",
+    "zh": "内置中文字体缺失"
+  },
+  "collection_conflict": {
+    "en": "The collection name is taken or its contents changed. Refresh and try again.",
+    "zh": "同名合集已存在或合集内容已变化，请刷新后重试"
+  },
+  "collection_name_conflict": {
+    "en": "A collection with this name already exists.",
+    "zh": "同名合集已存在"
+  },
+  "collection_not_found": {
+    "en": "This collection no longer exists.",
+    "zh": "合集不存在"
+  },
+  "collection_order_changed": {
+    "en": "Include all visible collection members in the order. Refresh and try again.",
+    "zh": "排序必须包含全部当前可见成员，请刷新后重试"
+  },
+  "collection_videos_missing": {
+    "en": "Some selected videos are missing or have been deleted.",
+    "zh": "部分视频不存在或已删除"
+  },
+  "composite_must_save_as": {
+    "en": "Save a multi-source composite as a new video.",
+    "zh": "多源拼接必须另存为新视频"
+  },
+  "composite_source_required": {
+    "en": "Include the current video in the composite inputs.",
+    "zh": "当前视频必须包含在拼接输入中"
+  },
+  "conflict": {
+    "en": "The resource has changed. Refresh and try again.",
+    "zh": "资源已变化，请刷新后重试"
+  },
+  "cover_generation_failed": {
+    "en": "Cannot generate this cover.",
+    "zh": "设置封面失败"
+  },
+  "cover_image_invalid": {
+    "en": "This image file cannot be recognized.",
+    "zh": "无法识别的图片文件"
+  },
+  "csrf_header_missing": {
+    "en": "The required X-Requested-With header is missing.",
+    "zh": "缺少 X-Requested-With 请求头"
+  },
+  "current_password_incorrect": {
+    "en": "The current password is incorrect.",
+    "zh": "当前密码不正确"
+  },
+  "derived_file_not_found": {
+    "en": "This derived video resource is unavailable.",
+    "zh": "派生视频资源不存在"
+  },
+  "derived_file_pending": {
+    "en": "This file has not been generated yet.",
+    "zh": "文件尚未生成"
+  },
+  "encoder_unavailable": {
+    "en": "This FFmpeg build does not include the selected hardware encoder.",
+    "zh": "当前 ffmpeg 未编译该硬件编码器"
+  },
+  "filter_range_invalid": {
+    "en": "The minimum filter value cannot exceed the maximum.",
+    "zh": "筛选范围的下限不能超过上限"
+  },
+  "finite_number_required": {
+    "en": "Enter a finite number.",
+    "zh": "数值必须是有限数值"
+  },
+  "folder_cycle": {
+    "en": "A folder cannot be moved into itself or one of its descendants.",
+    "zh": "不能移动到自身或子文件夹"
+  },
+  "folder_name_conflict": {
+    "en": "A folder with this name already exists.",
+    "zh": "同名文件夹已存在"
+  },
+  "folder_not_found": {
+    "en": "This folder no longer exists.",
+    "zh": "文件夹不存在"
+  },
+  "forbidden": {
+    "en": "You do not have permission for this action.",
+    "zh": "无权执行此操作"
+  },
+  "frame_capture_failed": {
+    "en": "Cannot capture this frame.",
+    "zh": "截图失败"
+  },
+  "frame_index_failed": {
+    "en": "Cannot read the frame index.",
+    "zh": "无法读取帧索引"
+  },
+  "history_missing": {
+    "en": "This video has no edit history that can be replayed.",
+    "zh": "该视频没有可重新生成的编辑记录"
+  },
+  "history_source_unavailable": {
+    "en": "Cannot replay edits: source “{{title}}” is unavailable.",
+    "zh": "无法重新生成：源视频「{{title}}」不可用"
+  },
+  "hls_below_threshold": {
+    "en": "This video is below the automatic HLS size threshold.",
+    "zh": "此视频未达到自动生成大小阈值"
+  },
+  "hls_busy": {
+    "en": "Finish or cancel the HLS generation task before clearing its cache.",
+    "zh": "请先结束或取消 HLS 生成任务，再清理缓存"
+  },
+  "hls_cache_limit": {
+    "en": "The HLS cache limit would be exceeded. Clear the cache or increase the limit.",
+    "zh": "HLS 缓存将超过上限，请清理缓存或增加上限"
+  },
+  "hls_cache_not_found": {
+    "en": "No HLS cache is available for this video.",
+    "zh": "HLS 缓存不存在"
+  },
+  "hls_disabled": {
+    "en": "HLS is disabled. Enable it in settings.",
+    "zh": "HLS 已关闭，请先在设置中开启"
+  },
+  "hls_resource_not_found": {
+    "en": "This HLS resource is unavailable.",
+    "zh": "HLS 资源不存在"
+  },
+  "hls_source_changed": {
+    "en": "The source file has changed. Generate HLS again.",
+    "zh": "源文件已变化，请重新生成 HLS"
+  },
+  "image_asset_not_found": {
+    "en": "This image asset no longer exists.",
+    "zh": "图片素材不存在"
+  },
+  "image_decode_failed": {
+    "en": "Cannot decode this image.",
+    "zh": "图片无法解码"
+  },
+  "image_dimensions_exceeded": {
+    "en": "Image dimensions cannot exceed 4096 × 4096.",
+    "zh": "图片尺寸不能超过 4096×4096"
+  },
+  "image_empty": {
+    "en": "The image file is empty.",
+    "zh": "图片文件为空"
+  },
+  "image_format_unsupported": {
+    "en": "Choose a static PNG, JPEG or WebP image.",
+    "zh": "请选择 PNG、JPEG 或静态 WebP 图片"
+  },
+  "image_too_large": {
+    "en": "Images cannot exceed 10 MiB.",
+    "zh": "图片不能超过 10 MiB"
+  },
+  "image_unreadable": {
+    "en": "Cannot read this image. Use a static PNG, JPEG or WebP file.",
+    "zh": "图片无法读取"
+  },
+  "import_directory_inside_data": {
+    "en": "The import directory cannot be inside the ReelVault data directory.",
+    "zh": "导入目录不能位于 ReelVault 数据目录内"
+  },
+  "import_directory_unavailable": {
+    "en": "No usable import directory is configured.",
+    "zh": "未配置可用的导入目录 REELVAULT_IMPORT_DIR"
+  },
+  "import_failed": {
+    "en": "Cannot import from this directory. Check its configuration.",
+    "zh": "无法从该目录导入，请检查配置"
+  },
+  "insufficient_storage": {
+    "en": "There is not enough free disk space.",
+    "zh": "磁盘空间不足"
+  },
+  "internal_error": {
+    "en": "The server could not complete the request.",
+    "zh": "服务器无法完成请求"
+  },
+  "invalid_credentials": {
+    "en": "Incorrect username or password.",
+    "zh": "用户名或密码错误"
+  },
+  "job_download_unavailable": {
+    "en": "This task has no downloadable output.",
+    "zh": "该任务没有可下载的文件"
+  },
+  "job_file_removed": {
+    "en": "This output file has been removed.",
+    "zh": "文件已被清理"
+  },
+  "job_not_found": {
+    "en": "This task no longer exists.",
+    "zh": "任务不存在"
+  },
+  "job_output_already_saved": {
+    "en": "This task already saved its output. View the result to avoid duplicate changes.",
+    "zh": "该任务已保存输出，请查看结果，避免重复修改"
+  },
+  "job_pause_conflict": {
+    "en": "This task cannot be paused in its current state.",
+    "zh": "当前任务状态无法暂停"
+  },
+  "job_priority_locked": {
+    "en": "Only tasks that have not started can change priority.",
+    "zh": "只能调整尚未启动的任务优先级"
+  },
+  "job_resume_conflict": {
+    "en": "This task cannot be resumed in its current state.",
+    "zh": "当前任务状态无法继续"
+  },
+  "job_retry_pending": {
+    "en": "This task already has an unfinished retry.",
+    "zh": "该任务已有未结束的重试"
+  },
+  "job_retry_requires_failure": {
+    "en": "Only failed tasks can be retried.",
+    "zh": "只有失败任务可以重试"
+  },
+  "job_retry_unsupported": {
+    "en": "This task type does not support retry.",
+    "zh": "此任务类型不支持重试"
+  },
+  "login_rate_limited": {
+    "en": "Too many failed sign-ins. Try again in {{minutes}} minutes.",
+    "zh": "登录失败次数过多，请 {{minutes}} 分钟后再试"
+  },
+  "lut_asset_not_found": {
+    "en": "This LUT asset no longer exists.",
+    "zh": "LUT 素材不存在"
+  },
+  "lut_ffmpeg_unreadable": {
+    "en": "This FFmpeg build cannot read the LUT.",
+    "zh": "当前 FFmpeg 无法读取该 LUT"
+  },
+  "lut_format_unsupported": {
+    "en": "Choose a 1D or 3D LUT in .cube format.",
+    "zh": "请选择 .cube 格式的 1D 或 3D LUT"
+  },
+  "lut_invalid": {
+    "en": "The LUT file is invalid.",
+    "zh": "LUT 文件无效"
+  },
+  "lut_too_large": {
+    "en": "LUT files cannot exceed 20 MiB.",
+    "zh": "LUT 不能超过 20 MiB"
+  },
+  "method_not_allowed": {
+    "en": "This request method is not allowed.",
+    "zh": "不允许的请求方法"
+  },
+  "not_found": {
+    "en": "The requested resource was not found.",
+    "zh": "请求的资源不存在"
+  },
+  "payload_too_large": {
+    "en": "The uploaded file is too large.",
+    "zh": "上传文件过大"
+  },
+  "preset_name_conflict": {
+    "en": "A preset with this name already exists.",
+    "zh": "同名预设已存在"
+  },
+  "preset_not_found": {
+    "en": "This preset no longer exists.",
+    "zh": "预设不存在"
+  },
+  "rate_limited": {
+    "en": "Too many requests. Try again later.",
+    "zh": "请求过于频繁，请稍后重试"
+  },
+  "request_failed": {
+    "en": "The request failed.",
+    "zh": "请求失败"
+  },
+  "scene_detection_busy": {
+    "en": "Finish or cancel the existing scene detection before changing its parameters.",
+    "zh": "已有未结束的场景检测，请完成或取消后调整参数"
+  },
+  "service_unavailable": {
+    "en": "The service is temporarily unavailable.",
+    "zh": "服务暂时不可用"
+  },
+  "session_not_found": {
+    "en": "This session no longer exists.",
+    "zh": "会话不存在"
+  },
+  "source_file_unavailable": {
+    "en": "The source video file is unavailable.",
+    "zh": "源视频文件不可用"
+  },
+  "source_video_not_found": {
+    "en": "The source video is missing or has been deleted.",
+    "zh": "源视频不存在或已删除"
+  },
+  "subtitle_already_attached": {
+    "en": "These subtitles are already attached to this video.",
+    "zh": "这份字幕已添加到视频"
+  },
+  "subtitle_asset_invalid": {
+    "en": "The subtitle asset is invalid or unavailable.",
+    "zh": "字幕素材无效或不可用"
+  },
+  "subtitle_asset_not_found": {
+    "en": "This subtitle asset no longer exists.",
+    "zh": "字幕素材不存在"
+  },
+  "subtitle_conversion_failed": {
+    "en": "Cannot convert these subtitles. Check the file and FFmpeg.",
+    "zh": "字幕无法转换，请检查文件与 FFmpeg"
+  },
+  "subtitle_encoding_invalid": {
+    "en": "Choose the correct subtitle character encoding.",
+    "zh": "字幕编码不匹配，请选择正确编码"
+  },
+  "subtitle_format_unsupported": {
+    "en": "Choose an SRT, ASS or VTT subtitle file.",
+    "zh": "请选择 SRT、ASS 或 VTT 字幕"
+  },
+  "subtitle_image_not_text": {
+    "en": "Image subtitles cannot be converted to text. Use subtitle burn-in instead.",
+    "zh": "图像字幕无法转换为文本，可选择烧录"
+  },
+  "subtitle_invalid": {
+    "en": "This subtitle file has no valid cues or cannot be parsed.",
+    "zh": "字幕没有有效片段或无法解析"
+  },
+  "subtitle_still_attached": {
+    "en": "Remove this subtitle track from its videos before deleting it.",
+    "zh": "字幕仍挂在视频上，请先移除轨道"
+  },
+  "subtitle_too_large": {
+    "en": "Subtitle files cannot exceed 5 MiB.",
+    "zh": "字幕不能超过 5 MiB"
+  },
+  "subtitle_track_not_found": {
+    "en": "This subtitle track no longer exists.",
+    "zh": "字幕轨道不存在"
+  },
+  "subtitle_tracks_unreadable": {
+    "en": "Cannot read the video subtitle tracks.",
+    "zh": "无法读取视频字幕轨道"
+  },
+  "upgrade_conflict": {
+    "en": "The upgrade cannot start. Check deployment settings and active tasks.",
+    "zh": "无法开始升级，请检查部署设置与运行中任务"
+  },
+  "upload_folder_deleted": {
+    "en": "The destination folder was deleted. Cancel and choose another location.",
+    "zh": "目标文件夹已删除，请取消并重新选择上传位置"
+  },
+  "upload_incomplete": {
+    "en": "The file has not finished uploading.",
+    "zh": "文件尚未上传完成"
+  },
+  "upload_not_found": {
+    "en": "This upload no longer exists.",
+    "zh": "上传不存在"
+  },
+  "upload_offset_mismatch": {
+    "en": "The upload offset does not match. Resume from byte {{received}}.",
+    "zh": "偏移量不匹配，请从 {{received}} 字节继续"
+  },
+  "upload_size_exceeded": {
+    "en": "The uploaded data exceeds the declared file size.",
+    "zh": "数据超出文件大小"
+  },
+  "user_not_found": {
+    "en": "The user no longer exists.",
+    "zh": "用户不存在"
+  },
+  "validation_error": {
+    "en": "The request contains invalid values. Check the form and try again.",
+    "zh": "请求包含无效参数，请检查表单后重试"
+  },
+  "video_file_missing": {
+    "en": "The video file is missing.",
+    "zh": "视频文件丢失"
+  },
+  "video_format_unsupported": {
+    "en": "This video format is not supported.",
+    "zh": "不支持的视频格式"
+  },
+  "video_not_found": {
+    "en": "This video no longer exists.",
+    "zh": "视频不存在"
+  },
+  "video_not_ready": {
+    "en": "The video is still processing. Wait until it is ready.",
+    "zh": "视频尚未就绪"
+  },
+  "video_unprocessable": {
+    "en": "Cannot process video “{{title}}”.",
+    "zh": "视频「{{title}}」无法处理"
+  },
+  "video_version_changed": {
+    "en": "The video has changed. Refresh the page.",
+    "zh": "视频版本已变化，请刷新"
+  }
+}

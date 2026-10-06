@@ -335,6 +335,8 @@ frontend/src/
 
 ## 发布
 
+API 错误保留原有 HTTP 状态与 `detail`，另外返回稳定的 `code` 和 `params`：例如视频不存在返回 `{"detail":"视频不存在","code":"video_not_found","params":{}}`。动态数量、限制及上传恢复位置使用参数返回，上传偏移冲突的旧 `detail.received` 同时保留。表单校验返回 `validation_error`，参数中包含字段位置与 Pydantic 校验类型；框架 404/405、CSRF 与意外服务器错误也提供错误码。客户端可按错误码本地化，不需要解析服务端中文文案；既有诊断详情仍可用于排查。前端错误目录位于 `frontend/src/locales/api-errors.json`。
+
 更新 `backend/reelvault/__init__.py` 与 `backend/pyproject.toml` 中的版本号，然后推送 tag：
 
 ```bash

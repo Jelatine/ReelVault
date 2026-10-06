@@ -3,10 +3,11 @@ from __future__ import annotations
 import math
 from typing import Annotated, Any
 
-from fastapi import HTTPException, Request
+from fastapi import Request
 from pydantic import BeforeValidator
 
 from ..config import Settings
+from ..errors import APIError
 from ..jobs.manager import JobManager
 
 
@@ -17,7 +18,7 @@ def finite_number(value: Any) -> Any:
         return value
     if not finite:
         # NaN/Infinity cannot be reflected in a JSON validation error response.
-        raise HTTPException(422, "数值必须是有限数值")
+        raise APIError(422, "数值必须是有限数值", code="finite_number_required")
     return value
 
 

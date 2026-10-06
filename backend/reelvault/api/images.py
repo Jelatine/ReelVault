@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..library import abs_path, rel_path
 from ..media.assets import AssetError, checked_asset, references
 from ..media.ffmpeg import FFmpegError, ffmpeg_args, run_command
@@ -51,7 +52,7 @@ def list_images(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 @router.get("/font")
 def bundled_font() -> FileResponse:
     if not FONT.is_file():
-        raise HTTPException(404, "内置中文字体缺失")
+        raise APIError(404, "内置中文字体缺失", code="bundled_font_missing")
     return FileResponse(
         FONT, media_type="font/otf", headers={"Cache-Control": "private, max-age=86400"}
     )
@@ -69,12 +70,14 @@ async def upload_image(
     committed = False
     try:
         if ext not in FORMATS:
-            raise HTTPException(400, "请选择 PNG、JPEG 或静态 WebP 图片")
+            raise APIError(
+                400, "请选择 PNG、JPEG 或静态 WebP 图片", code="image_format_unsupported"
+            )
         data = await file.read(10 * 1024 * 1024 + 1)
         if not data:
-            raise HTTPException(400, "图片文件为空")
+            raise APIError(400, "图片文件为空", code="image_empty")
         if len(data) > 10 * 1024 * 1024:
-            raise HTTPException(413, "图片不能超过 10 MiB")
+            raise APIError(413, "图片不能超过 10 MiB", code="image_too_large")
         temporary.write_bytes(data)
         result = await asyncio.wait_for(
             run_command(
@@ -97,12 +100,14 @@ async def upload_image(
         streams = json.loads(result.stdout).get("streams", [])
         stream = next((s for s in streams if s.get("codec_type") == "video"), None)
         if not stream:
-            raise HTTPException(400, "图片无法读取")
+            raise APIError(400, "图片无法读取", code="image_unreadable")
         width, height = int(stream.get("width", 0)), int(stream.get("height", 0))
         if min(width, height) <= 0:
-            raise HTTPException(400, "图片无法读取，请使用静态 PNG、JPEG 或 WebP")
+            raise APIError(
+                400, "图片无法读取，请使用静态 PNG、JPEG 或 WebP", code="image_unreadable"
+            )
         if max(width, height) > 4096 or width * height > 16_777_216:
-            raise HTTPException(400, "图片尺寸不能超过 4096×4096")
+            raise APIError(400, "图片尺寸不能超过 4096×4096", code="image_dimensions_exceeded")
         await asyncio.wait_for(
             run_command(
                 ffmpeg_args(
@@ -143,7 +148,7 @@ async def upload_image(
         committed = True
         return asset_dict(asset)
     except (FFmpegError, ValueError, TimeoutError) as error:
-        raise HTTPException(400, "图片无法解码") from error
+        raise APIError(400, "图片无法解码", code="image_decode_failed") from error
     finally:
         await file.close()
         temporary.unlink(missing_ok=True)
@@ -158,7 +163,7 @@ def stream_image(
     try:
         asset = checked_asset(db, settings, asset_id, "image")
     except AssetError as error:
-        raise HTTPException(404, str(error)) from error
+        raise APIError(404, str(error), code="image_asset_not_found") from error
     return FileResponse(
         abs_path(settings, asset.file_path),
         media_type="image/png",
@@ -173,10 +178,10 @@ def delete_image(
 ) -> dict[str, bool]:
     asset = db.get(MediaAsset, asset_id)
     if asset is None or asset.kind != "image":
-        raise HTTPException(404, "图片素材不存在")
+        raise APIError(404, "图片素材不存在", code="image_asset_not_found")
     for field in (Job.params, Video.edit_params, EditPreset.edit):
         if any(references(value, asset_id) for value in db.scalars(select(field))):
-            raise HTTPException(409, "图片被任务、编辑历史或预设引用，不能删除")
+            raise APIError(409, "图片被任务、编辑历史或预设引用，不能删除", code="asset_in_use")
     path = abs_path(settings, asset.file_path)
     db.delete(asset)
     db.commit()

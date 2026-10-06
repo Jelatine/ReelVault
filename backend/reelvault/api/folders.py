@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import require_auth
 from ..db import get_db
+from ..errors import APIError
 from ..models import Folder, Video
 
 router = APIRouter(prefix="/api/folders", tags=["folders"], dependencies=[Depends(require_auth)])
@@ -28,7 +29,7 @@ class FolderPatch(BaseModel):
 def _get(db: Session, folder_id: int) -> Folder:
     folder = db.get(Folder, folder_id)
     if folder is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "文件夹不存在")
+        raise APIError(status.HTTP_404_NOT_FOUND, "文件夹不存在", code="folder_not_found")
     return folder
 
 
@@ -39,7 +40,7 @@ def _check_name(db: Session, name: str, parent_id: int | None, exclude: int | No
     )
     existing = db.scalar(stmt)
     if existing is not None and existing.id != exclude:
-        raise HTTPException(status.HTTP_409_CONFLICT, "同名文件夹已存在")
+        raise APIError(status.HTTP_409_CONFLICT, "同名文件夹已存在", code="folder_name_conflict")
 
 
 def _dict(f: Folder, counts: dict[int | None, int]) -> dict[str, Any]:
@@ -82,7 +83,9 @@ def update_folder(
         cursor = body.parent_id
         while cursor is not None:
             if cursor == folder.id:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, "不能移动到自身或子文件夹")
+                raise APIError(
+                    status.HTTP_400_BAD_REQUEST, "不能移动到自身或子文件夹", code="folder_cycle"
+                )
             cursor = _get(db, cursor).parent_id
         parent_id = body.parent_id
     name = body.name.strip() if body.name else folder.name

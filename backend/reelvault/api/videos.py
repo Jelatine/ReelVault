@@ -8,7 +8,7 @@ from typing import Any, Literal
 from urllib.parse import quote
 
 import aiofiles
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import case, column, func, literal_column, or_, select, table, text
@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..jobs.manager import JobManager
 from ..library import (
     VIDEO_EXTENSIONS,
@@ -41,7 +42,7 @@ router = APIRouter(prefix="/api", tags=["videos"], dependencies=[Depends(require
 def get_video(db: Session, video_id: str, *, allow_deleted: bool = False) -> Video:
     video = db.get(Video, video_id)
     if video is None or (video.deleted_at is not None and not allow_deleted):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "视频不存在")
+        raise APIError(status.HTTP_404_NOT_FOUND, "视频不存在", code="video_not_found")
     return video
 
 
@@ -125,12 +126,16 @@ def init_upload(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     if Path(body.filename).suffix.lower() not in VIDEO_EXTENSIONS:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "不支持的视频格式")
+        raise APIError(
+            status.HTTP_400_BAD_REQUEST, "不支持的视频格式", code="video_format_unsupported"
+        )
     if not folder_exists(db, body.folder_id):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件夹不存在")
+        raise APIError(status.HTTP_400_BAD_REQUEST, "文件夹不存在", code="folder_not_found")
     free = shutil.disk_usage(settings.data_dir).free
     if body.size > free:
-        raise HTTPException(status.HTTP_507_INSUFFICIENT_STORAGE, "磁盘空间不足")
+        raise APIError(
+            status.HTTP_507_INSUFFICIENT_STORAGE, "磁盘空间不足", code="insufficient_storage"
+        )
     upload = Upload(
         filename=body.filename,
         size=body.size,
@@ -150,7 +155,7 @@ def get_upload(
 ) -> dict[str, Any]:
     upload = db.get(Upload, upload_id)
     if upload is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "上传不存在")
+        raise APIError(status.HTTP_404_NOT_FOUND, "上传不存在", code="upload_not_found")
     return _upload_dict(upload, settings)
 
 
@@ -164,11 +169,14 @@ async def upload_chunk(
 ) -> dict[str, Any]:
     upload = db.get(Upload, upload_id)
     if upload is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "上传不存在")
+        raise APIError(status.HTTP_404_NOT_FOUND, "上传不存在", code="upload_not_found")
     # Re-sending from an earlier offset is fine (e.g. the response to a chunk was lost).
     if offset > upload.received:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, {"message": "偏移量不匹配", "received": upload.received}
+        raise APIError(
+            status.HTTP_409_CONFLICT,
+            {"message": "偏移量不匹配", "received": upload.received},
+            code="upload_offset_mismatch",
+            params={"received": upload.received},
         )
     path = _upload_path(settings, upload_id)
     written = 0
@@ -176,7 +184,9 @@ async def upload_chunk(
         await f.seek(offset)
         async for chunk in request.stream():
             if offset + written + len(chunk) > upload.size:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, "数据超出文件大小")
+                raise APIError(
+                    status.HTTP_400_BAD_REQUEST, "数据超出文件大小", code="upload_size_exceeded"
+                )
             await f.write(chunk)
             written += len(chunk)
         await f.truncate(offset + written)
@@ -196,11 +206,13 @@ def complete_upload(
     db.execute(text("BEGIN IMMEDIATE"))
     upload = db.get(Upload, upload_id)
     if upload is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "上传不存在")
+        raise APIError(status.HTTP_404_NOT_FOUND, "上传不存在", code="upload_not_found")
     if upload.received != upload.size:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件尚未上传完成")
+        raise APIError(status.HTTP_400_BAD_REQUEST, "文件尚未上传完成", code="upload_incomplete")
     if not folder_exists(db, upload.folder_id):
-        raise HTTPException(409, "目标文件夹已删除，请取消并重新选择上传位置")
+        raise APIError(
+            409, "目标文件夹已删除，请取消并重新选择上传位置", code="upload_folder_deleted"
+        )
     folder_id = upload.folder_id
     for name in (upload.relative_path or upload.filename).split("/")[:-1]:
         folder = db.scalar(select(Folder).where(Folder.name == name, Folder.parent_id == folder_id))
@@ -306,7 +318,7 @@ def list_videos(
                 maximum.replace(tzinfo=UTC) if maximum.tzinfo is None else maximum.astimezone(UTC)
             )
         if minimum is not None and maximum is not None and minimum > maximum:
-            raise HTTPException(400, "筛选范围的下限不能超过上限")
+            raise APIError(400, "筛选范围的下限不能超过上限", code="filter_range_invalid")
         if minimum is not None:
             stmt = stmt.where(filter_col >= minimum)
         if maximum is not None:
@@ -368,7 +380,9 @@ def list_videos(
             else:
                 stmt = stmt.where(Video.folder_id == folder_id)
         except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "无效的文件夹") from e
+            raise APIError(
+                status.HTTP_400_BAD_REQUEST, "无效的文件夹", code="folder_not_found"
+            ) from e
     if tag:
         stmt = stmt.where(Video.tags.any(Tag.name == tag))
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
@@ -434,7 +448,7 @@ def update_video(video_id: str, body: VideoPatch, db: Session = Depends(get_db))
         video.description = body.description
     if body.move:
         if not folder_exists(db, body.folder_id):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件夹不存在")
+            raise APIError(status.HTTP_400_BAD_REQUEST, "文件夹不存在", code="folder_not_found")
         video.folder_id = body.folder_id
     if body.tags is not None:
         set_tags(db, video, body.tags)
@@ -499,7 +513,7 @@ def batch(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, int]:
     if body.action == "move" and not folder_exists(db, body.folder_id):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件夹不存在")
+        raise APIError(status.HTTP_400_BAD_REQUEST, "文件夹不存在", code="folder_not_found")
     videos = db.scalars(select(Video).where(Video.id.in_(body.ids))).all()
     now = utcnow()
     for v in videos:
@@ -544,7 +558,7 @@ async def video_timing(
 ) -> dict[str, list[float]]:
     video = get_video(db, video_id)
     if video.status != "ready":
-        raise HTTPException(409, "请等待视频处理完成后载入帧索引")
+        raise APIError(409, "请等待视频处理完成后载入帧索引", code="video_not_ready")
     try:
         return await timing_index(
             settings,
@@ -554,7 +568,7 @@ async def video_timing(
             keyframes_only=keyframes_only,
         )
     except (OSError, FFmpegError, RuntimeError, ValueError) as exc:
-        raise HTTPException(500, f"无法读取帧索引: {exc}") from exc
+        raise APIError(500, f"无法读取帧索引: {exc}", code="frame_index_failed") from exc
 
 
 def _cache_headers() -> dict[str, str]:
@@ -568,7 +582,7 @@ def stream(
     video = get_video(db, video_id, allow_deleted=True)
     path = abs_path(settings, video.playable_path or video.file_path)
     if not path.exists():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "视频文件丢失")
+        raise APIError(status.HTTP_404_NOT_FOUND, "视频文件丢失", code="video_file_missing")
     media_type = mimetypes.guess_type(path.name)[0] or "video/mp4"
     if path.suffix == ".mkv":
         media_type = "video/x-matroska"
@@ -582,7 +596,7 @@ def download(
     video = get_video(db, video_id, allow_deleted=True)
     path = abs_path(settings, video.file_path)
     if not path.exists():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "视频文件丢失")
+        raise APIError(status.HTTP_404_NOT_FOUND, "视频文件丢失", code="video_file_missing")
     return FileResponse(path, filename=f"{video.title}{path.suffix}")
 
 
@@ -602,7 +616,9 @@ async def frame(
         await derive.extract_frame(settings.ffmpeg, src, info, out, t, width=None)
         data = out.read_bytes()
     except FFmpegError as e:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"截图失败: {e}") from e
+        raise APIError(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, f"截图失败: {e}", code="frame_capture_failed"
+        ) from e
     finally:
         out.unlink(missing_ok=True)
     name = f"{video.title}_{t:.2f}s.jpg"
@@ -631,7 +647,11 @@ async def set_cover_from_time(
         out = derived_dir(settings, video.id) / derive.POSTER
         await derive.extract_frame(settings.ffmpeg, src, info, out, body.time)
     except FFmpegError as e:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"设置封面失败: {e}") from e
+        raise APIError(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            f"设置封面失败: {e}",
+            code="cover_generation_failed",
+        ) from e
     video.cover_time = body.time
     video.meta = {**(video.meta or {}), "custom_cover": False}
     video.has_poster = True
@@ -658,7 +678,9 @@ async def upload_cover(
                 f"scale='min({derive.POSTER_WIDTH},iw)':-2", *derive.JPEG, str(out)]  # fmt: skip
         await run_command(ffmpeg_args(settings.ffmpeg, args, progress=False))
     except FFmpegError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "无法识别的图片文件") from e
+        raise APIError(
+            status.HTTP_400_BAD_REQUEST, "无法识别的图片文件", code="cover_image_invalid"
+        ) from e
     finally:
         tmp.unlink(missing_ok=True)
     video.cover_time = None
@@ -693,9 +715,9 @@ def derived_file(
     video_id: str, name: str, settings: Settings = Depends(get_settings)
 ) -> FileResponse:
     if name not in DERIVED_FILES or len(video_id) != 32 or not video_id.isalnum():
-        raise HTTPException(status.HTTP_404_NOT_FOUND)
+        raise APIError(status.HTTP_404_NOT_FOUND, code="derived_file_not_found")
     media_type, filename = DERIVED_FILES[name]
     path = settings.derived_dir / video_id / filename
     if not path.exists():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "文件尚未生成")
+        raise APIError(status.HTTP_404_NOT_FOUND, "文件尚未生成", code="derived_file_pending")
     return FileResponse(path, media_type=media_type, headers=_cache_headers())

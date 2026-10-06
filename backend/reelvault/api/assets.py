@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import aiofiles
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..library import abs_path, rel_path
 from ..media.assets import references
 from ..media.ffmpeg import FFmpegError, run_command
@@ -65,10 +66,17 @@ async def upload_audio(
     name = Path((file.filename or "").replace("\\", "/")).name[:255]
     ext = Path(name).suffix.lower()
     if ext not in EXTENSIONS:
-        raise HTTPException(400, "请选择 MP3、WAV、M4A、AAC、FLAC、OGG 等音频文件")
+        raise APIError(
+            400, "请选择 MP3、WAV、M4A、AAC、FLAC、OGG 等音频文件", code="audio_format_unsupported"
+        )
     limit = settings.audio_upload_max_mb * 1024 * 1024
     if file.size is not None and file.size > limit:
-        raise HTTPException(413, f"音频文件不能超过 {settings.audio_upload_max_mb} MiB")
+        raise APIError(
+            413,
+            f"音频文件不能超过 {settings.audio_upload_max_mb} MiB",
+            code="audio_too_large",
+            params={"max_mb": settings.audio_upload_max_mb},
+        )
     asset_id = new_id()
     temporary = settings.tmp_dir / f"audio-{asset_id}{ext}"
     target = settings.assets_dir / f"{asset_id}{ext}"
@@ -79,11 +87,16 @@ async def upload_audio(
             while chunk := await file.read(1024 * 1024):
                 size += len(chunk)
                 if size > limit:
-                    raise HTTPException(413, f"音频文件不能超过 {settings.audio_upload_max_mb} MiB")
+                    raise APIError(
+                        413,
+                        f"音频文件不能超过 {settings.audio_upload_max_mb} MiB",
+                        code="audio_too_large",
+                        params={"max_mb": settings.audio_upload_max_mb},
+                    )
                 digest.update(chunk)
                 await stream.write(chunk)
         if not size:
-            raise HTTPException(400, "音频文件为空")
+            raise APIError(400, "音频文件为空", code="audio_empty")
         result = await asyncio.wait_for(
             run_command(
                 [
@@ -106,10 +119,10 @@ async def upload_audio(
         data = json.loads(result.stdout)
         audio = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), None)
         if audio is None:
-            raise HTTPException(400, "文件中没有音轨")
+            raise APIError(400, "文件中没有音轨", code="audio_track_missing")
         duration = float((data.get("format") or {}).get("duration") or audio.get("duration") or 0)
         if not math.isfinite(duration) or duration <= 0:
-            raise HTTPException(400, "无法获取音频时长")
+            raise APIError(400, "无法获取音频时长", code="audio_duration_unavailable")
         temporary.replace(target)
         asset = MediaAsset(
             id=asset_id,
@@ -126,7 +139,7 @@ async def upload_audio(
         committed = True
         return asset_dict(asset)
     except (FFmpegError, ValueError, TimeoutError) as error:
-        raise HTTPException(400, "音频文件无法读取") from error
+        raise APIError(400, "音频文件无法读取", code="audio_unreadable") from error
     finally:
         await file.close()
         temporary.unlink(missing_ok=True)
@@ -137,7 +150,7 @@ async def upload_audio(
 def get_asset(db: Session, asset_id: str) -> MediaAsset:
     asset = db.get(MediaAsset, asset_id)
     if asset is None or asset.kind != "audio":
-        raise HTTPException(404, "音频素材不存在")
+        raise APIError(404, "音频素材不存在", code="audio_asset_not_found")
     return asset
 
 
@@ -148,7 +161,7 @@ def stream_audio(
     asset = get_asset(db, asset_id)
     path = abs_path(settings, asset.file_path)
     if not path.is_file():
-        raise HTTPException(404, "音频素材文件缺失")
+        raise APIError(404, "音频素材文件缺失", code="audio_asset_file_missing")
     return FileResponse(path, filename=asset.name, content_disposition_type="inline")
 
 
@@ -159,7 +172,7 @@ async def delete_audio(
     asset = get_asset(db, asset_id)
     for field in (Job.params, Video.edit_params, EditPreset.edit):
         if any(references(value, asset_id) for value in db.scalars(select(field))):
-            raise HTTPException(409, "素材被任务、编辑历史或预设引用，不能删除")
+            raise APIError(409, "素材被任务、编辑历史或预设引用，不能删除", code="asset_in_use")
     path = abs_path(settings, asset.file_path)
     db.delete(asset)
     db.commit()

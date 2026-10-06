@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -15,6 +15,7 @@ from ..auth import require_auth
 from ..backup import create_backup
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..importer import Importer
 from ..jobs.manager import JobManager
 from ..models import Job, RuntimeSetting, Video
@@ -49,7 +50,7 @@ def select_encoding(
             if f["value"] == body.encoder
         )
         if not any(encoder["compiled"] for encoder in family["encoders"]):
-            raise HTTPException(400, "当前 ffmpeg 未编译该硬件编码器")
+            raise APIError(400, "当前 ffmpeg 未编译该硬件编码器", code="encoder_unavailable")
     saved = db.get(RuntimeSetting, "encoding")
     if saved is None:
         saved = RuntimeSetting(key="encoding", value={"encoder": body.encoder})
@@ -122,7 +123,7 @@ def import_dir(
     try:
         return {"imported": request.app.state.importer.scan()}
     except ValueError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise APIError(status.HTTP_400_BAD_REQUEST, str(exc), code="import_failed") from exc
 
 
 @router.get("/api/system/import-watch", dependencies=[Depends(require_auth)])
@@ -142,14 +143,18 @@ def configure_import_watch(
 ) -> dict[str, Any]:
     importer: Importer = request.app.state.importer
     if body.enabled and not importer.status()["available"]:
-        raise HTTPException(400, "未配置可用的导入目录 REELVAULT_IMPORT_DIR")
+        raise APIError(
+            400, "未配置可用的导入目录 REELVAULT_IMPORT_DIR", code="import_directory_unavailable"
+        )
     root = importer.settings.import_dir
     if (
         body.enabled
         and root
         and root.resolve().is_relative_to(importer.settings.data_dir.resolve())
     ):
-        raise HTTPException(400, "导入目录不能位于 ReelVault 数据目录内")
+        raise APIError(
+            400, "导入目录不能位于 ReelVault 数据目录内", code="import_directory_inside_data"
+        )
     value = body.model_dump()
     saved = db.get(RuntimeSetting, "import_watch")
     if saved is None:
@@ -181,5 +186,5 @@ async def update_apply(updater: Updater = Depends(get_updater)) -> dict[str, Any
     try:
         await updater.start_upgrade()
     except UpdateError as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from e
+        raise APIError(status.HTTP_409_CONFLICT, str(e), code="upgrade_conflict") from e
     return updater.status()

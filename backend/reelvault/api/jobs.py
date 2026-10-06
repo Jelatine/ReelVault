@@ -6,7 +6,7 @@ import copy
 from collections.abc import AsyncIterator
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, TypeAdapter, model_validator
 from sqlalchemy import delete, select
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
+from ..errors import APIError
 from ..jobs.manager import JobManager
 from ..library import abs_path
 from ..media import ops
@@ -51,7 +52,7 @@ def asset_params(db: Session, settings: Settings, edit: ops.EditParams) -> dict[
         else:
             asset = image_asset(db, settings, edit)
     except AssetError as error:
-        raise HTTPException(400, str(error)) from error
+        raise APIError(400, str(error), code="asset_invalid") from error
     key = f"{asset.kind}_sha256" if asset else ""
     return {key: asset.sha256} if asset else {}
 
@@ -60,9 +61,14 @@ def validate_sources(db: Session, ids: list[str]) -> None:
     for vid in ids:
         video = db.get(Video, vid)
         if video is None or video.deleted_at is not None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "视频不存在")
+            raise APIError(status.HTTP_404_NOT_FOUND, "视频不存在", code="video_not_found")
         if video.status == "error":
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"视频「{video.title}」无法处理")
+            raise APIError(
+                status.HTTP_400_BAD_REQUEST,
+                f"视频「{video.title}」无法处理",
+                code="video_unprocessable",
+                params={"title": video.title},
+            )
 
 
 def preset_dict(preset: EditPreset) -> dict[str, Any]:
@@ -91,7 +97,7 @@ def list_presets(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 def save_preset(db: Session, body: PresetBody, preset: EditPreset | None = None) -> EditPreset:
     existing = db.scalar(select(EditPreset).where(EditPreset.name == body.name))
     if existing is not None and (preset is None or existing.id != preset.id):
-        raise HTTPException(409, "同名预设已存在")
+        raise APIError(409, "同名预设已存在", code="preset_name_conflict")
     if preset is None:
         preset = EditPreset(name=body.name, edit=body.edit.model_dump())
         db.add(preset)
@@ -118,7 +124,7 @@ def update_preset(
 ) -> dict[str, Any]:
     preset = db.get(EditPreset, preset_id)
     if preset is None:
-        raise HTTPException(404, "预设不存在")
+        raise APIError(404, "预设不存在", code="preset_not_found")
     asset_params(db, settings, body.edit)
     return preset_dict(save_preset(db, body, preset))
 
@@ -127,7 +133,7 @@ def update_preset(
 def delete_preset(preset_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
     preset = db.get(EditPreset, preset_id)
     if preset is None:
-        raise HTTPException(404, "预设不存在")
+        raise APIError(404, "预设不存在", code="preset_not_found")
     db.delete(preset)
     db.commit()
     return {"ok": True}
@@ -157,13 +163,15 @@ def batch_edit(
     if body.preset_id is not None:
         preset = db.get(EditPreset, body.preset_id)
         if preset is None:
-            raise HTTPException(404, "预设不存在")
+            raise APIError(404, "预设不存在", code="preset_not_found")
         edit = TypeAdapter(ops.EditParams).validate_python(preset.edit)
     assert edit is not None
     if isinstance(edit, ops.AnimationParams) and body.output.mode == "replace":
-        raise HTTPException(400, "动图为下载文件，不能替换原视频")
+        raise APIError(400, "动图为下载文件，不能替换原视频", code="animation_cannot_replace")
     if isinstance(edit, (ops.MergeParams, ops.CompositeParams)):
-        raise HTTPException(400, "多源操作不能用于每视频独立批处理")
+        raise APIError(
+            400, "多源操作不能用于每视频独立批处理", code="batch_multi_source_unsupported"
+        )
     ids = list(dict.fromkeys(body.video_ids))
     validate_sources(db, ids)
     params = {
@@ -190,12 +198,12 @@ def submit_edit(
         else [video_id]
     )
     if isinstance(body.edit, ops.AnimationParams) and body.output.mode == "replace":
-        raise HTTPException(400, "动图为下载文件，不能替换原视频")
+        raise APIError(400, "动图为下载文件，不能替换原视频", code="animation_cannot_replace")
     if isinstance(body.edit, ops.CompositeParams):
         if body.output.mode == "replace":
-            raise HTTPException(400, "多源拼接必须另存为新视频")
+            raise APIError(400, "多源拼接必须另存为新视频", code="composite_must_save_as")
         if video_id not in ids:
-            raise HTTPException(400, "当前视频必须包含在拼接输入中")
+            raise APIError(400, "当前视频必须包含在拼接输入中", code="composite_source_required")
     if video_id not in ids:
         ids = [video_id, *ids]
     validate_sources(db, ids)
@@ -255,7 +263,7 @@ async def job_events(request: Request, jobs: JobManager = Depends(get_jobs)) -> 
 def _get(db: Session, job_id: str) -> Job:
     job = db.get(Job, job_id)
     if job is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "任务不存在")
+        raise APIError(status.HTTP_404_NOT_FOUND, "任务不存在", code="job_not_found")
     return job
 
 
@@ -283,7 +291,7 @@ async def pause_job(
     try:
         jobs.pause(db, job)
     except ValueError as error:
-        raise HTTPException(409, str(error)) from error
+        raise APIError(409, str(error), code="job_pause_conflict") from error
     return jobs.describe(db, job)
 
 
@@ -295,7 +303,7 @@ async def resume_job(
     try:
         jobs.resume(db, job)
     except ValueError as error:
-        raise HTTPException(409, str(error)) from error
+        raise APIError(409, str(error), code="job_resume_conflict") from error
     return jobs.describe(db, job)
 
 
@@ -312,7 +320,7 @@ async def set_priority(
 ) -> dict[str, Any]:
     job = _get(db, job_id)
     if job.status not in {"queued", "paused"} or job.started_at:
-        raise HTTPException(409, "只能调整尚未启动的任务优先级")
+        raise APIError(409, "只能调整尚未启动的任务优先级", code="job_priority_locked")
     job.priority = body.priority
     db.commit()
     jobs.enqueue(job.id)
@@ -328,23 +336,25 @@ async def retry_job(
 ) -> dict[str, Any]:
     old = _get(db, job_id)
     if old.status != "failed":
-        raise HTTPException(409, "只有失败任务可以重试")
+        raise APIError(409, "只有失败任务可以重试", code="job_retry_requires_failure")
     if old.result_video_id or old.result_file:
-        raise HTTPException(409, "该任务已保存输出，请查看结果，避免重复修改")
+        raise APIError(
+            409, "该任务已保存输出，请查看结果，避免重复修改", code="job_output_already_saved"
+        )
     if old.kind not in jobs.handlers:
-        raise HTTPException(409, "此任务类型不支持重试")
+        raise APIError(409, "此任务类型不支持重试", code="job_retry_unsupported")
     if db.scalar(
         select(Job.id).where(
             Job.retry_of == old.id, Job.status.in_(["queued", "running", "paused"])
         )
     ):
-        raise HTTPException(409, "该任务已有未结束的重试")
+        raise APIError(409, "该任务已有未结束的重试", code="job_retry_pending")
     for vid in old.video_ids:
         video = db.get(Video, vid)
         if video is None or (
             video.deleted_at and not old.params.get("history_replay") and old.kind != "ingest"
         ):
-            raise HTTPException(404, "源视频不存在或已删除")
+            raise APIError(404, "源视频不存在或已删除", code="source_video_not_found")
         if old.kind == "ingest":
             video.status, video.error = "processing", None
     params = copy.deepcopy(old.params)
@@ -374,10 +384,12 @@ def job_download(
 ) -> FileResponse:
     job = _get(db, job_id)
     if not job.result_file:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "该任务没有可下载的文件")
+        raise APIError(
+            status.HTTP_404_NOT_FOUND, "该任务没有可下载的文件", code="job_download_unavailable"
+        )
     path = abs_path(settings, job.result_file)
     if not path.exists():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "文件已被清理")
+        raise APIError(status.HTTP_404_NOT_FOUND, "文件已被清理", code="job_file_removed")
     return FileResponse(path, filename=job.params.get("name") or path.name)
 
 

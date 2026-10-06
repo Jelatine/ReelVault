@@ -8,11 +8,12 @@ from datetime import timedelta
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
-from fastapi import HTTPException, Request, Response, status
+from fastapi import Request, Response, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .config import Settings
+from .errors import APIError
 from .models import AuthSession, User, utcnow
 
 COOKIE_NAME = "rv_session"
@@ -163,10 +164,12 @@ def require_auth(request: Request) -> CurrentAuth:
     with request.app.state.sessionmaker() as db:
         sess = lookup_session(db, request.cookies.get(COOKIE_NAME))
         if sess is None:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "未登录或登录已过期")
+            raise APIError(
+                status.HTTP_401_UNAUTHORIZED, "未登录或登录已过期", code="authentication_required"
+            )
         user = db.get(User, sess.user_id)
         if user is None:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "用户不存在")
+            raise APIError(status.HTTP_401_UNAUTHORIZED, "用户不存在", code="user_not_found")
         touch_session(db, settings, sess, request)
         auth = CurrentAuth(user.id, user.username, sess.id, sess.remember)
     request.state.auth = auth
@@ -185,9 +188,11 @@ class LoginLimiter:
         failures, locked_until = self._state.get(ip, (0, 0.0))
         remaining = locked_until - time.monotonic()
         if remaining > 0:
-            raise HTTPException(
+            raise APIError(
                 status.HTTP_429_TOO_MANY_REQUESTS,
                 f"登录失败次数过多，请 {int(remaining // 60) + 1} 分钟后再试",
+                code="login_rate_limited",
+                params={"minutes": int(remaining // 60) + 1},
             )
 
     def fail(self, ip: str) -> None:
