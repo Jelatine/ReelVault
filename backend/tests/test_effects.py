@@ -20,7 +20,7 @@ from reelvault.media.ops import EffectParams, OpError
 from reelvault.media.probe import probe
 from reelvault.models import Video
 
-from .conftest import upload_ready, wait_job
+from .conftest import upload_ready, wait_job, wait_ready
 
 
 def ramp(path: Path, *, fps: str = "10", count: int = 40, audio: bool = True) -> Path:
@@ -256,6 +256,7 @@ def test_presets_batch_history_replace_and_cleanup(
     job = wait_job(client, replaced.json()["id"])
     assert job["status"] == "succeeded", job
     assert job["result_video_id"] == video["id"]
+    wait_ready(client, video["id"])
     with client.app.state.sessionmaker() as db:
         output = db.get(Video, video["id"])
         assert output is not None and abs(output.duration - 5) < 0.1
