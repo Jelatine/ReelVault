@@ -33,7 +33,7 @@ import {
   IconTrash,
   IconZoomOut,
 } from '@tabler/icons-react'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import FolderSelect from '../components/FolderSelect'
 import JobRow from '../components/JobRow'
@@ -41,6 +41,8 @@ import Player from '../components/Player'
 import BookmarkPanel from '../components/BookmarkPanel'
 import { useBookmarks } from '../lib/bookmarks'
 import EditHistory from '../components/EditHistory'
+import HlsPanel from '../components/HlsPanel'
+import { useHls } from '../lib/hls'
 import PlaybackPanel from '../components/PlaybackPanel'
 import { usePlaybackPreferences, type LoopRange } from '../lib/playback'
 import PlaylistPanel from '../components/PlaylistPanel'
@@ -183,6 +185,13 @@ export default function VideoPage() {
   const [loopRange, setLoopRange] = useState<LoopRange>()
   const [loopKey, setLoopKey] = useState(video?.stream_url)
   if (loopKey !== video?.stream_url) { setLoopKey(video?.stream_url); setLoopRange(undefined) }
+  const hls = useHls(video)
+  const [sourceMode, setSourceMode] = useState<boolean>()
+  const [resumeSource, setResumeSource] = useState<{ position: number; playing: boolean; token: number }>()
+  const [sourceKey, setSourceKey] = useState(video?.stream_url)
+  if (sourceKey !== video?.stream_url) {
+    setSourceKey(video?.stream_url); setSourceMode(undefined); setResumeSource(undefined)
+  }
   const markers = useBookmarks(video)
   const jobs = useJobs()
   const player = useRef<MediaPlayerInstance>(null)
@@ -190,6 +199,17 @@ export default function VideoPage() {
   const [overlay, setOverlay] = useState<Overlay>({})
   const tool = params.get('tool') ?? 'trim'
   const mergeIds = params.get('ids')?.split(',').filter(Boolean)
+
+  const switchSource = (useHls: boolean) => {
+    setResumeSource({ position: player.current?.currentTime ?? time,
+      playing: player.current ? !player.current.state.paused : false, token: Date.now() })
+    setSourceMode(useHls)
+  }
+  useEffect(() => {
+    if (sourceMode === undefined && hls.data?.enabled && hls.data.package && player.current
+      && player.current.state.paused && player.current.currentTime < 0.05) setSourceMode(true)
+  }, [hls.data, sourceMode])
+  const usingHls = !!(sourceMode && hls.data?.enabled && hls.data.package)
 
   const seek = useCallback((t: number) => {
     if (player.current) player.current.currentTime = t
@@ -248,6 +268,7 @@ export default function VideoPage() {
               <Player key={`player:${video.stream_url}`} ref={player} video={video} onTimeUpdate={setTime}
                 bookmarks={markers.data?.bookmarks} chapters={markers.data?.chapters}
                 playbackRate={overlay.playbackRate} loopRange={loopRange}
+                hlsUrl={usingHls ? hls.data!.package!.url : undefined} resumeSource={resumeSource}
                 autoPlay={params.get('autoplay') === '1' && ready}
                 onEnded={() => {
                   if (!preferences.autoNext || !ready) return
@@ -291,6 +312,8 @@ export default function VideoPage() {
               </Button>
             </Group>
 
+            {ready && <HlsPanel key={`hls:${video.stream_url}`} video={video} data={hls.data}
+              queryError={hls.error} refetch={hls.refetch} usingHls={usingHls} switchSource={switchSource} />}
             {ready && <PlaybackPanel key={`playback:${video.stream_url}`} duration={video.duration} currentTime={time}
               loop={loopRange} onLoop={setLoopRange} autoNext={preferences.autoNext}
               onAutoNext={(autoNext) => savePreferences({ autoNext })} folderMode={folderMode}

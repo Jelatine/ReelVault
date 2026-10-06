@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import type { Video } from '../lib/types'
 import Player from './Player'
 
+const provider = vi.hoisted(() => ({ type: 'hls', library: null as unknown, config: {} as Record<string, unknown> }))
 const media = vi.hoisted(() => ({ currentTime: 0, state: { ended: false, paused: false }, play: vi.fn(async () => {}) }))
 vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }))
 vi.mock('@mantine/core', () => ({
@@ -14,8 +15,9 @@ vi.mock('@mantine/core', () => ({
   Text: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }))
 vi.mock('@vidstack/react', () => ({
+  isHLSProvider: (p: { type?: string }) => p?.type === 'hls',
   MediaPlayer: forwardRef(function MockPlayer(props: {
-    children: ReactNode; onPlaying: () => void; onPause: () => void;
+    children: ReactNode; onCanPlay: () => void; onProviderChange: (p: typeof provider) => void; onPlaying: () => void; onPause: () => void;
     onRateChange: (rate: number) => void; onVolumeChange: (detail: {volume: number; muted: boolean}) => void;
     playbackRate: number; volume: number; muted: boolean;
     onEnded: () => void; onTimeUpdate: (detail: { currentTime: number }) => void;
@@ -27,6 +29,8 @@ vi.mock('@vidstack/react', () => ({
       <output data-testid="muted">{String(props.muted)}</output>
       <button onClick={() => props.onRateChange(1.5)}>rate event</button>
       <button onClick={() => props.onVolumeChange({ volume: 0.35, muted: true })}>volume event</button>
+      <button onClick={props.onCanPlay}>canplay event</button>
+      <button onClick={() => props.onProviderChange(provider)}>provider event</button>
       <button onClick={props.onPlaying}>play event</button>
       <button onClick={props.onPause}>pause event</button>
       <button onClick={props.onEnded}>end event</button>
@@ -151,5 +155,29 @@ test('blocked browser storage still allows changing rate and volume for this pag
   fireEvent.click(screen.getByText('volume event'))
   expect(screen.getByTestId('rate').textContent).toBe('1.5')
   expect(screen.getByTestId('volume').textContent).toBe('0.35')
+  client.clear()
+})
+
+
+test('HLS provider uses bundled library and a source switch restores position and play state once', () => {
+  vi.mocked(api.get).mockResolvedValue([])
+  const client = new QueryClient()
+  const video = { id: 'hls', duration: 40, stream_url: '/stream' } as Video
+  const mounted = render(<QueryClientProvider client={client}><Player video={video} hlsUrl="/master.m3u8"
+    resumeSource={{ position: 12, playing: true, token: 1 }} /></QueryClientProvider>)
+  fireEvent.click(screen.getByText('provider event'))
+  expect(typeof provider.library).toBe('function')
+  expect(provider.config).toMatchObject({ startLevel: 0, capLevelToPlayerSize: true })
+  fireEvent.click(screen.getByText('canplay event'))
+  expect(media.currentTime).toBe(12)
+  expect(media.play).toHaveBeenCalledOnce()
+  media.currentTime = 15
+  fireEvent.click(screen.getByText('canplay event'))
+  expect(media.currentTime).toBe(15)
+  mounted.rerender(<QueryClientProvider client={client}><Player video={video}
+    resumeSource={{ position: 16, playing: false, token: 2 }} /></QueryClientProvider>)
+  fireEvent.click(screen.getByText('canplay event'))
+  expect(media.currentTime).toBe(16)
+  expect(media.play).toHaveBeenCalledOnce()
   client.clear()
 })

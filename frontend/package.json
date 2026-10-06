@@ -22,6 +22,7 @@
     "@tabler/icons-react": "^3.48.0",
     "@tanstack/react-query": "^5.104.1",
     "@vidstack/react": "^1.15.6",
+    "hls.js": "^1.7.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.4"

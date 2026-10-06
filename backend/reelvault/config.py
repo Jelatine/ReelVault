@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # Number of concurrent ffmpeg jobs.
     workers: int = 2
     encoder: Literal["software", "auto", "videotoolbox", "qsv", "vaapi", "nvenc"] = "software"
+    hls_enabled: bool = False
+    hls_min_size_mb: int = Field(256, ge=0, le=102400)
+    hls_max_cache_gb: int = Field(20, ge=1, le=1024)
     vaapi_device: str = "/dev/dri/renderD128"
 
     # Session lifetime without "remember me" (sliding, in hours).

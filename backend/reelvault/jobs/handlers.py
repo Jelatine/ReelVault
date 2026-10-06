@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -481,4 +482,69 @@ async def scenes(ctx: JobContext, job: Job) -> None:
         shutil.rmtree(temp, ignore_errors=True)
 
 
-HANDLERS: dict[str, Handler] = {"ingest": ingest, "scenes": scenes, "edit": edit}
+async def hls(ctx: JobContext, job: Job) -> None:
+    from ..api.hls import check_budget
+    from ..media.hls import estimated_bytes, generate
+    from ..models import HlsPackage
+
+    settings = ctx.settings
+    source, info, video = (await _load_sources(ctx, job.video_ids))[0]
+    sig = source_signature(source)
+    if not settings.hls_enabled or sig != job.params["signature"]:
+        raise RuntimeError("HLS 已关闭或源文件已变化，请重新提交")
+    with ctx.db() as db:
+        check_budget(db, settings, estimated_bytes(info), job.id)
+    temp = settings.tmp_dir / f"job-{job.id}"
+    target = settings.derived_dir / video.id / "hls" / job.id
+    temp.mkdir(parents=True, exist_ok=True)
+    committed = False
+    old_generation = None
+    try:
+        renditions = await generate(
+            settings.ffmpeg,
+            settings.ffprobe,
+            source,
+            info,
+            temp / "hls",
+            handle=ctx.handle,
+            on_progress=ctx.stage(0, 1, "生成 HLS 清晰度"),
+        )
+        ctx.check_canceled()
+        size = sum(p.stat().st_size for p in (temp / "hls").rglob("*") if p.is_file())
+        with ctx.db() as db:
+            current = db.get(Video, video.id)
+            if (
+                not settings.hls_enabled
+                or current is None
+                or current.deleted_at
+                or current.file_path != video.file_path
+                or source_signature(source) != sig
+            ):
+                raise RuntimeError("HLS 已关闭或源文件已变化，生成结果未保存")
+            check_budget(db, settings, size, job.id)
+            package = db.get(HlsPackage, video.id)
+            if package is None:
+                package = HlsPackage(video_id=video.id)
+                db.add(package)
+            else:
+                old_generation = package.generation
+            target.parent.mkdir(parents=True, exist_ok=True)
+            (temp / "hls").rename(target)
+            package.generation, package.signature = job.id, sig
+            package.renditions, package.size, package.created_at = renditions, size, utcnow()
+            db.commit()
+            committed = True
+        if (
+            old_generation
+            and old_generation != job.id
+            and re.fullmatch(r"[a-f0-9]{32}", old_generation)
+        ):
+            shutil.rmtree(target.parent / old_generation, ignore_errors=True)
+        ctx.set_progress(1, "HLS 已就绪")
+    finally:
+        shutil.rmtree(temp, ignore_errors=True)
+        if not committed:
+            shutil.rmtree(target, ignore_errors=True)
+
+
+HANDLERS: dict[str, Handler] = {"ingest": ingest, "scenes": scenes, "hls": hls, "edit": edit}

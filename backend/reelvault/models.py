@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -284,4 +285,16 @@ class Bookmark(Base):
     note: Mapped[str] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(String(16))
     signature: Mapped[list[Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class HlsPackage(Base):
+    __tablename__ = "hls_packages"
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), primary_key=True
+    )
+    generation: Mapped[str] = mapped_column(String(32))
+    signature: Mapped[list[Any]] = mapped_column(JSON)
+    renditions: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    size: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

@@ -6,6 +6,7 @@ import type { Job } from './types'
 export const OP_LABELS: Record<string, string> = {
   ingest: '处理新视频',
   scenes: '场景检测',
+  hls: '生成 HLS 清晰度',
   adjust: '画面调整',
   effect: '片段效果',
   composite: '画中画与分屏',
@@ -56,6 +57,8 @@ export function useJobEvents(enabled: boolean) {
         qc.invalidateQueries({ queryKey: ['scenes'] })
         qc.invalidateQueries({ queryKey: ['bookmarks'] })
         qc.invalidateQueries({ queryKey: ['encoding'] })
+        qc.invalidateQueries({ queryKey: ['hls'] })
+        qc.invalidateQueries({ queryKey: ['hls-settings'] })
         qc.invalidateQueries({ queryKey: ['folders'] })
         if (job.kind === 'edit') {
           const label = jobLabel(job)

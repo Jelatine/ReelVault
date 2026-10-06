@@ -23,6 +23,7 @@ from .api import (
     collections,
     folders,
     history,
+    hls,
     images,
     jobs,
     luts,
@@ -43,7 +44,7 @@ from .maintenance import maintain
 from .media.encoding import detect_encoders
 from .media.ffmpeg import ffmpeg_version
 from .migrate import upgrade
-from .models import RuntimeSetting, Upload, User
+from .models import HlsPackage, RuntimeSetting, Upload, User
 from .updates import Updater
 
 log = logging.getLogger("reelvault")
@@ -98,6 +99,14 @@ def cleanup_stale_uploads(app: FastAPI, settings: Settings, max_age_days: int = 
         db.commit()
     for d in settings.tmp_dir.glob("job-*"):
         shutil.rmtree(d, ignore_errors=True)
+    with app.state.sessionmaker() as db:
+        keep = {
+            settings.derived_dir / p.video_id / "hls" / p.generation
+            for p in db.scalars(select(HlsPackage))
+        }
+    for directory in settings.derived_dir.glob("*/hls/*"):
+        if directory not in keep:
+            shutil.rmtree(directory, ignore_errors=True)
     for f in settings.tmp_dir.glob("frame-*"):
         f.unlink(missing_ok=True)
 
@@ -119,6 +128,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 saved = db.get(RuntimeSetting, "encoding")
                 if saved:
                     settings.encoder = Settings(encoder=saved.value["encoder"]).encoder
+                saved_hls = db.get(RuntimeSetting, "hls")
+                if saved_hls:
+                    validated = Settings(**saved_hls.value)
+                    for key in ("hls_enabled", "hls_min_size_mb", "hls_max_cache_gb"):
+                        setattr(settings, key, getattr(validated, key))
             bootstrap_admin(app, settings)
             cleanup_stale_uploads(app, settings)
             app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)
@@ -174,6 +188,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         subtitles.router,
         collections.router,
         history.router,
+        hls.router,
         playback.router,
         scenes.router,
         videos.router,

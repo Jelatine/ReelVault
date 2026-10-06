@@ -21,6 +21,7 @@ import { IconDeviceDesktop, IconEdit, IconLogout } from '@tabler/icons-react'
 import { promptText } from '../components/prompt'
 import UpdatePanel from '../components/UpdatePanel'
 import BackupPanel from '../components/BackupPanel'
+import HlsSettings from '../components/HlsSettings'
 import EncodingPanel from '../components/EncodingPanel'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
@@ -238,6 +239,7 @@ export default function SettingsPage() {
       </Paper>
       <Paper withBorder p="md">
         <EncodingPanel />
+        <HlsSettings />
       </Paper>
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Paper withBorder p="md">

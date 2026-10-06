@@ -1,7 +1,7 @@
 import '@vidstack/react/player/styles/default/theme.css'
 import '@vidstack/react/player/styles/default/layouts/video.css'
 
-import { MediaPlayer, MediaProvider, Poster, Track, type MediaPlayerInstance } from '@vidstack/react'
+import { isHLSProvider, MediaPlayer, MediaProvider, Poster, Track, type MediaPlayerInstance } from '@vidstack/react'
 import { defaultLayoutIcons, DefaultVideoLayout } from '@vidstack/react/player/layouts/default'
 import { forwardRef, useEffect, useRef, useState } from 'react'
 import { Button, Group, Text } from '@mantine/core'
@@ -16,6 +16,7 @@ import './player-markers.css'
 import type { Bookmark, Chapter } from '../lib/bookmarks'
 import { usePlaybackPreferences, validLoop, type LoopRange } from '../lib/playback'
 import { useSubtitles } from '../lib/subtitles'
+import Hls from 'hls.js'
 
 interface Props {
   video: Video
@@ -26,14 +27,19 @@ interface Props {
   chapters?: Chapter[]
   playbackRate?: number
   loopRange?: LoopRange
+  hlsUrl?: string
+  resumeSource?: { position: number; playing: boolean; token: number }
 }
 
-const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, onEnded, playbackRate, loopRange, bookmarks = [], chapters = [] }, ref) {
+const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, onEnded, playbackRate, loopRange, hlsUrl, resumeSource, bookmarks = [], chapters = [] }, ref) {
   const player = useRef<MediaPlayerInstance>(null)
   const mergedRef = useMergedRef(player, ref)
+  const [sourceError, setSourceError] = useState<{ url: string; message: string }>()
+  const resumedToken = useRef<number | undefined>(undefined)
   const played = useRef(false)
   const [hasPlayed, setHasPlayed] = useState(false)
   const lastReport = useRef(0)
+  const lastPosition = useRef(0)
   const qc = useQueryClient()
   const { preferences, save } = usePlaybackPreferences()
   const looping = validLoop(loopRange, video.duration)
@@ -50,13 +56,12 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
     void api.put(endpoint, { position }).catch(() => {})
   }
   useEffect(() => {
-    const current = player.current
     const flush = () => {
-      if (!played.current || !current || video.deleted_at) return
+      if (!played.current || video.deleted_at) return
       void fetch(endpoint, {
         method: 'PUT', credentials: 'same-origin', keepalive: true,
         headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'ReelVault' },
-        body: JSON.stringify({ position: current.state.ended ? 0 : current.currentTime }),
+        body: JSON.stringify({ position: player.current ? (player.current.state.ended ? 0 : player.current.currentTime) : lastPosition.current }),
       }).catch(() => {})
     }
     window.addEventListener('pagehide', flush)
@@ -66,9 +71,11 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
       void qc.invalidateQueries({ queryKey: ['playback', video.id] })
     }
   }, [endpoint, video.id, video.deleted_at, qc])
+  const nativeProps: React.VideoHTMLAttributes<HTMLVideoElement> = { preload: hlsUrl ? 'none' : 'metadata' }
   const type = video.container === 'webm' ? 'video/webm' : 'video/mp4'
   return (
     <>
+    {sourceError && sourceError.url === hlsUrl && hlsUrl && <Text role="alert" size="sm" c="red">自适应播放失败：{sourceError.message}。可在下方改用原始播放。</Text>}
     {subtitles.error && <Text size="xs" c="red">字幕载入失败：{subtitles.error.message}</Text>}
     {history.data && !video.deleted_at && (
       <Group mb="xs">
@@ -84,9 +91,28 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
       </Group>
     )}
     <MediaPlayer
+      key={hlsUrl ?? video.stream_url}
       ref={mergedRef}
       title={video.title}
-      src={{ src: video.stream_url, type }}
+      src={{ src: hlsUrl ?? video.stream_url, type: hlsUrl ? 'application/x-mpegurl' : type }}
+      onProviderChange={(provider) => {
+        if (isHLSProvider(provider)) {
+          // Load with the video route: a separate lazy download lets native HLS
+          // signal canplay first on slow networks, skipping Vidstack's quality list.
+          provider.library = Hls
+          provider.config = { capLevelToPlayerSize: true, startLevel: 0, maxBufferLength: 20, maxMaxBufferLength: 40 }
+        }
+      }}
+      onError={(error) => { if (hlsUrl) setSourceError({ url: hlsUrl, message: error.message }) }}
+      onCanPlay={() => {
+        if (resumeSource && resumedToken.current !== resumeSource.token && player.current) {
+          resumedToken.current = resumeSource.token
+          player.current.currentTime = Math.min(resumeSource.position, video.duration)
+          if (resumeSource.playing) void player.current.play().catch(() => {})
+        }
+      }}
+      viewType="video"
+      streamType="on-demand"
       playsInline
       autoPlay={autoPlay}
       playbackRate={playbackRate ?? preferences.rate}
@@ -114,16 +140,17 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
           }).catch(() => {})
         }
       }}
-      onPause={() => report(player.current?.currentTime ?? 0)}
+      onPause={() => { lastPosition.current = player.current?.currentTime ?? lastPosition.current; report(lastPosition.current) }}
       onEnded={() => {
         if (looping && player.current) {
           player.current.currentTime = loopRange.start
           void player.current.play().catch(() => {})
           return
         }
-        report(0); onEnded?.()
+        lastPosition.current = 0; report(0); onEnded?.()
       }}
       onTimeUpdate={(detail) => {
+        lastPosition.current = detail.currentTime
         if (looping && player.current && !player.current.state.paused
           && (detail.currentTime >= loopRange.end || detail.currentTime < loopRange.start)) {
           player.current.currentTime = loopRange.start
@@ -135,7 +162,7 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
       }}
       style={{ aspectRatio: video.width && video.height ? `${video.width} / ${video.height}` : '16 / 9', maxHeight: '70vh' }}
     >
-      <MediaProvider>
+      <MediaProvider mediaProps={nativeProps}>
         {!!chapters.length && <Track key={chapterVtt(chapters)} kind="chapters" type="vtt" content={chapterVtt(chapters)} label="章节" default />}
         {subtitles.data?.filter((track) => track.playable && track.url).map((track) => <Track
           key={track.id} src={track.url!} kind="subtitles" type="vtt" label={track.label} language={track.language}
