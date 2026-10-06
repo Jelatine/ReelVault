@@ -1,4 +1,5 @@
-import { Button, Divider, Group, NumberInput, Select, SegmentedControl, Stack, Text, Title } from '@mantine/core'
+import { Button, Divider, Group, NativeSelect, NumberInput, Select, SegmentedControl, Stack, Text, Title } from '@mantine/core'
+import { useMediaQuery } from '@mantine/hooks'
 import { useEffect, useState } from 'react'
 import { defaultOutput, useSubmitEdit, type EditorContext } from './edit'
 import PresetControls from './PresetControls'
@@ -12,6 +13,13 @@ import EffectPanel from './EffectPanel'
 import CompositePanel from './CompositePanel'
 
 const RATIOS: Record<string, number | null> = { free: null, '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4 }
+const TOOLS = [
+  { value: 'crop', label: '裁切画面' }, { value: 'speed', label: '变速' },
+  { value: 'audio', label: '音频' }, { value: 'subtitle', label: '字幕' },
+  { value: 'watermark', label: '水印' }, { value: 'animation', label: '动图' },
+  { value: 'adjust', label: '画面调整' }, { value: 'effect', label: '片段效果' },
+  { value: 'composite', label: '拼接' }, { value: 'convert', label: '格式' },
+]
 
 function centered(w: number, h: number, ratio: number) {
   let cw = w
@@ -24,6 +32,7 @@ function centered(w: number, h: number, ratio: number) {
 }
 
 export default function MorePanel({ video, setOverlay, currentTime, pause }: EditorContext) {
+  const mobile = useMediaQuery('(max-width: 47.99em), (pointer: coarse)')
   const [crf, setCrf] = useState(20)
   const [tool, setTool] = useState('crop')
   const [output, setOutput] = useState(defaultOutput)
@@ -56,23 +65,8 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
       {tool === 'speed' && <PresetControls key="speed" edit={{ op: 'speed', factor: Number(speed), crf }} onApply={(params) => { setCrf(Number(params.crf ?? 20)); setSpeed(String(params.factor)) }} />}
       {tool === 'convert' && <PresetControls key="convert" edit={{ op: 'convert', format }} onApply={(params) => setFormat(String(params.format))} />}
       {(tool === 'crop' || tool === 'speed') && <NumberInput label="画质 CRF（越小越清晰）" min={0} max={51} value={crf} onChange={(value) => setCrf(Number(value))} />}
-      <SegmentedControl
-        fullWidth
-        value={tool}
-        onChange={setTool}
-        data={[
-          { value: 'crop', label: '裁切画面' },
-          { value: 'speed', label: '变速' },
-          { value: 'audio', label: '音频' },
-          { value: 'subtitle', label: '字幕' },
-          { value: 'watermark', label: '水印' },
-          { value: 'animation', label: '动图' },
-          { value: 'adjust', label: '画面调整' },
-          { value: 'effect', label: '片段效果' },
-          { value: 'composite', label: '拼接' },
-          { value: 'convert', label: '格式' },
-        ]}
-      />
+      {mobile ? <NativeSelect label="更多编辑工具" value={tool} onChange={(e) => setTool(e.currentTarget.value)} data={TOOLS} />
+        : <SegmentedControl fullWidth value={tool} onChange={setTool} data={TOOLS} />}
       {tool === 'crop' && (
         <Stack gap="xs">
           <Text size="sm" c="dimmed">

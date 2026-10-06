@@ -20,6 +20,7 @@ export default function UploadPanel() {
 
   return (
     <Paper
+      className="upload-panel"
       withBorder
       shadow="lg"
       pos="fixed"

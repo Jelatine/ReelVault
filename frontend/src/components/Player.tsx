@@ -5,7 +5,8 @@ import { isHLSProvider, MediaPlayer, MediaProvider, Poster, Track, type MediaPla
 import { defaultLayoutIcons, DefaultVideoLayout } from '@vidstack/react/player/layouts/default'
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Group, Text } from '@mantine/core'
-import { useMergedRef } from '@mantine/hooks'
+import { useMediaQuery, useMergedRef } from '@mantine/hooks'
+import { installTouchPlayer } from '../lib/touch-player'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { formatDuration, formatDate } from '../lib/format'
@@ -34,6 +35,15 @@ interface Props {
 
 const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, resumePlayback, onEnded, playbackRate, loopRange, hlsUrl, resumeSource, bookmarks = [], chapters = [] }, ref) {
   const player = useRef<MediaPlayerInstance>(null)
+  const touchRoot = useRef<HTMLDivElement>(null)
+  const touchHold = useRef(false)
+  const touch = useMediaQuery('(any-pointer: coarse)')
+  const [gestureMessage, setGestureMessage] = useState('')
+  useEffect(() => {
+    if (!touch || !touchRoot.current) return
+    return installTouchPlayer(touchRoot.current, () => player.current, setGestureMessage,
+      (holding) => { touchHold.current = holding })
+  }, [touch, video.stream_url, hlsUrl])
   const mergedRef = useMergedRef(player, ref)
   const [sourceError, setSourceError] = useState<{ url: string; message: string }>()
   const resumedToken = useRef<number | undefined>(undefined)
@@ -101,6 +111,7 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
         <Text size="xs" c="dimmed">播放 {history.data.play_count} 次{history.data.last_played_at ? ` · 最近播放 ${formatDate(history.data.last_played_at)}` : ""}</Text>
       </Group>
     )}
+    <div ref={touchRoot} className={touch ? 'touch-player' : undefined}>
     <MediaPlayer
       key={hlsUrl ?? video.stream_url}
       ref={mergedRef}
@@ -130,7 +141,10 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
       playbackRate={playbackRate ?? preferences.rate}
       volume={preferences.volume}
       muted={preferences.muted}
-      onRateChange={(rate) => { if (playbackRate == null) save({ rate }) }}
+      onRateChange={(rate) => {
+        if (playbackRate == null && !touchHold.current
+          && (player.current?.playbackRate == null || player.current.playbackRate === rate)) save({ rate })
+      }}
       onVolumeChange={({ volume, muted }) => save({ volume, muted })}
       crossOrigin
       keyShortcuts={{
@@ -182,6 +196,8 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
         {video.poster_url && <Poster className="vds-poster" src={video.poster_url} alt="" />}
       </MediaProvider>
       <DefaultVideoLayout
+        noGestures={touch}
+        noScrubGesture={touch}
         icons={defaultLayoutIcons}
         slots={{ afterTimeSlider: <PlayerMarkers bookmarks={bookmarks} chapters={chapters} duration={video.duration}
           seek={(time) => { if (player.current) player.current.currentTime = time }} /> }}
@@ -189,6 +205,9 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
         playbackRates={[0.5, 0.75, 1, 1.25, 1.5, 2, 3]}
       />
     </MediaPlayer>
+    {gestureMessage && <div className="touch-feedback" role="status" aria-live="polite">{gestureMessage}</div>}
+    </div>
+    {touch && <Text size="xs" c="dimmed">左右滑动快进/后退 · 双击暂停/播放 · 播放时长按临时倍速</Text>}
     </>
   )
 })

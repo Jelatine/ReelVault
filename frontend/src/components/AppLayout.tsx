@@ -38,6 +38,7 @@ import FolderNav from './FolderNav'
 import UploadPanel from './UploadPanel'
 import ShortcutHelp from './ShortcutHelp'
 import UploadReview from './UploadReview'
+import MobileNavigation from './MobileNavigation'
 import { shortcutBlocked } from '../lib/shortcuts'
 
 export default function AppLayout() {
@@ -218,13 +219,14 @@ export default function AppLayout() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="xs">
+      <AppShell.Navbar p="xs" aria-label="侧栏导航">
         <FolderNav onNavigate={close} />
       </AppShell.Navbar>
 
       <AppShell.Main>
         <Outlet />
       </AppShell.Main>
+      <MobileNavigation onNavigate={close} />
 
       <input
         ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} aria-label="选择上传文件夹"

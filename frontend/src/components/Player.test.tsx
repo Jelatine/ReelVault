@@ -1,13 +1,16 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import { api } from '../lib/api'
 import type { Video } from '../lib/types'
 import Player from './Player'
 
 const provider = vi.hoisted(() => ({ type: 'hls', library: null as unknown, config: {} as Record<string, unknown> }))
 const media = vi.hoisted(() => ({ currentTime: 0, state: { ended: false, paused: false, canPlay: false }, play: vi.fn(async () => {}) }))
+beforeAll(() => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+})
 vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }))
 vi.mock('@mantine/core', () => ({
   Button: ({ children, onClick }: { children: ReactNode; onClick: () => void }) => <button onClick={onClick}>{children}</button>,

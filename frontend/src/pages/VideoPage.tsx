@@ -38,6 +38,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import FolderSelect from '../components/FolderSelect'
 import JobRow from '../components/JobRow'
 import Player from '../components/Player'
+import ResponsiveEditor from '../components/ResponsiveEditor'
 import BookmarkPanel from '../components/BookmarkPanel'
 import { useBookmarks } from '../lib/bookmarks'
 import EditHistory from '../components/EditHistory'
@@ -346,7 +347,7 @@ export default function VideoPage() {
             )}
 
             {ready && (
-              <Paper withBorder p="md">
+              <ResponsiveEditor key={`editor:${video.id}`}>
                 <Tabs
                   value={tool}
                   onChange={(v) => {
@@ -395,7 +396,7 @@ export default function VideoPage() {
                     <MorePanel {...ctx} />
                   </Tabs.Panel>
                 </Tabs>
-              </Paper>
+              </ResponsiveEditor>
             )}
           </Stack>
         </Grid.Col>

@@ -108,3 +108,29 @@ body,
   pointer-events: none;
   z-index: 5;
 }
+
+.touch-player { position: relative; touch-action: pan-y pinch-zoom; }
+.touch-feedback {
+  position: absolute; inset: 35% 15% auto; padding: 8px 12px;
+  border-radius: 8px; background: rgb(0 0 0 / 75%); color: white;
+  text-align: center; pointer-events: none; z-index: 30;
+}
+.mobile-navigation { display: none; }
+.mobile-editor .mantine-Tabs-list { flex-wrap: wrap; }
+.mobile-editor .mantine-SegmentedControl-root { flex-wrap: wrap; }
+@media (max-width: 47.99em) {
+  .mantine-AppShell-main { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
+  .mobile-navigation {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    position: fixed; inset: auto 0 0; z-index: 200;
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+    background: var(--mantine-color-body); border-top: 1px solid var(--mantine-color-default-border);
+  }
+  .mobile-navigation a {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 48px; gap: 2px; color: var(--mantine-color-dimmed); text-decoration: none; font-size: 11px;
+  }
+  .mobile-navigation a.active { color: var(--mantine-color-violet-6); font-weight: 600; }
+  .mobile-navigation a:focus-visible { outline: 2px solid var(--mantine-color-violet-6); border-radius: 6px; }
+  .upload-panel { bottom: calc(76px + env(safe-area-inset-bottom)) !important; }
+}

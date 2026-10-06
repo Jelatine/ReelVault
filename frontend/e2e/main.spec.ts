@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page, type FileChooser } from '@playwright/test'
@@ -8,6 +8,87 @@ async function selectUpload(page: Page, chooser: FileChooser, files: Parameters<
   await chooser.setFiles(files)
   await page.getByRole('button', { name: '开始上传', exact: true }).click()
 }
+
+test('手机触控手势、底部导航和编辑抽屉真实剪辑', async ({ browser }, testInfo) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  const page = await context.newPage()
+  try {
+    await login(page)
+    const nav = page.getByRole('navigation', { name: '手机主导航' })
+    await expect(nav).toBeVisible()
+    await nav.getByRole('link', { name: '设置', exact: true }).click()
+    await expect(page).toHaveURL(/\/settings$/)
+    await expect(nav.getByRole('link', { name: '设置', exact: true })).toHaveAttribute('aria-current', 'page')
+    await nav.getByRole('link', { name: '首页', exact: true }).click()
+    const directory = mkdtempSync(join(tmpdir(), 'reelvault-touch-'))
+    let sample: Buffer
+    try {
+      const output = join(directory, 'sample.mp4')
+      execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i',
+        'color=purple:size=320x240:rate=25:duration=30', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+        '-movflags', '+faststart', output])
+      sample = readFileSync(output)
+    } finally { rmSync(directory, { recursive: true, force: true }) }
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: '上传视频', exact: true }).click()])
+    const response = page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST')
+    await selectUpload(page, chooser, { name: 'mobile-touch.mp4', mimeType: 'video/mp4', buffer: sample })
+    const uploaded = await (await response).json()
+    await expect.poll(async () => (await (await page.request.get(`/api/videos/${uploaded.id}`)).json()).status,
+      { timeout: 60_000 }).toBe('ready')
+    await page.goto(`/videos/${uploaded.id}`)
+    const video = page.locator('video').first()
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThanOrEqual(2)
+    await expect(page.getByText(/双击暂停\/播放/)).toBeVisible()
+    const box = (await video.boundingBox())!
+    const x = box.x + box.width * .35, y = box.y + box.height * .25
+    const cdp = await context.newCDPSession(page)
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', tx = x, ty = y) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x: tx, y: ty, id: 1 }] })
+    await video.evaluate((v: HTMLVideoElement) => { v.pause(); v.currentTime = 8 })
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(7.9)
+    await touch('touchStart'); await touch('touchMove', x + 40); await touch('touchEnd')
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(13)
+    expect(await video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeLessThan(16)
+    await video.evaluate(async (v: HTMLVideoElement) => { v.muted = true; v.playbackRate = 1.5; await v.play() })
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('reelvault:playback:e2e-admin') ?? '{}').rate)).toBe(1.5)
+    await touch('touchStart')
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.playbackRate)).toBe(3)
+    await touch('touchEnd')
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.playbackRate)).toBe(1.5)
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('reelvault:playback:e2e-admin') ?? '{}').rate)).toBe(1.5)
+    await touch('touchStart'); await touch('touchEnd'); await touch('touchStart'); await touch('touchEnd')
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true)
+    await page.getByRole('button', { name: '打开视频编辑', exact: true }).click()
+    const drawer = page.getByRole('dialog', { name: '视频编辑' })
+    await expect(drawer).toBeVisible()
+    await drawer.getByLabel('新视频名称（可选）').fill('手机剪辑结果')
+    await page.keyboard.press('Escape')
+    await expect(drawer).toBeHidden()
+    await page.getByRole('button', { name: '打开视频编辑', exact: true }).click()
+    await expect(drawer.getByLabel('新视频名称（可选）')).toHaveValue('手机剪辑结果')
+    await drawer.getByRole('tab', { name: '更多', exact: true }).click()
+    await drawer.getByLabel('更多编辑工具').selectOption('watermark')
+    await expect(drawer.getByLabel('叠加文字')).toBeVisible()
+    expect(await drawer.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await drawer.getByRole('tab', { name: '剪辑', exact: true }).click()
+    await drawer.getByLabel('开始', { exact: true }).fill('1')
+    await drawer.getByLabel('开始', { exact: true }).blur()
+    await drawer.getByLabel('结束', { exact: true }).fill('3')
+    await drawer.getByLabel('结束', { exact: true }).blur()
+    await drawer.getByLabel('新视频名称（可选）').fill('手机剪辑结果')
+    await page.screenshot({ path: testInfo.outputPath('mobile-editor.png') })
+    const edited = page.waitForResponse((r) => r.url().endsWith('/edit') && r.request().method() === 'POST')
+    await drawer.getByRole('button', { name: /^剪辑（输出时长/ }).click()
+    const job = await (await edited).json()
+    await expect.poll(async () => (await (await page.request.get(`/api/jobs/${job.id}`)).json()).status,
+      { timeout: 60_000 }).toBe('succeeded')
+    const result = await (await page.request.get(`/api/jobs/${job.id}`)).json()
+    await page.goto(`/videos/${result.result_video_id}`)
+    await expect.poll(() => page.locator('video').first().evaluate((v: HTMLVideoElement) => v.duration)).toBeGreaterThan(1.8)
+    expect(await page.locator('video').first().evaluate((v: HTMLVideoElement) => v.duration)).toBeLessThan(2.3)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  } finally { await context.close() }
+})
 
 test('文件夹结构、上传设置、取消和粘贴上传', async ({ page }, testInfo) => {
   await login(page)
@@ -429,7 +510,7 @@ async function login(page: Page) {
   await page.getByRole('textbox', { name: '用户名', exact: true }).fill('e2e-admin')
   await page.getByLabel(/^密码/).fill('e2e-secret123')
   await page.getByRole('button', { name: '登录', exact: true }).click()
-  await expect(page.getByRole('button', { name: '上传', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^上传(视频)?$/ })).toBeVisible()
 }
 
 test('登录失败提示、登录后刷新保留会话', async ({ page }) => {
@@ -934,22 +1015,22 @@ test('视频与文件夹右键菜单、键盘唤起、编辑、下载及回收�
   await page.getByRole('button', { name: '移到回收站', exact: true }).click()
   await expect(card).not.toBeVisible()
   expect((await (await page.request.get(`/api/videos/${video.id}`)).json()).deleted_at).toBeTruthy()
-  const folder = page.locator('nav').getByText('右键目标', { exact: true })
+  const folder = page.locator('.mantine-AppShell-navbar').getByText('右键目标', { exact: true })
   await folder.click({ button: 'right' })
   await page.getByRole('menuitem', { name: '新建子文件夹', exact: true }).click()
   await page.getByLabel('名称', { exact: true }).fill('菜单子目录')
   await page.getByRole('button', { name: '确定', exact: true }).click()
-  await expect(page.locator('nav').getByText('菜单子目录', { exact: true })).toBeVisible()
-  const child = page.locator('nav').getByText('菜单子目录', { exact: true })
+  await expect(page.locator('.mantine-AppShell-navbar').getByText('菜单子目录', { exact: true })).toBeVisible()
+  const child = page.locator('.mantine-AppShell-navbar').getByText('菜单子目录', { exact: true })
   await child.click({ button: 'right' })
   await expect(page.getByRole('menu', { name: '菜单子目录的文件夹菜单' })).toBeVisible()
   await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
   await page.getByLabel('名称', { exact: true }).fill('菜单子目录改名')
   await page.getByRole('button', { name: '确定', exact: true }).click()
-  await page.locator('nav').getByText('菜单子目录改名', { exact: true }).click({ button: 'right' })
+  await page.locator('.mantine-AppShell-navbar').getByText('菜单子目录改名', { exact: true }).click({ button: 'right' })
   await page.getByRole('menuitem', { name: '删除', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: '确定', exact: true }).click()
-  await expect(page.locator('nav').getByText('菜单子目录改名', { exact: true })).not.toBeVisible()
+  await expect(page.locator('.mantine-AppShell-navbar').getByText('菜单子目录改名', { exact: true })).not.toBeVisible()
 })
 
 test('全局快捷键搜索上传、卡片方向导航、打开、删除保护与说明', async ({ page }, testInfo) => {
@@ -1074,12 +1155,12 @@ test('首页仪表盘个人续播、编辑结果、收藏、存储和旧筛选�
   await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThanOrEqual(2.3)
   await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.paused)).toBe(false)
   await page.locator('video').evaluate((v: HTMLVideoElement) => v.pause())
-  await page.locator('nav').getByRole('link', { name: '首页', exact: true }).click()
+  await page.locator('.mantine-AppShell-navbar').getByRole('link', { name: '首页', exact: true }).click()
   await page.getByRole('button', { name: '刷新首页', exact: true }).click()
   await expect(continuing.getByText('首页继续样片', { exact: true })).toBeVisible()
   await page.setViewportSize({ width: 390, height: 844 })
   await expect.poll(() => page.locator('main').evaluate((el) => getComputedStyle(el).paddingLeft)).toBe('16px')
-  await expect.poll(() => page.locator('nav').evaluate((el) => el.getBoundingClientRect().right)).toBeLessThanOrEqual(0)
+  await expect.poll(() => page.locator('.mantine-AppShell-navbar').evaluate((el) => el.getBoundingClientRect().right)).toBeLessThanOrEqual(0)
   await expect(page.getByRole('region', { name: '存储概览' })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath('dashboard-mobile.png'), fullPage: true })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
