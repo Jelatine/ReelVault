@@ -8,6 +8,7 @@ const poster = `${origin}/api/videos/${'v'.repeat(32)}/poster.jpg?v=1`
 const source = readFileSync('pwa/worker.js', 'utf8')
   .replace('__PRECACHE__', JSON.stringify(['/index.html', '/offline.html']))
 type WorkerEvent = {
+  notification?: { tag: string; data: { session: string; url: string }; close: () => void }
   request?: Request
   data?: unknown
   source?: { url: string }
@@ -38,8 +39,16 @@ function worker() {
   const network = vi.fn(async (_request: Request): Promise<Response> => new Response('poster', { headers: { 'content-type': 'image/jpeg' } }))
   const claim = vi.fn()
   const skipWaiting = vi.fn()
+  const notifications: NonNullable<WorkerEvent['notification']>[] = []
+  const showNotification = vi.fn(async (_title: string, options: { tag: string; data: { session: string; url: string } }) => {
+    const item = { tag: options.tag, data: options.data, close: vi.fn(() => { const i = notifications.indexOf(item); if (i >= 0) notifications.splice(i, 1) }) }
+    notifications.push(item)
+  })
+  const getNotifications = vi.fn(async () => [...notifications])
+  const matchAll = vi.fn(async (): Promise<{ url: string; focus: () => Promise<void> }[]> => [])
+  const openWindow = vi.fn(async (_url: string) => {})
   runInNewContext(source, {
-    self: { location: { origin }, clients: { claim }, skipWaiting, addEventListener: (type: string, callback: (event: WorkerEvent) => void) => callbacks.set(type, callback) },
+    self: { location: { origin }, registration: { showNotification, getNotifications }, clients: { claim, matchAll, openWindow }, skipWaiting, addEventListener: (type: string, callback: (event: WorkerEvent) => void) => callbacks.set(type, callback) },
     caches, fetch: network, Request, Response, URL, Set, Promise,
   })
   async function fire(type: string, data?: unknown) {
@@ -55,8 +64,60 @@ function worker() {
     return response ? await response : undefined
   }
   const posterKeys = async () => (await (await caches.open('reelvault-offline-posters')).keys()).map((request) => request.url)
-  return { fire, fetchResource, network, caches, posterKeys, claim, skipWaiting }
+  async function click(notification: NonNullable<WorkerEvent['notification']>) {
+    const pending: Promise<unknown>[] = []
+    callbacks.get('notificationclick')!({ notification, waitUntil: promise => pending.push(promise) })
+    await Promise.all(pending)
+  }
+  return { fire, fetchResource, network, caches, posterKeys, claim, skipWaiting, showNotification, getNotifications, notifications, matchAll, openWindow, click }
 }
+
+describe('job notification delivery and navigation', () => {
+  const message = { type: 'JOB_NOTIFICATION', session: 'account-session', id: 'long-job', title: 'ReelVault · Trim completed', body: 'Open result', url: '/videos/result', lang: 'en' }
+  it('serializes duplicate tabs, retains deduplication after poster clearing, and clears on logout', async () => {
+    const w = worker()
+    await w.fire('message', message)
+    expect(w.showNotification).not.toHaveBeenCalled()
+    await w.fire('message', { type: 'SESSION', session: message.session })
+    await Promise.all([w.fire('message', message), w.fire('message', message)])
+    expect(w.showNotification).toHaveBeenCalledOnce()
+    await w.fire('message', { type: 'CLEAR_POSTERS' })
+    await w.fire('message', message)
+    expect(w.showNotification).toHaveBeenCalledOnce()
+    await w.fire('message', { ...message, id: 'other', session: 'old-session' })
+    await w.fire('message', { ...message, id: 'malicious', url: 'https://another.test/' })
+    expect(w.showNotification).toHaveBeenCalledOnce()
+    const item = w.notifications[0]
+    await w.fire('message', { type: 'SESSION', session: null })
+    expect(item.close).toHaveBeenCalled()
+    await w.click(item)
+    expect(w.openWindow).not.toHaveBeenCalled()
+  })
+
+  it('retries failed delivery, closes on opt-out, focuses a matching result and preserves other drafts', async () => {
+    const w = worker()
+    await w.fire('message', { type: 'SESSION', session: message.session })
+    w.showNotification.mockRejectedValueOnce(new Error('permission revoked'))
+    await w.fire('message', message)
+    await w.fire('message', message)
+    expect(w.showNotification).toHaveBeenCalledTimes(2)
+    const focus = vi.fn(async () => {})
+    w.matchAll.mockResolvedValue([{ url: `${origin}/settings`, focus }])
+    await w.click(w.notifications[0])
+    expect(w.openWindow).toHaveBeenCalledWith(`${origin}/videos/result`)
+    expect(focus).not.toHaveBeenCalled()
+    await w.fire('message', { ...message, id: 'second' })
+    w.matchAll.mockResolvedValue([{ url: `${origin}/videos/result`, focus }])
+    await w.click(w.notifications[0])
+    expect(focus).toHaveBeenCalledOnce()
+    await w.fire('message', { ...message, id: 'third' })
+    const item = w.notifications[0]
+    await w.fire('message', { type: 'CLEAR_NOTIFICATIONS', session: message.session })
+    expect(item.close).toHaveBeenCalled()
+    await w.fire('message', { ...message, id: 'third' })
+    expect(w.notifications).toHaveLength(0)
+  })
+})
 
 describe('offline worker private cache lifecycle', () => {
   it('precaches the shell and serves offline navigation without forcing an update', async () => {

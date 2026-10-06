@@ -22,8 +22,31 @@ async function changeOwner(owner) {
   const data = await state()
   if (data.owner === owner) return
   await caches.delete(POSTERS)
+  await closeNotifications().catch(() => {})
   await save({ owner, items: [], revision: (data.revision || 0) + 1 })
 }
+async function closeNotifications() {
+  for (const notification of await self.registration?.getNotifications?.() || []) {
+    if (notification.tag.startsWith('reelvault-job-')) notification.close()
+  }
+}
+function notificationPath(value) {
+  return typeof value === 'string' && /^(\/jobs|\/videos\/[a-zA-Z0-9_-]+)$/.test(value)
+}
+self.addEventListener('notificationclick', event => {
+  const notification = event.notification
+  if (!notification.tag.startsWith('reelvault-job-')) return
+  notification.close()
+  event.waitUntil((async () => {
+    const data = await serial(state)
+    if (!data.owner || data.owner !== notification.data?.session || !notificationPath(notification.data?.url)) return
+    const url = new URL(notification.data.url, self.location.origin).href
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    const existing = windows.find(client => client.url === url)
+    if (existing) await existing.focus()
+    else await self.clients.openWindow(url) // Preserve unsaved work in existing pages.
+  })().catch(() => {}))
+})
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     await (await caches.open(SHELL)).addAll(PRECACHE)
@@ -116,9 +139,27 @@ self.addEventListener('message', (event) => {
     event.waitUntil(serial(async () => {
       const data = await state()
       await caches.delete(POSTERS)
-      await save({ owner: data.owner, items: [], revision: (data.revision || 0) + 1 })
+      await save({ ...data, items: [], revision: (data.revision || 0) + 1 })
       event.ports[0]?.postMessage({ ok: true })
     }))
+  } else if (event.data?.type === 'CLEAR_NOTIFICATIONS') {
+    event.waitUntil(serial(async () => {
+      if ((await state()).owner === event.data.session) await closeNotifications()
+    }).catch(() => {}))
+  } else if (event.data?.type === 'JOB_NOTIFICATION') {
+    event.waitUntil(serial(async () => {
+      const data = await state(), message = event.data
+      if (!data.owner || data.owner !== message.session || typeof message.id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(message.id)
+        || !notificationPath(message.url) || typeof message.title !== 'string' || typeof message.body !== 'string') return
+      if ((data.notifications || []).includes(message.id)) return
+      await self.registration.showNotification(message.title.slice(0, 200), {
+        body: message.body.slice(0, 400), icon: '/icon-192.png',
+        tag: `reelvault-job-${data.owner}-${message.id}`, lang: message.lang === 'en' ? 'en' : 'zh-CN',
+        data: { session: data.owner, url: message.url },
+      })
+      data.notifications = [...data.notifications || [], message.id].slice(-1000)
+      await save(data)
+    }).catch(() => {}))
   } else if (event.data?.type === 'POSTER_TITLE') {
     event.waitUntil((async () => {
       const url = new URL(event.data.url, self.location.origin)

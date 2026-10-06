@@ -18,7 +18,7 @@ const VideoPage = lazy(() => import('./pages/VideoPage'))
 function AppRoutes() {
   const { loading, user, setupRequired } = useAuth()
   const location = useLocation()
-  useJobEvents(!!user)
+  useJobEvents(user?.session_id ?? null, user?.username ?? '')
 
   if (loading) {
     return (

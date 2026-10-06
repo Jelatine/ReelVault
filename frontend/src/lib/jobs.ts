@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { notifications } from '@mantine/notifications'
 import { useEffect } from 'react'
 import type { Job } from './types'
+import { jobNotificationObserver } from './system-notifications'
 
 const operationLabels = (): Record<string, string> => ({
   ingest: tr("处理新视频"),
@@ -37,13 +38,15 @@ export function jobLabel(job: Job): string {
 const FINAL = new Set(['succeeded', 'failed', 'canceled'])
 
 /** Subscribe to job progress over SSE and keep the query cache in sync. */
-export function useJobEvents(enabled: boolean) {
+export function useJobEvents(session: string | null, username: string) {
   const qc = useQueryClient()
   useEffect(() => {
-    if (!enabled) return
+    if (!session) return
+    const notify = jobNotificationObserver(username, session)
     const es = new EventSource('/api/jobs/events')
     es.addEventListener('job', (ev) => {
       const job = JSON.parse((ev as MessageEvent).data) as Job
+      notify(job, jobLabel(job))
       qc.setQueryData<Job[]>(['jobs'], (old) => {
         if (!old) return old
         const idx = old.findIndex((j) => j.id === job.id)
@@ -79,5 +82,5 @@ export function useJobEvents(enabled: boolean) {
       }
     })
     return () => es.close()
-  }, [enabled, qc])
+  }, [session, username, qc])
 }

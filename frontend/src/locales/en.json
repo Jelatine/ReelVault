@@ -1116,5 +1116,19 @@
   "（{{count}}）": " ({{count}})",
   "）": ")",
   "）。": ").",
-  "：": ": "
+  "：": ": ",
+  "点击查看任务结果或详细信息。": "Click to view the result or job details.",
+  "{{operation}}任务已完成": "{{operation}} job completed",
+  "{{operation}}任务失败": "{{operation}} job failed",
+  "浏览器任务通知": "Browser job notifications",
+  "启用后，运行超过一分钟的任务完成或失败时发送系统通知。页面需保持打开并联网；点击通知可打开结果或任务中心。": "When enabled, jobs running longer than a minute send a system notification when completed or failed. Keep a page open and connected. Click a notification to open the result or Jobs.",
+  "此浏览器或访问方式不支持系统通知，请使用 HTTPS 或 localhost。": "System notifications are unavailable in this browser or connection. Use HTTPS or localhost.",
+  "通知权限已被拒绝，请在浏览器的站点设置中允许通知后再启用。": "Notification permission was denied. Allow notifications in browser site settings, then enable them here.",
+  "无法启用或发送通知，请检查浏览器权限并重试。": "Cannot enable or send notifications. Check browser permissions and try again.",
+  "任务通知已启用": "Job notifications enabled",
+  "任务通知已关闭": "Job notifications disabled",
+  "关闭任务通知": "Disable job notifications",
+  "启用任务通知": "Enable job notifications",
+  "ReelVault 测试通知": "ReelVault test notification",
+  "发送测试通知": "Send test notification"
 }

@@ -28,6 +28,7 @@ import EncodingPanel from '../components/EncodingPanel'
 import ImportSettings from '../components/ImportSettings'
 import PwaPanel from '../components/PwaPanel'
 import LanguageSelect from '../components/LanguageSelect'
+import NotificationPanel from '../components/NotificationPanel'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatBytes, formatDate } from '../lib/format'
@@ -224,6 +225,7 @@ export default function SettingsPage() {
       </Paper>
       <Paper withBorder p="md"><ImportSettings /></Paper>
       <Paper withBorder p="md"><PwaPanel /></Paper>
+      <Paper withBorder p="md"><NotificationPanel /></Paper>
       <Paper withBorder p="md">
         <EncodingPanel />
         <HlsSettings />
