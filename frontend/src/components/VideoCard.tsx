@@ -6,6 +6,7 @@ import { formatBytes, formatDuration } from '../lib/format'
 import VideoRating from './VideoRating'
 import type { Video } from '../lib/types'
 import { keyboardContext } from '../lib/context-menu'
+import { posterTitle } from '../lib/pwa'
 
 interface Props {
   video: Video
@@ -23,7 +24,7 @@ export function Thumb({ video, hover }: { video: Video; hover: boolean }) {
   return (
     <div className="thumb">
       {video.poster_url ? (
-        <img src={video.poster_url} alt="" loading="lazy" />
+        <img src={video.poster_url} alt="" loading="lazy" onLoad={() => posterTitle(video.poster_url!, video.title)} />
       ) : (
         <Group h="100%" justify="center">
           {video.status === 'processing' ? <Loader size="sm" color="gray" /> : <IconMovie color="gray" />}

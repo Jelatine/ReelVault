@@ -24,6 +24,7 @@ import BackupPanel from '../components/BackupPanel'
 import HlsSettings from '../components/HlsSettings'
 import EncodingPanel from '../components/EncodingPanel'
 import ImportSettings from '../components/ImportSettings'
+import PwaPanel from '../components/PwaPanel'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatBytes, formatDate } from '../lib/format'
@@ -222,6 +223,7 @@ export default function SettingsPage() {
         <BackupPanel />
       </Paper>
       <Paper withBorder p="md"><ImportSettings /></Paper>
+      <Paper withBorder p="md"><PwaPanel /></Paper>
       <Paper withBorder p="md">
         <EncodingPanel />
         <HlsSettings />

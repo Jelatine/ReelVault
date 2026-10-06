@@ -225,5 +225,7 @@ def mount_spa(app: FastAPI, root: Path) -> None:
         candidate = (root / path).resolve()
         if path and candidate.is_file() and candidate.is_relative_to(root):
             cache = "public, max-age=31536000, immutable" if path.startswith("assets/") else None
+            if path in {"sw.js", "manifest.webmanifest", "offline.html"}:
+                cache = "no-cache"
             return FileResponse(candidate, headers={"Cache-Control": cache} if cache else None)
         return FileResponse(index, headers={"Cache-Control": "no-cache"})

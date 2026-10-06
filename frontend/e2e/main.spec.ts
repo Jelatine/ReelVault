@@ -9,6 +9,77 @@ async function selectUpload(page: Page, chooser: FileChooser, files: Parameters<
   await page.getByRole('button', { name: '开始上传', exact: true }).click()
 }
 
+test('PWA 安装清单、离线海报、缓存清理与退出保护', async ({ page, context }, testInfo) => {
+  await login(page)
+  await page.evaluate(() => navigator.serviceWorker.ready)
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true)
+  const cdp = await context.newCDPSession(page)
+  expect((await cdp.send('Page.getInstallabilityErrors')).installabilityErrors).toEqual([])
+  const manifest = await (await page.request.get('/manifest.webmanifest')).json()
+  expect(manifest.display).toBe('standalone')
+  expect(manifest.start_url).toBe('/')
+  expect(manifest.icons.map((icon: { sizes: string }) => icon.sizes)).toEqual(['192x192', '512x512'])
+  for (const icon of manifest.icons) expect((await page.request.get(icon.src)).headers()['content-type']).toBe('image/png')
+  expect((await page.request.get('/sw.js')).headers()['cache-control']).toBe('no-cache')
+  await page.reload()
+  const sample = execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i',
+    'color=green:size=320x240:rate=25:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1'])
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: '上传', exact: true }).click()])
+  const completed = page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST')
+  await selectUpload(page, chooser, { name: 'offline-poster.mp4', mimeType: 'video/mp4', buffer: sample })
+  const video = await (await completed).json()
+  await expect.poll(async () => (await (await page.request.get(`/api/videos/${video.id}`)).json()).status).toBe('ready')
+  await page.goto('/library?q=offline-poster')
+  const card = page.locator(`[data-video-id="${video.id}"]`)
+  await expect(card.locator('img')).toBeVisible()
+  const poster = await card.locator('img').getAttribute('src')
+  const count = () => page.evaluate(async () => (await (await caches.open('reelvault-offline-posters')).keys()).length)
+  await expect.poll(count).toBeGreaterThan(0)
+  await expect.poll(() => page.evaluate(async (title) => {
+    const state = await (await caches.open('reelvault-offline-state')).match('/__reelvault_offline_state__')
+    return (await state?.json())?.items.some((item: { title: string }) => item.title === title)
+  }, video.title)).toBe(true)
+  await context.setOffline(true)
+  await expect(page.getByRole('status').filter({ hasText: '当前离线' })).toBeVisible()
+  await page.goto(`/videos/${video.id}`)
+  await expect(page.getByRole('heading', { name: '离线浏览', exact: true })).toBeVisible()
+  await expect(page.locator('figcaption').filter({ hasText: video.title })).toBeVisible()
+  await expect.poll(() => page.locator('#gallery img').first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('offline-gallery.png') })
+  const cached = await page.evaluate(async () => (await Promise.all((await caches.keys()).map(async (name) =>
+    (await (await caches.open(name)).keys()).map((key) => new URL(key.url).pathname)))).flat())
+  expect(cached.filter((path) => path.startsWith('/api/')).every((path) => path.endsWith('/poster.jpg'))).toBe(true)
+  await context.setOffline(false)
+  await page.getByRole('link', { name: '重新连接' }).click()
+  await expect(page.getByRole('button', { name: '上传', exact: true })).toBeVisible()
+  await page.goto('/settings')
+  await expect(page.getByText('离线缓存已启用。', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: '清除离线海报', exact: true }).click()
+  await expect.poll(count).toBe(0)
+  await page.goto('/library?q=offline-poster')
+  await expect.poll(count).toBeGreaterThan(0)
+  // Loss of the server session clears private posters without cached API authentication.
+  await context.clearCookies()
+  expect(await page.evaluate(async (url) => (await fetch(url!)).status, poster)).toBe(401)
+  await expect.poll(count).toBe(0)
+  await page.goto('/')
+  await page.getByRole('textbox', { name: '用户名', exact: true }).fill('e2e-admin')
+  await page.getByLabel(/^密码/).fill('e2e-secret123')
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page.getByRole('button', { name: '上传', exact: true })).toBeVisible()
+  await page.goto('/library?q=offline-poster')
+  await expect.poll(count).toBeGreaterThan(0)
+  await page.getByRole('button', { name: '用户菜单' }).click()
+  await page.getByRole('menuitem', { name: '退出登录' }).click()
+  await expect.poll(count).toBe(0)
+  await context.setOffline(true)
+  await page.goto('/library')
+  await expect(page.getByText('暂无离线海报。', { exact: false })).toBeVisible()
+  await expect(page.locator('#gallery img')).toHaveCount(0)
+  await context.setOffline(false)
+})
+
 test('手机触控手势、底部导航和编辑抽屉真实剪辑', async ({ browser }, testInfo) => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
   const page = await context.newPage()
@@ -701,8 +772,8 @@ test('真实上传、解码播放、精确剪辑与结果播放', async ({ page 
   await expect(page.getByText(/烧录字幕/).first()).toBeVisible()
 })
 
-test('升级徽章、发布说明与部署方式提示', async ({ page }) => {
-  await page.route('**/api/system/update', (route) => route.fulfill({ json: {
+test('升级徽章、发布说明与部署方式提示', async ({ page, context }) => {
+  await context.route('**/api/system/update', (route) => route.fulfill({ json: {
     current_version: '0.1.0', latest_version: '0.2.0', update_available: true,
     release: { tag: 'v0.2.0', name: '测试版本', url: 'https://example.com/release', notes: '测试发布说明', published_at: null, prerelease: false },
     checked_at: null, check_error: null, check_enabled: false, repo: 'Jelatine/ReelVault',
@@ -716,7 +787,7 @@ test('升级徽章、发布说明与部署方式提示', async ({ page }) => {
   await expect(page.getByText('源码运行需手动升级，升级方法：')).toBeVisible()
 })
 
-test('任务中心优先级、暂停继续、取消和失败重试交互', async ({ page }) => {
+test('任务中心优先级、暂停继续、取消和失败重试交互', async ({ page, context }) => {
   // Fixed responses make control transitions deterministic; real process signals,
   // scheduling and retry output are verified by backend integration tests.
   const base = {
@@ -729,8 +800,8 @@ test('任务中心优先级、暂停继续、取消和失败重试交互', async
     { ...base, id: 'queue001', status: 'queued' },
     { ...base, id: 'failed01', status: 'failed', error: '临时编码失败' },
   ]
-  await page.route(/\/api\/jobs(?:\?.*)?$/, (route) => route.fulfill({ json: rows }))
-  await page.route('**/api/jobs/*/*', async (route) => {
+  await context.route(/\/api\/jobs(?:\?.*)?$/, (route) => route.fulfill({ json: rows }))
+  await context.route('**/api/jobs/*/*', async (route) => {
     const [id, action] = new URL(route.request().url()).pathname.split('/').slice(-2)
     const job = rows.find((row) => row.id === id)!
     if (action === 'priority') job.priority = route.request().postDataJSON().priority
@@ -901,11 +972,11 @@ test('按需 HLS 生成、弱网自适应、本地解码、手动清晰度、切
   await expect.poll(async () => (await (await page.request.get('/api/system/hls')).json()).enabled).toBe(true)
   const external: string[] = []
   page.on('request', (r) => { if (/^https?:/.test(r.url()) && new URL(r.url()).hostname !== '127.0.0.1') external.push(r.url()) })
-  await page.route('https://**/*', (route) => route.abort())
+  await context.route('https://**/*', (route) => route.abort())
   const cdp = await context.newCDPSession(page)
   await cdp.send('Network.enable')
   let automaticRequest = false
-  await page.route(`**/api/videos/${video.id}/hls`, async (route) => {
+  await context.route(`**/api/videos/${video.id}/hls`, async (route) => {
     if (route.request().method() === 'POST') {
       automaticRequest = route.request().postDataJSON().automatic
       await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 80, downloadThroughput: 50_000, uploadThroughput: 100_000 })
@@ -1033,7 +1104,7 @@ test('视频与文件夹右键菜单、键盘唤起、编辑、下载及回收�
   await expect(page.locator('.mantine-AppShell-navbar').getByText('菜单子目录改名', { exact: true })).not.toBeVisible()
 })
 
-test('全局快捷键搜索上传、卡片方向导航、打开、删除保护与说明', async ({ page }, testInfo) => {
+test('全局快捷键搜索上传、卡片方向导航、打开、删除保护与说明', async ({ page, context }, testInfo) => {
   await login(page)
   const headers = { 'X-Requested-With': 'ReelVault' }
   const folder = await (await page.request.post('/api/folders', { headers, data: { name: '快捷键目录' } })).json()
@@ -1093,13 +1164,13 @@ test('全局快捷键搜索上传、卡片方向导航、打开、删除保护�
   await expect(page.getByRole('dialog', { name: '删除视频' })).not.toBeVisible()
   await expect(cards).toHaveCount(7)
   await expect(page.getByText('已选择 2 个')).toBeVisible()
-  await page.route('**/api/videos/batch', (route) => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: '测试删除失败' }) }))
+  await context.route('**/api/videos/batch', (route) => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: '测试删除失败' }) }))
   await card(1).focus()
   await page.keyboard.press('Delete')
   await page.getByRole('button', { name: '移到回收站', exact: true }).click()
   await expect(page.getByText('测试删除失败', { exact: true })).toBeVisible()
   await expect(page.getByText('已选择 2 个')).toBeVisible()
-  await page.unroute('**/api/videos/batch')
+  await context.unroute('**/api/videos/batch')
   await card(1).focus()
   await page.keyboard.press('Delete')
   await page.getByRole('button', { name: '移到回收站', exact: true }).click()

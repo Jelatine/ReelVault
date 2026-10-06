@@ -39,6 +39,7 @@ import UploadPanel from './UploadPanel'
 import ShortcutHelp from './ShortcutHelp'
 import UploadReview from './UploadReview'
 import MobileNavigation from './MobileNavigation'
+import { OfflineNotice } from './PwaPanel'
 import { shortcutBlocked } from '../lib/shortcuts'
 
 export default function AppLayout() {
@@ -192,7 +193,7 @@ export default function AppLayout() {
             )}
             <Menu position="bottom-end" width={200}>
               <Menu.Target>
-                <ActionIcon variant="default" size="lg">
+                <ActionIcon variant="default" size="lg" aria-label="用户菜单">
                   <IconUser size={18} />
                 </ActionIcon>
               </Menu.Target>
@@ -224,6 +225,7 @@ export default function AppLayout() {
       </AppShell.Navbar>
 
       <AppShell.Main>
+        <OfflineNotice />
         <Outlet />
       </AppShell.Main>
       <MobileNavigation onNavigate={close} />

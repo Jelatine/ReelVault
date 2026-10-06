@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#7048e8" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/favicon.svg" />
+  <title>离线浏览 · ReelVault</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px/1.6 system-ui, sans-serif; background: #1a1b1e; color: #eee; }
+    body { margin: 0; padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); }
+    main { max-width: 960px; margin: auto; } header { display: flex; align-items: center; gap: 12px; }
+    header img { width: 40px; height: 40px; } h1 { font-size: 24px; } h2 { font-size: 18px; margin-top: 32px; }
+    p { color: #bcbcc4; } a, button { font: inherit; display: inline-block; border: 1px solid #8b68ef; border-radius: 8px; padding: 10px 16px; color: white; background: #7048e8; text-decoration: none; cursor: pointer; margin: 0 8px 8px 0; }
+    a:focus-visible, button:focus-visible { outline: 3px solid white; outline-offset: 3px; }
+    #gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 16px; }
+    figure { margin: 0; overflow: hidden; border-radius: 8px; background: #25262b; }
+    figure img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; } figcaption { padding: 8px 12px; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body><main>
+  <header><img src="/favicon.svg" alt="" /><strong>ReelVault</strong></header>
+  <h1>离线浏览</h1>
+  <p id="status" role="status">暂时无法连接服务器。这里显示此设备已缓存的海报；视频播放、编辑与同步需要联网。</p>
+  <a href="/">重新连接</a><button id="clear" type="button">清除离线海报</button>
+  <h2>已缓存的海报</h2><p id="empty">暂无离线海报。联网登录后，浏览视频库即可缓存已查看的海报。</p>
+  <div id="gallery" aria-label="离线海报"></div>
+  <script>
+    async function showGallery() {
+      const gallery = document.querySelector('#gallery'); gallery.replaceChildren();
+      try {
+        const response = await (await caches.open('reelvault-offline-state')).match('/__reelvault_offline_state__');
+        const state = response ? await response.json() : {};
+        if (state.owner) {
+          const cache = await caches.open('reelvault-offline-posters');
+          const titles = new Map((state.items || []).map(item => [item.url, item.title]));
+          for (const key of await cache.keys()) {
+            const response = await cache.match(key); if (!response) continue;
+            const image = document.createElement('img'); image.src = URL.createObjectURL(await response.blob()); image.alt = titles.get(key.url) || '已缓存海报'; image.onload = () => URL.revokeObjectURL(image.src);
+            const figure = document.createElement('figure'); const caption = document.createElement('figcaption'); caption.textContent = titles.get(key.url) || '已缓存海报'; figure.append(image, caption); gallery.append(figure);
+          }
+        }
+        document.querySelector('#empty').hidden = gallery.childElementCount > 0;
+      } catch { document.querySelector('#status').textContent = '此浏览器无法读取离线缓存，请联网后重试。'; }
+    }
+    document.querySelector('#clear').onclick = async () => {
+      const worker = navigator.serviceWorker?.controller;
+      if (!worker) return;
+      const channel = new MessageChannel(); channel.port1.onmessage = () => showGallery();
+      worker.postMessage({ type: 'CLEAR_POSTERS' }, [channel.port2]);
+    };
+    window.addEventListener('online', () => { document.querySelector('#status').textContent = '网络已恢复，点击「重新连接」返回视频库。'; });
+    showGallery();
+  </script>
+</main></body></html>

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, useCallback, useContext, useEffect, type ReactNode } from 'react'
 import { api, UNAUTHORIZED_EVENT } from './api'
+import { PWA_CHANGED, syncOfflineSession } from './pwa'
 
 interface Me {
   username: string
@@ -45,13 +46,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refetch])
 
   const logout = useCallback(async () => {
+    syncOfflineSession(null)
     await api.post('/api/auth/logout').catch(() => undefined)
     qc.clear()
     await refetch()
   }, [qc, refetch])
 
   useEffect(() => {
+    const sync = () => { if (!isLoading && navigator.onLine) syncOfflineSession(data?.user?.session_id ?? null) }
+    sync()
+    window.addEventListener(PWA_CHANGED, sync)
+    return () => window.removeEventListener(PWA_CHANGED, sync)
+  }, [isLoading, data])
+
+  useEffect(() => {
     const onUnauthorized = () => {
+      syncOfflineSession(null)
       qc.setQueryData(['auth'], { setupRequired: false, user: null })
     }
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
