@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import os
 import shutil
@@ -15,16 +17,31 @@ from sqlalchemy import func, select
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import __version__
+from .api import (
+    assets,
+    collections,
+    folders,
+    history,
+    images,
+    jobs,
+    luts,
+    playback,
+    subtitles,
+    system,
+    videos,
+)
 from .api import auth as auth_api
-from .api import folders, jobs, system, videos
 from .auth import LoginLimiter, hash_password
+from .backup import backup_before_migration, library_lock
 from .config import Settings
 from .db import make_engine, make_sessionmaker
 from .jobs.handlers import HANDLERS
 from .jobs.manager import JobManager
+from .maintenance import maintain
+from .media.encoding import detect_encoders
 from .media.ffmpeg import ffmpeg_version
 from .migrate import upgrade
-from .models import Upload, User
+from .models import RuntimeSetting, Upload, User
 from .updates import Updater
 
 log = logging.getLogger("reelvault")
@@ -90,42 +107,53 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.data_dir = settings.data_dir.resolve()
         settings.ensure_dirs()
-        engine = make_engine(settings.db_path)
-        upgrade(engine)
-        app.state.engine = engine
-        app.state.sessionmaker = make_sessionmaker(engine)
-        bootstrap_admin(app, settings)
-        cleanup_stale_uploads(app, settings)
-        app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)
-        manager = JobManager(settings, app.state.sessionmaker, HANDLERS)
-        app.state.jobs = manager
-        await manager.start()
+        with library_lock(settings.data_dir):
+            backup_before_migration(settings)
+            engine = make_engine(settings.db_path)
+            upgrade(engine)
+            app.state.engine = engine
+            app.state.sessionmaker = make_sessionmaker(engine)
+            with app.state.sessionmaker() as db:
+                saved = db.get(RuntimeSetting, "encoding")
+                if saved:
+                    settings.encoder = Settings(encoder=saved.value["encoder"]).encoder
+            bootstrap_admin(app, settings)
+            cleanup_stale_uploads(app, settings)
+            app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)
+            manager = JobManager(settings, app.state.sessionmaker, HANDLERS)
+            manager.encoding.compiled = await detect_encoders(settings.ffmpeg)
+            app.state.jobs = manager
+            await manager.start()
+            maintenance = asyncio.create_task(maintain(settings, app.state.sessionmaker))
 
-        def request_restart() -> None:
-            # Stop uvicorn through its own flag: after a SIGTERM newer uvicorn re-raises
-            # the signal, and systemd treats death-by-SIGTERM as a clean stop (no restart).
-            # __main__ then exits with RESTART_EXIT_CODE so the service manager restarts us.
-            app.state.restart_requested = True
-            server = getattr(app.state, "server", None)
-            if server is not None:
-                server.should_exit = True
-            else:
-                os.kill(os.getpid(), signal.SIGTERM)
+            def request_restart() -> None:
+                # Stop uvicorn through its own flag: after a SIGTERM newer uvicorn re-raises
+                # the signal, and systemd treats death-by-SIGTERM as a clean stop (no restart).
+                # __main__ then exits with RESTART_EXIT_CODE so the service manager restarts us.
+                app.state.restart_requested = True
+                server = getattr(app.state, "server", None)
+                if server is not None:
+                    server.should_exit = True
+                else:
+                    os.kill(os.getpid(), signal.SIGTERM)
 
-        updater = Updater(
-            settings,
-            busy=lambda: len(manager.running) + manager.queue.qsize(),
-            request_restart=request_restart,
-        )
-        app.state.updater = updater
-        updater.start()
-        log.info("ReelVault %s ready, data dir %s", __version__, settings.data_dir)
-        try:
-            yield
-        finally:
-            await updater.stop()
-            await manager.stop()
-            engine.dispose()
+            updater = Updater(
+                settings,
+                busy=lambda: len(manager.running) + manager.pending_count(include_paused=True),
+                request_restart=request_restart,
+            )
+            app.state.updater = updater
+            updater.start()
+            log.info("ReelVault %s ready, data dir %s", __version__, settings.data_dir)
+            try:
+                yield
+            finally:
+                maintenance.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await maintenance
+                await updater.stop()
+                await manager.stop()
+                engine.dispose()
 
     app = FastAPI(title="ReelVault", version=__version__, lifespan=lifespan)
     app.state.settings = settings
@@ -135,7 +163,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(CSRFMiddleware)
 
-    for r in (auth_api.router, videos.router, folders.router, jobs.router, system.router):
+    for r in (
+        auth_api.router,
+        assets.router,
+        images.router,
+        luts.router,
+        subtitles.router,
+        collections.router,
+        history.router,
+        playback.router,
+        videos.router,
+        folders.router,
+        jobs.router,
+        system.router,
+    ):
         app.include_router(r)
 
     static = settings.resolve_static_dir()

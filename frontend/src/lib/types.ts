@@ -1,7 +1,13 @@
 export interface Video {
   id: string
   title: string
+  captured_at: string | null
+  search_excerpt?: string
+  rating: number
+  favorite: boolean
   description: string
+  source_video_id?: string | null
+  edit_params?: Record<string, unknown> | null
   original_name: string
   folder_id: number | null
   status: 'processing' | 'ready' | 'error'
@@ -47,13 +53,18 @@ export interface Tag {
   count: number
 }
 
-export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+export type JobStatus = 'queued' | 'running' | 'paused' | 'succeeded' | 'failed' | 'canceled'
 
 export interface Job {
   id: string
   kind: 'ingest' | 'edit'
   status: JobStatus
-  params: { edit?: { op: string; [k: string]: unknown }; output?: { mode: string }; name?: string }
+  priority?: number
+  eta_seconds?: number | null
+  retry_of?: string | null
+  conflicting_jobs?: string[]
+  params: { edit?: { op: string; [k: string]: unknown }; output?: { mode: string }; name?: string
+    encoding?: { requested: string; encoder: string; fallback: string | null } }
   video_ids: string[]
   result_video_id: string | null
   has_result_file: boolean
@@ -83,9 +94,11 @@ export interface SystemInfo {
   workers: number
   running_jobs: number
   queued_jobs: number
+  paused_jobs?: number
   disk: { total: number; used: number; free: number }
   library: { count: number; size: number }
   trash: { count: number; size: number }
+  trash_retention_days: number
   import_dir: string | null
 }
 

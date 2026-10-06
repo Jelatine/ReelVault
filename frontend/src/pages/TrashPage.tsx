@@ -1,15 +1,17 @@
 import { Button, Center, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconRestore, IconTrashX } from '@tabler/icons-react'
 import { useNavigate } from 'react-router-dom'
 import { confirmAction } from '../components/prompt'
 import VideoCard from '../components/VideoCard'
 import { api } from '../lib/api'
 import { useVideos } from '../lib/queries'
+import type { SystemInfo } from '../lib/types'
 
 export default function TrashPage() {
   const { data } = useVideos({ trash: true, page_size: 500 })
+  const system = useQuery({ queryKey: ['system'], queryFn: () => api.get<SystemInfo>('/api/system/info') })
   const qc = useQueryClient()
   const navigate = useNavigate()
   const items = data?.items ?? []
@@ -53,6 +55,13 @@ export default function TrashPage() {
           </Button>
         </Group>
       </Group>
+      {system.data && (
+        <Text size="sm" c="dimmed">
+          {system.data.trash_retention_days === 0
+            ? '自动清理已关闭。'
+            : `删除超过 ${system.data.trash_retention_days} 天的视频将自动彻底删除。`}
+        </Text>
+      )}
       {items.length === 0 ? (
         <Center mih={200}>
           <Text c="dimmed">回收站是空的</Text>

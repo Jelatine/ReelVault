@@ -23,7 +23,7 @@ fi
 
 echo "==> 安装系统依赖 (ffmpeg)"
 apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg curl ca-certificates >/dev/null
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-noto-cjk curl ca-certificates >/dev/null
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "==> 安装 uv"

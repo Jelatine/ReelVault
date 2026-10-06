@@ -47,7 +47,7 @@ export default function AppLayout() {
   const scheme = useComputedColorScheme('light')
   const jobs = useJobs()
   const update = useUpdateStatus()
-  const activeJobs = (jobs.data ?? []).filter((j) => j.status === 'running' || j.status === 'queued')
+  const activeJobs = (jobs.data ?? []).filter((j) => ['running', 'queued', 'paused'].includes(j.status))
 
   const currentFolder = () => {
     const f = params.get('folder')
@@ -72,6 +72,7 @@ export default function AppLayout() {
     const next = new URLSearchParams(params)
     if (search.trim()) next.set('q', search.trim())
     else next.delete('q')
+    next.delete('page')
     navigate({ pathname: '/', search: next.toString() })
   }
 

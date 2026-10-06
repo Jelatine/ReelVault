@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Literal
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
+from pydantic_settings import (
+    BaseSettings,
+    JsonConfigSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 
@@ -11,6 +19,25 @@ class Settings(BaseSettings):
     """Runtime configuration, read from REELVAULT_* environment variables."""
 
     model_config = SettingsConfigDict(env_prefix="REELVAULT_", env_file=".env", extra="ignore")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            JsonConfigSettingsSource(
+                settings_cls, json_file=os.environ.get("REELVAULT_CONFIG_FILE")
+            ),
+            file_secret_settings,
+        )
 
     data_dir: Path = Path("./data")
     host: str = "0.0.0.0"
@@ -22,6 +49,8 @@ class Settings(BaseSettings):
 
     # Number of concurrent ffmpeg jobs.
     workers: int = 2
+    encoder: Literal["software", "auto", "videotoolbox", "qsv", "vaapi", "nvenc"] = "software"
+    vaapi_device: str = "/dev/dri/renderD128"
 
     # Session lifetime without "remember me" (sliding, in hours).
     session_idle_hours: int = 12
@@ -45,6 +74,9 @@ class Settings(BaseSettings):
     ffprobe: str = "ffprobe"
 
     upload_chunk_size: int = 8 * 1024 * 1024
+    audio_upload_max_mb: int = Field(128, ge=1, le=2048)
+    # Zero disables automatic permanent deletion.
+    trash_retention_days: int = Field(30, ge=0)
 
     # Update checks against GitHub Releases.
     update_repo: str = "Jelatine/ReelVault"
@@ -78,11 +110,21 @@ class Settings(BaseSettings):
         return self.data_dir / "exports"
 
     @property
+    def assets_dir(self) -> Path:
+        return self.data_dir / "assets"
+
+    @property
     def db_path(self) -> Path:
         return self.data_dir / "reelvault.db"
 
     def ensure_dirs(self) -> None:
-        for d in (self.library_dir, self.derived_dir, self.tmp_dir, self.exports_dir):
+        for d in (
+            self.library_dir,
+            self.derived_dir,
+            self.tmp_dir,
+            self.exports_dir,
+            self.assets_dir,
+        ):
             d.mkdir(parents=True, exist_ok=True)
 
     def resolve_static_dir(self) -> Path | None:

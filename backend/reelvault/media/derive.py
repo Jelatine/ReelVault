@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+from .encoding import EncoderRuntime
 from .ffmpeg import ProcessHandle, ProgressCallback, ffmpeg_args, run_command
 from .probe import MediaInfo
 
@@ -48,6 +49,7 @@ async def extract_frame(
     out: Path,
     time: float,
     width: int | None = POSTER_WIDTH,
+    handle: ProcessHandle | None = None,
 ) -> None:
     time = max(0.0, min(time, max(info.duration - 0.05, 0.0)))
     vf = f"scale={width}:-2" if width and info.width > width else "null"
@@ -56,7 +58,7 @@ async def extract_frame(
         "-map", f"0:{info.video_index}", "-frames:v", "1",
         "-vf", vf, *JPEG, str(out),
     ]  # fmt: skip
-    await run_command(ffmpeg_args(ffmpeg, args, progress=False))
+    await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
 
 
 async def make_preview(
@@ -65,7 +67,10 @@ async def make_preview(
     info: MediaInfo,
     out: Path,
     handle: ProcessHandle | None = None,
-) -> None:
+    *,
+    encoding: EncoderRuntime | None = None,
+    encoder: str = "software",
+) -> dict[str, object] | None:
     """Short silent montage of evenly spaced 1s segments, used for hover previews."""
     seg = PREVIEW_SEGMENT_SECONDS
     h = scaled_height(info, PREVIEW_WIDTH)
@@ -89,7 +94,10 @@ async def make_preview(
         "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "30",
         "-movflags", "+faststart", str(out),
     ]  # fmt: skip
+    if encoding:
+        return await encoding.run([args], encoder, handle=handle)
     await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
+    return None
 
 
 def sprite_layout(duration: float) -> tuple[float, int]:
@@ -160,7 +168,10 @@ async def make_playable(
     out: Path,
     handle: ProcessHandle | None = None,
     on_progress: ProgressCallback | None = None,
-) -> None:
+    *,
+    encoding: EncoderRuntime | None = None,
+    encoder: str = "software",
+) -> dict[str, object] | None:
     """Create an H.264/AAC MP4 for sources browsers can't play. Remux when possible."""
     args = ["-i", str(src), "-map", f"0:{info.video_index}"]
     if info.audio_index is not None:
@@ -173,9 +184,11 @@ async def make_playable(
             "-c:a", "aac", "-b:a", "160k",
         ]  # fmt: skip
     args += ["-movflags", "+faststart", "-f", "mp4", str(out)]
+    if encoding:
+        return await encoding.run(
+            [args], encoder, duration=info.duration, on_progress=on_progress, handle=handle
+        )
     await run_command(
-        ffmpeg_args(ffmpeg, args),
-        duration=info.duration,
-        on_progress=on_progress,
-        handle=handle,
+        ffmpeg_args(ffmpeg, args), duration=info.duration, on_progress=on_progress, handle=handle
     )
+    return None

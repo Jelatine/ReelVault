@@ -1,9 +1,11 @@
-import { Button, SegmentedControl, Stack, Text } from '@mantine/core'
+import { Button, NumberInput, SegmentedControl, Stack, Text } from '@mantine/core'
 import { useEffect, useState } from 'react'
 import { defaultOutput, useSubmitEdit, type EditorContext } from './edit'
+import PresetControls from './PresetControls'
 import { OutputFields } from './OutputFields'
 
 export default function RotatePanel({ video, setOverlay }: EditorContext) {
+  const [crf, setCrf] = useState(20)
   const [angle, setAngle] = useState(90)
   const [flip, setFlip] = useState<'none' | 'horizontal' | 'vertical'>('none')
   const [output, setOutput] = useState(defaultOutput)
@@ -24,6 +26,11 @@ export default function RotatePanel({ video, setOverlay }: EditorContext) {
 
   return (
     <Stack>
+      <PresetControls edit={{ op: 'rotate', angle, flip, crf }} onApply={(params) => {
+        setCrf(Number(params.crf ?? 20))
+        setAngle(Number(params.angle ?? 90))
+        setFlip((params.flip ?? 'none') as typeof flip)
+      }} />
       <Text size="sm" c="dimmed">
         播放器中已实时预览旋转效果。
       </Text>
@@ -53,11 +60,12 @@ export default function RotatePanel({ video, setOverlay }: EditorContext) {
           ]}
         />
       </div>
+      <NumberInput label="画质 CRF（越小越清晰）" min={0} max={51} value={crf} onChange={(value) => setCrf(Number(value))} />
       <OutputFields value={output} onChange={setOutput} />
       <Button
         loading={busy}
         disabled={angle === 0 && flip === 'none'}
-        onClick={() => submit({ op: 'rotate', angle, flip }, output)}
+        onClick={() => submit({ op: 'rotate', angle, flip, crf }, output)}
       >
         应用旋转
       </Button>

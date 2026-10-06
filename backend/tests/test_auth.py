@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
@@ -51,7 +52,7 @@ def test_multi_device_sessions_and_revoke(settings: Settings) -> None:
     app = create_app(settings)
     with (
         TestClient(app, headers=HEADERS) as laptop,
-        TestClient(app, headers=HEADERS) as phone,
+        closing(TestClient(app, headers=HEADERS)) as phone,
     ):
         login(laptop, device="laptop")
         login(phone, remember=True, device="phone")
@@ -93,7 +94,7 @@ def test_token_rotation_keeps_session(settings: Settings) -> None:
 
 def test_change_password_logs_out_others(settings: Settings) -> None:
     app = create_app(settings)
-    with TestClient(app, headers=HEADERS) as a, TestClient(app, headers=HEADERS) as b:
+    with TestClient(app, headers=HEADERS) as a, closing(TestClient(app, headers=HEADERS)) as b:
         login(a)
         login(b)
         r = a.post(

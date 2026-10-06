@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,13 @@ def apply_media_info(video: Video, info: MediaInfo, size: int) -> None:
     video.video_codec = info.video_codec
     video.audio_codec = info.audio_codec
     video.meta = {**(video.meta or {}), **info.to_meta()}
+    captured = info.extra.get("creation_time")
+    if captured:
+        try:
+            value = datetime.fromisoformat(str(captured).replace("Z", "+00:00"))
+            video.captured_at = value.replace(tzinfo=UTC) if value.tzinfo is None else value
+        except ValueError:
+            pass
 
 
 def delete_video_files(settings: Settings, video: Video) -> None:
@@ -109,6 +117,11 @@ def video_to_dict(v: Video) -> dict[str, Any]:
         "id": v.id,
         "title": v.title,
         "description": v.description,
+        "source_video_id": v.source_video_id,
+        "edit_params": v.edit_params,
+        "rating": v.rating,
+        "favorite": v.favorite,
+        "captured_at": v.captured_at.isoformat() if v.captured_at else None,
         "original_name": v.original_name,
         "folder_id": v.folder_id,
         "status": v.status,

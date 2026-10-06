@@ -1,9 +1,27 @@
 from __future__ import annotations
 
-from fastapi import Request
+import math
+from typing import Annotated, Any
+
+from fastapi import HTTPException, Request
+from pydantic import BeforeValidator
 
 from ..config import Settings
 from ..jobs.manager import JobManager
+
+
+def finite_number(value: Any) -> Any:
+    try:
+        finite = math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return value
+    if not finite:
+        # NaN/Infinity cannot be reflected in a JSON validation error response.
+        raise HTTPException(422, "数值必须是有限数值")
+    return value
+
+
+FiniteNumber = Annotated[float, BeforeValidator(finite_number)]
 
 
 def get_settings(request: Request) -> Settings:

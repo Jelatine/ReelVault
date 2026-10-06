@@ -11,10 +11,11 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
+from ..media.encoding import EncoderRuntime
 from ..media.ffmpeg import Canceled, ProcessHandle
 from ..models import Job, utcnow
 
@@ -26,9 +27,18 @@ class JobContext:
         self.manager = manager
         self.job_id = job_id
         self.handle = ProcessHandle()
+        self.video_ids: list[str] = []
         self._last_flush = 0.0
         self.progress = 0.0
         self.message = ""
+        self._rate_time = time.monotonic()
+        self._rate_progress = 0.0
+        self._last_progress = 0.0
+
+    def reset_rate(self) -> None:
+        self._rate_time = time.monotonic()
+        self._rate_progress = self.progress
+        self._last_progress = self.progress
 
     @property
     def settings(self) -> Settings:
@@ -42,6 +52,9 @@ class JobContext:
         if message is not None:
             self.message = message
         now = time.monotonic()
+        if self.progress < self._last_progress:
+            self.reset_rate()
+        self._last_progress = self.progress
         if now - self._last_flush < 0.5 and value < 1.0 and message is None:
             return
         self._last_flush = now
@@ -50,6 +63,13 @@ class JobContext:
             if job is not None:
                 job.progress = self.progress
                 job.message = self.message
+                elapsed = now - self._rate_time
+                advanced = self.progress - self._rate_progress
+                job.eta_seconds = (
+                    (1 - self.progress) * elapsed / advanced
+                    if job.status == "running" and elapsed >= 3 and advanced >= 0.01
+                    else None
+                )
                 db.commit()
                 self.manager.publish(job)
 
@@ -75,6 +95,9 @@ def job_to_dict(job: Job) -> dict[str, Any]:
         "id": job.id,
         "kind": job.kind,
         "status": job.status,
+        "priority": job.priority,
+        "eta_seconds": job.eta_seconds if job.status == "running" else None,
+        "retry_of": job.retry_of,
         "params": job.params,
         "video_ids": job.video_ids,
         "result_video_id": job.result_video_id,
@@ -96,9 +119,10 @@ class JobManager:
         handlers: dict[str, Handler],
     ) -> None:
         self.settings = settings
+        self.encoding = EncoderRuntime(settings.ffmpeg, device=settings.vaapi_device)
         self.sessionmaker = sessionmaker
         self.handlers = handlers
-        self.queue: asyncio.Queue[str] = asyncio.Queue()
+        self._wake = asyncio.Event()
         self.running: dict[str, JobContext] = {}
         self.subscribers: set[asyncio.Queue[str]] = set()
         self._tasks: list[asyncio.Task[None]] = []
@@ -109,16 +133,18 @@ class JobManager:
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
         with self.sessionmaker() as db:
-            for job in db.scalars(select(Job).where(Job.status == "running")):
+            for job in db.scalars(
+                select(Job).where(
+                    (Job.status == "running")
+                    | ((Job.status == "paused") & Job.started_at.is_not(None))
+                )
+            ):
                 job.status = "failed"
                 job.error = "服务重启，任务被中断"
                 job.finished_at = utcnow()
+                job.eta_seconds = None
             db.commit()
-            queued = db.scalars(
-                select(Job.id).where(Job.status == "queued").order_by(Job.created_at)
-            ).all()
-        for job_id in queued:
-            self.queue.put_nowait(job_id)
+        self._wake.set()
         for i in range(max(1, self.settings.workers)):
             self._tasks.append(asyncio.create_task(self._worker(i), name=f"job-worker-{i}"))
 
@@ -134,13 +160,34 @@ class JobManager:
 
     # ------------------------------------------------------------ API
 
-    def submit(self, db: Session, kind: str, params: dict[str, Any], video_ids: list[str]) -> Job:
-        job = Job(kind=kind, params=params, video_ids=video_ids, message="排队中")
-        db.add(job)
+    def submit(
+        self,
+        db: Session,
+        kind: str,
+        params: dict[str, Any],
+        video_ids: list[str],
+        *,
+        priority: int = 1,
+    ) -> Job:
+        return self.submit_many(db, [(kind, params, video_ids)], priority=priority)[0]
+
+    def submit_many(
+        self,
+        db: Session,
+        requests: list[tuple[str, dict[str, Any], list[str]]],
+        *,
+        priority: int = 1,
+    ) -> list[Job]:
+        jobs = [
+            Job(kind=kind, params=params, video_ids=ids, priority=priority, message="排队中")
+            for kind, params, ids in requests
+        ]
+        db.add_all(jobs)
         db.commit()
-        self.enqueue(job.id)
-        self.publish(job)
-        return job
+        for job in jobs:
+            self.enqueue(job.id)
+            self.publish(job)
+        return jobs
 
     def submit_from_worker(self, kind: str, params: dict[str, Any], video_ids: list[str]) -> str:
         with self.sessionmaker() as db:
@@ -153,20 +200,72 @@ class JobManager:
             except RuntimeError:
                 running = None
             if running is self._loop:
-                self.queue.put_nowait(job_id)
+                self._wake.set()
             else:
-                self._loop.call_soon_threadsafe(self.queue.put_nowait, job_id)
+                self._loop.call_soon_threadsafe(self._wake.set)
         else:
-            self.queue.put_nowait(job_id)
+            self._wake.set()
+
+    def pending_count(self, *, include_paused: bool = False) -> int:
+        with self.sessionmaker() as db:
+            states = ["queued", "paused"] if include_paused else ["queued"]
+            return int(
+                db.scalar(select(func.count()).select_from(Job).where(Job.status.in_(states))) or 0
+            )
+
+    def describe(self, db: Session, job: Job) -> dict[str, Any]:
+        result = job_to_dict(job)
+        result["conflicting_jobs"] = (
+            [
+                other.id
+                for other in db.scalars(
+                    select(Job).where(
+                        Job.id != job.id, Job.status.in_(["queued", "running", "paused"])
+                    )
+                )
+                if set(other.video_ids).intersection(job.video_ids)
+            ]
+            if job.status in {"queued", "running", "paused"}
+            else []
+        )
+        return result
+
+    def pause(self, db: Session, job: Job) -> None:
+        if job.status not in {"queued", "running"}:
+            raise ValueError("只有排队或运行中的任务可以暂停")
+        ctx = self.running.get(job.id)
+        if job.status == "running" and ctx is None:
+            raise ValueError("任务正在结束，请刷新后重试")
+        if ctx:
+            ctx.handle.pause()
+        job.status = "paused"
+        job.eta_seconds = None
+        db.commit()
+        self.publish(job)
+
+    def resume(self, db: Session, job: Job) -> None:
+        if job.status != "paused":
+            raise ValueError("任务未暂停")
+        ctx = self.running.get(job.id)
+        if job.started_at and ctx is None:
+            raise ValueError("编码进程已中断，请重试任务")
+        job.status = "running" if ctx else "queued"
+        db.commit()
+        if ctx:
+            ctx.reset_rate()
+            ctx.handle.resume()
+        self.enqueue(job.id)
+        self.publish(job)
 
     def cancel(self, db: Session, job: Job) -> None:
-        if job.status == "queued":
+        if job.status in {"queued", "paused"} and job.id not in self.running:
             job.status = "canceled"
             job.finished_at = utcnow()
             job.message = "已取消"
             db.commit()
             self.publish(job)
-        elif job.status == "running" and job.id in self.running:
+            self.enqueue(job.id)
+        elif job.status in {"running", "paused"} and job.id in self.running:
             self.running[job.id].handle.cancel()
 
     def subscribe(self) -> asyncio.Queue[str]:
@@ -178,7 +277,8 @@ class JobManager:
         self.subscribers.discard(q)
 
     def publish(self, job: Job) -> None:
-        payload = json.dumps(job_to_dict(job), ensure_ascii=False)
+        with self.sessionmaker() as db:
+            payload = json.dumps(self.describe(db, job), ensure_ascii=False)
 
         def deliver() -> None:
             for q in list(self.subscribers):
@@ -200,13 +300,31 @@ class JobManager:
 
     async def _worker(self, n: int) -> None:
         while True:
-            job_id = await self.queue.get()
+            # Selection and claiming are synchronous on the event loop.
+            self._wake.clear()
+            busy_ids = {vid for ctx in self.running.values() for vid in ctx.video_ids}
+            with self.sessionmaker() as db:
+                job_id = next(
+                    (
+                        job.id
+                        for job in db.scalars(
+                            select(Job)
+                            .where(Job.status == "queued")
+                            .order_by(Job.priority.desc(), Job.created_at, Job.id)
+                        )
+                        if not busy_ids.intersection(job.video_ids)
+                    ),
+                    None,
+                )
+            if job_id is None:
+                await self._wake.wait()
+                continue
             try:
                 await self._run(job_id)
             except Exception:  # pragma: no cover - defensive
                 log.exception("job %s crashed", job_id)
             finally:
-                self.queue.task_done()
+                self._wake.set()
 
     async def _run(self, job_id: str) -> None:
         with self.sessionmaker() as db:
@@ -221,6 +339,7 @@ class JobManager:
             db.expunge(job)
 
         ctx = JobContext(self, job_id)
+        ctx.video_ids = job.video_ids
         self.running[job_id] = ctx
         handler = self.handlers.get(job.kind)
         status, error, message = "succeeded", None, "完成"
@@ -243,6 +362,7 @@ class JobManager:
             final.status = status
             final.error = error
             final.message = message
+            final.eta_seconds = None
             if status == "succeeded":
                 final.progress = 1.0
             final.finished_at = utcnow()
@@ -250,5 +370,10 @@ class JobManager:
             self.publish(final)
 
     async def wait_idle(self, timeout: float = 60) -> None:
-        """Test helper: wait until the queue is drained."""
-        await asyncio.wait_for(self.queue.join(), timeout)
+        """Wait for runnable and running work; queued paused tasks remain dormant."""
+
+        async def wait() -> None:
+            while self.running or self.pending_count():
+                await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(wait(), timeout)

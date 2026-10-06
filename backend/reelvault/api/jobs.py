@@ -2,22 +2,24 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import copy
 from collections.abc import AsyncIterator
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter, model_validator
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
-from ..jobs.manager import JobManager, job_to_dict
+from ..jobs.manager import JobManager
 from ..library import abs_path
 from ..media import ops
-from ..models import Job, Video
+from ..media.assets import AssetError, audio_asset, image_asset, lut_asset, subtitle_asset
+from ..models import EditPreset, Job, Video
 from .deps import get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["jobs"], dependencies=[Depends(require_auth)])
@@ -31,6 +33,148 @@ class OutputOptions(BaseModel):
 class EditBody(BaseModel):
     edit: ops.EditParams
     output: OutputOptions = OutputOptions()
+    priority: int = Field(1, ge=0, le=2, strict=True)
+
+
+def asset_params(db: Session, settings: Settings, edit: ops.EditParams) -> dict[str, Any]:
+    if not isinstance(
+        edit, (ops.AudioParams, ops.SubtitleParams, ops.WatermarkParams, ops.AdjustParams)
+    ):
+        return {}
+    try:
+        if isinstance(edit, ops.AudioParams):
+            asset = audio_asset(db, settings, edit)
+        elif isinstance(edit, ops.SubtitleParams):
+            asset = subtitle_asset(db, settings, edit)
+        elif isinstance(edit, ops.AdjustParams):
+            asset = lut_asset(db, settings, edit)
+        else:
+            asset = image_asset(db, settings, edit)
+    except AssetError as error:
+        raise HTTPException(400, str(error)) from error
+    key = f"{asset.kind}_sha256" if asset else ""
+    return {key: asset.sha256} if asset else {}
+
+
+def validate_sources(db: Session, ids: list[str]) -> None:
+    for vid in ids:
+        video = db.get(Video, vid)
+        if video is None or video.deleted_at is not None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "视频不存在")
+        if video.status == "error":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"视频「{video.title}」无法处理")
+
+
+def preset_dict(preset: EditPreset) -> dict[str, Any]:
+    return {"id": preset.id, "name": preset.name, "edit": preset.edit}
+
+
+class PresetBody(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    edit: ops.EditParams
+
+    @model_validator(mode="after")
+    def reusable(self) -> PresetBody:
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError("预设名称不能为空")
+        if isinstance(self.edit, ops.MergeParams):
+            raise ValueError("合并涉及多个源视频，请在合并编辑器中设置")
+        return self
+
+
+@router.get("/edit-presets")
+def list_presets(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    return [preset_dict(p) for p in db.scalars(select(EditPreset).order_by(EditPreset.name))]
+
+
+def save_preset(db: Session, body: PresetBody, preset: EditPreset | None = None) -> EditPreset:
+    existing = db.scalar(select(EditPreset).where(EditPreset.name == body.name))
+    if existing is not None and (preset is None or existing.id != preset.id):
+        raise HTTPException(409, "同名预设已存在")
+    if preset is None:
+        preset = EditPreset(name=body.name, edit=body.edit.model_dump())
+        db.add(preset)
+    else:
+        preset.name, preset.edit = body.name, body.edit.model_dump()
+    db.commit()
+    return preset
+
+
+@router.post("/edit-presets")
+def create_preset(
+    body: PresetBody, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+) -> dict[str, Any]:
+    asset_params(db, settings, body.edit)
+    return preset_dict(save_preset(db, body))
+
+
+@router.put("/edit-presets/{preset_id}")
+def update_preset(
+    preset_id: int,
+    body: PresetBody,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    preset = db.get(EditPreset, preset_id)
+    if preset is None:
+        raise HTTPException(404, "预设不存在")
+    asset_params(db, settings, body.edit)
+    return preset_dict(save_preset(db, body, preset))
+
+
+@router.delete("/edit-presets/{preset_id}")
+def delete_preset(preset_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
+    preset = db.get(EditPreset, preset_id)
+    if preset is None:
+        raise HTTPException(404, "预设不存在")
+    db.delete(preset)
+    db.commit()
+    return {"ok": True}
+
+
+class BatchEditBody(BaseModel):
+    video_ids: list[str] = Field(min_length=1, max_length=1000)
+    edit: ops.EditParams | None = None
+    preset_id: int | None = None
+    output: OutputOptions = OutputOptions()
+    priority: int = Field(1, ge=0, le=2, strict=True)
+
+    @model_validator(mode="after")
+    def one_source(self) -> BatchEditBody:
+        if (self.edit is None) == (self.preset_id is None):
+            raise ValueError("请提供编辑参数或选择一个预设")
+        if isinstance(self.edit, ops.MergeParams):
+            raise ValueError("批处理为每个视频创建独立任务，合并请使用合并编辑器")
+        return self
+
+
+@router.post("/jobs/batch")
+def batch_edit(
+    body: BatchEditBody, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+) -> list[dict[str, Any]]:
+    edit = body.edit
+    if body.preset_id is not None:
+        preset = db.get(EditPreset, body.preset_id)
+        if preset is None:
+            raise HTTPException(404, "预设不存在")
+        edit = TypeAdapter(ops.EditParams).validate_python(preset.edit)
+    assert edit is not None
+    if isinstance(edit, ops.AnimationParams) and body.output.mode == "replace":
+        raise HTTPException(400, "动图为下载文件，不能替换原视频")
+    if isinstance(edit, ops.MergeParams):
+        raise HTTPException(400, "合并预设不能用于每视频独立批处理")
+    ids = list(dict.fromkeys(body.video_ids))
+    validate_sources(db, ids)
+    params = {
+        "edit": edit.model_dump(),
+        "output": body.output.model_dump(),
+        **asset_params(db, jobs.settings, edit),
+    }
+    submitted = jobs.submit_many(
+        db, [("edit", params, [vid]) for vid in ids], priority=body.priority
+    )
+    return [jobs.describe(db, job) for job in submitted]
 
 
 @router.post("/videos/{video_id}/edit")
@@ -40,20 +184,25 @@ def submit_edit(
     db: Session = Depends(get_db),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
-    ids = body.edit.video_ids if isinstance(body.edit, ops.MergeParams) else [video_id]
+    ids = (
+        body.edit.video_ids
+        if isinstance(body.edit, ops.MergeParams)
+        else [video_id]
+    )
+    if isinstance(body.edit, ops.AnimationParams) and body.output.mode == "replace":
+        raise HTTPException(400, "动图为下载文件，不能替换原视频")
     if video_id not in ids:
         ids = [video_id, *ids]
-    for vid in ids:
-        video = db.get(Video, vid)
-        if video is None or video.deleted_at is not None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "视频不存在")
-        if video.status == "error":
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"视频「{video.title}」无法处理")
+    validate_sources(db, ids)
     if isinstance(body.edit, ops.MergeParams):
         body.edit.video_ids = ids
-    params = {"edit": body.edit.model_dump(), "output": body.output.model_dump()}
-    job = jobs.submit(db, "edit", params, ids)
-    return job_to_dict(job)
+    params = {
+        "edit": body.edit.model_dump(),
+        "output": body.output.model_dump(),
+        **asset_params(db, jobs.settings, body.edit),
+    }
+    job = jobs.submit(db, "edit", params, ids, priority=body.priority)
+    return jobs.describe(db, job)
 
 
 @router.get("/jobs")
@@ -62,6 +211,7 @@ def list_jobs(
     video_id: str | None = None,
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
+    jobs: JobManager = Depends(get_jobs),
 ) -> list[dict[str, Any]]:
     stmt = select(Job).order_by(Job.created_at.desc()).limit(limit)
     if status_filter:
@@ -69,7 +219,7 @@ def list_jobs(
     rows = db.scalars(stmt).all()
     if video_id:
         rows = [j for j in rows if video_id in j.video_ids or j.result_video_id == video_id]
-    return [job_to_dict(j) for j in rows]
+    return [jobs.describe(db, j) for j in rows]
 
 
 @router.get("/jobs/events")
@@ -105,17 +255,112 @@ def _get(db: Session, job_id: str) -> Job:
 
 
 @router.get("/jobs/{job_id}")
-def job_detail(job_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
-    return job_to_dict(_get(db, job_id))
+def job_detail(
+    job_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+) -> dict[str, Any]:
+    return jobs.describe(db, _get(db, job_id))
 
 
 @router.post("/jobs/{job_id}/cancel")
-def cancel_job(
+async def cancel_job(
     job_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
 ) -> dict[str, Any]:
     job = _get(db, job_id)
     jobs.cancel(db, job)
-    return job_to_dict(job)
+    return jobs.describe(db, job)
+
+
+@router.post("/jobs/{job_id}/pause")
+async def pause_job(
+    job_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+) -> dict[str, Any]:
+    job = _get(db, job_id)
+    try:
+        jobs.pause(db, job)
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+    return jobs.describe(db, job)
+
+
+@router.post("/jobs/{job_id}/resume")
+async def resume_job(
+    job_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+) -> dict[str, Any]:
+    job = _get(db, job_id)
+    try:
+        jobs.resume(db, job)
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from error
+    return jobs.describe(db, job)
+
+
+class PriorityBody(BaseModel):
+    priority: int = Field(ge=0, le=2, strict=True)
+
+
+@router.put("/jobs/{job_id}/priority")
+async def set_priority(
+    job_id: str,
+    body: PriorityBody,
+    db: Session = Depends(get_db),
+    jobs: JobManager = Depends(get_jobs),
+) -> dict[str, Any]:
+    job = _get(db, job_id)
+    if job.status not in {"queued", "paused"} or job.started_at:
+        raise HTTPException(409, "只能调整尚未启动的任务优先级")
+    job.priority = body.priority
+    db.commit()
+    jobs.enqueue(job.id)
+    jobs.publish(job)
+    return jobs.describe(db, job)
+
+
+@router.post("/jobs/{job_id}/retry")
+async def retry_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    jobs: JobManager = Depends(get_jobs),
+) -> dict[str, Any]:
+    old = _get(db, job_id)
+    if old.status != "failed":
+        raise HTTPException(409, "只有失败任务可以重试")
+    if old.result_video_id or old.result_file:
+        raise HTTPException(409, "该任务已保存输出，请查看结果，避免重复修改")
+    if old.kind not in jobs.handlers:
+        raise HTTPException(409, "此任务类型不支持重试")
+    if db.scalar(
+        select(Job.id).where(
+            Job.retry_of == old.id, Job.status.in_(["queued", "running", "paused"])
+        )
+    ):
+        raise HTTPException(409, "该任务已有未结束的重试")
+    for vid in old.video_ids:
+        video = db.get(Video, vid)
+        if video is None or (
+            video.deleted_at and not old.params.get("history_replay") and old.kind != "ingest"
+        ):
+            raise HTTPException(404, "源视频不存在或已删除")
+        if old.kind == "ingest":
+            video.status, video.error = "processing", None
+    params = copy.deepcopy(old.params)
+    for field in ("encoding", "preview_encoding", "playable_encoding", "name"):
+        params.pop(field, None)
+    if "requested_edit" in params:
+        params["edit"] = params.pop("requested_edit")
+    # Persist the complete retry before waking a worker; keep the failed record.
+    new = Job(
+        kind=old.kind,
+        params=params,
+        video_ids=list(old.video_ids),
+        priority=old.priority,
+        retry_of=old.id,
+        message="重试排队中",
+    )
+    db.add(new)
+    db.commit()
+    jobs.enqueue(new.id)
+    jobs.publish(new)
+    return jobs.describe(db, new)
 
 
 @router.get("/jobs/{job_id}/download")

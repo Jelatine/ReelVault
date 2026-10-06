@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .ffmpeg import FFmpegError, ffprobe_json
+from .ffmpeg import FFmpegError, ProcessHandle, ffprobe_json
 
 BROWSER_CONTAINERS = {"mp4", "mov", "webm", "m4v"}
 BROWSER_VIDEO_CODECS = {"h264", "vp8", "vp9", "av1"}
@@ -32,6 +32,8 @@ class MediaInfo:
     audio_index: int | None = None
     sample_rate: int = 0
     channels: int = 0
+    audio_delay: float = 0
+    video_delay: float = 0
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -55,6 +57,7 @@ class MediaInfo:
 
     def to_meta(self) -> dict[str, Any]:
         return {
+            **self.extra,
             "rotation": self.rotation,
             "coded_width": self.coded_width,
             "coded_height": self.coded_height,
@@ -63,6 +66,7 @@ class MediaInfo:
             "pix_fmt": self.pix_fmt,
             "sample_rate": self.sample_rate,
             "channels": self.channels,
+            "audio_delay": self.audio_delay,
         }
 
 
@@ -127,6 +131,9 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
         raise FFmpegError("文件中没有视频流")
 
     info.video_index = int(video.get("index", 0))
+    info.video_delay = float(video.get("start_time") or 0) - float(fmt.get("start_time") or 0)
+    info.extra = {**(fmt.get("tags") or {}), **(video.get("tags") or {})}
+    info.extra["subtitle_streams"] = subtitle_streams(data)
     info.video_codec = video.get("codec_name", "")
     info.pix_fmt = video.get("pix_fmt", "")
     info.coded_width = int(video.get("width") or 0)
@@ -147,8 +154,29 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
         info.audio_index = int(audio.get("index", 0))
         info.sample_rate = int(audio.get("sample_rate") or 0)
         info.channels = int(audio.get("channels") or 0)
+        info.audio_delay = float(audio.get("start_time") or 0) - float(fmt.get("start_time") or 0)
     return info
 
 
-async def probe(ffprobe: str, path: str) -> MediaInfo:
-    return parse_probe(await ffprobe_json(ffprobe, path), path)
+async def probe(ffprobe: str, path: str, handle: ProcessHandle | None = None) -> MediaInfo:
+    return parse_probe(await ffprobe_json(ffprobe, path, handle), path)
+
+
+def subtitle_streams(data: dict[str, Any]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for stream in data.get("streams", []):
+        if stream.get("codec_type") != "subtitle":
+            continue
+        tags = stream.get("tags") or {}
+        codec = stream.get("codec_name", "")
+        result.append(
+            {
+                "index": int(stream["index"]),
+                "subtitle_index": len(result),
+                "codec": codec,
+                "language": tags.get("language", "und"),
+                "label": tags.get("title") or f"内封字幕 {len(result) + 1}",
+                "text": codec in {"subrip", "ass", "ssa", "webvtt", "mov_text", "text"},
+            }
+        )
+    return result

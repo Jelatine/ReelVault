@@ -110,11 +110,18 @@ class Video(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
+    rating: Mapped[int] = mapped_column(Integer, default=0)
+    favorite: Mapped[bool] = mapped_column(Boolean, default=False)
+    captured_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     original_name: Mapped[str] = mapped_column(String(255), default="")
     # Paths are relative to the data directory.
     file_path: Mapped[str] = mapped_column(String(512))
     playable_path: Mapped[str | None] = mapped_column(String(512))
     source_path: Mapped[str | None] = mapped_column(String(1024), index=True)
+    # Keep identifiers after source deletion so provenance is not silently lost.
+    source_video_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    edit_params: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    edit_sources: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     folder_id: Mapped[int | None] = mapped_column(
         ForeignKey("folders.id", ondelete="SET NULL"), index=True
     )
@@ -146,6 +153,80 @@ class Video(Base):
     tags: Mapped[list[Tag]] = relationship(secondary=video_tags, lazy="selectin")
 
 
+class Collection(Base):
+    __tablename__ = "collections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class CollectionItem(Base):
+    __tablename__ = "collection_items"
+
+    collection_id: Mapped[int] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), primary_key=True
+    )
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(Integer)
+
+
+class EditPreset(Base):
+    __tablename__ = "edit_presets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), unique=True)
+    edit: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class RuntimeSetting(Base):
+    __tablename__ = "runtime_settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
+class MediaAsset(Base):
+    __tablename__ = "media_assets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    kind: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(255))
+    file_path: Mapped[str] = mapped_column(String(512))
+    sha256: Mapped[str] = mapped_column(String(64))
+    size: Mapped[int] = mapped_column(Integer)
+    duration: Mapped[float] = mapped_column(Float, default=0)
+    stream_index: Mapped[int] = mapped_column(Integer, default=0)
+    meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class SubtitleTrack(Base):
+    __tablename__ = "subtitle_tracks"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    video_id: Mapped[str] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), index=True)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("media_assets.id", ondelete="RESTRICT"))
+    label: Mapped[str] = mapped_column(String(128))
+    language: Mapped[str] = mapped_column(String(35), default="und")
+
+
+class Playback(Base):
+    __tablename__ = "playback"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[float] = mapped_column(Float, default=0)
+    play_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_played_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class Upload(Base):
     __tablename__ = "uploads"
 
@@ -162,8 +243,11 @@ class Job(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     kind: Mapped[str] = mapped_column(String(32), index=True)
-    # queued|running|succeeded|failed|canceled
+    # queued|running|paused|succeeded|failed|canceled
     status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=1)
+    eta_seconds: Mapped[float | None] = mapped_column(Float)
+    retry_of: Mapped[str | None] = mapped_column(String(32))
     params: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     video_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     result_video_id: Mapped[str | None] = mapped_column(String(32))

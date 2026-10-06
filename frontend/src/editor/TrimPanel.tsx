@@ -1,10 +1,14 @@
-import { ActionIcon, Button, Group, RangeSlider, SegmentedControl, Stack, Text } from '@mantine/core'
+import { Alert, ActionIcon, Button, Group, NumberInput, RangeSlider, SegmentedControl, Stack, Text } from '@mantine/core'
 import { IconPlayerPlay, IconPlus, IconTrash } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 import { formatDuration } from '../lib/format'
 import { defaultOutput, useSubmitEdit, type EditorContext } from './edit'
+import PresetControls from './PresetControls'
 import { OutputFields } from './OutputFields'
+import { snapCut, timecode } from './frames'
+import { useTiming } from './timing'
 import TimeInput from './TimeInput'
+import SequencePreview from './SequencePreview'
 
 interface Seg {
   start: number
@@ -12,7 +16,9 @@ interface Seg {
 }
 
 export default function TrimPanel({ video, currentTime, seek, play, pause, setOverlay }: EditorContext) {
+  const timing = useTiming(video)
   const duration = video.duration
+  const [crf, setCrf] = useState(20)
   const [segments, setSegments] = useState<Seg[]>([{ start: 0, end: duration }])
   const [active, setActive] = useState(0)
   const [mode, setMode] = useState<'precise' | 'fast'>('precise')
@@ -41,10 +47,19 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
     )
 
   const seg = segments[active] ?? segments[0]
-  const total = segments.reduce((acc, s) => acc + (s.end - s.start), 0)
+  const fast = mode === 'fast' && segments.length === 1
+  const actual = fast && timing.data?.keyframes.length ? snapCut(segments[0].start, segments[0].end, timing.data.keyframes, duration) : null
+  const total = actual ? actual.end - actual.start : segments.reduce((acc, s) => acc + (s.end - s.start), 0)
 
   return (
     <Stack>
+      <PresetControls edit={{ op: 'trim', mode, segments, crf }} onApply={(params) => {
+        setCrf(Number(params.crf ?? 20))
+        const applied = (params.segments as Seg[]).map((segment) => ({ ...segment, end: Math.min(segment.end, duration) })).filter((segment) => segment.end > segment.start)
+        setSegments(applied.length ? applied : [{ start: 0, end: duration }])
+        setMode(params.mode === 'fast' && applied.length <= 1 ? 'fast' : 'precise')
+        setActive(0)
+      }} />
       <Text size="sm" c="dimmed">
         选择要保留的片段。可添加多个片段，将按顺序拼接。
       </Text>
@@ -94,8 +109,8 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
           <RangeSlider
             min={0}
             max={duration}
-            step={0.1}
-            minRange={0.1}
+            step={0.001}
+            minRange={0.001}
             value={[s.start, s.end]}
             label={(v) => formatDuration(v, true)}
             onChange={([start, end]) => {
@@ -121,6 +136,7 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
           variant="default"
           leftSection={<IconPlus size={14} />}
           onClick={() => {
+            setMode('precise')
             const start = Math.min(currentTime, Math.max(0, duration - 1))
             setSegments((segs) => [...segs, { start, end: Math.min(duration, start + 5) }])
             setActive(segments.length)
@@ -142,11 +158,23 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
           ]}
         />
       </div>
+      {fast && (
+        <Alert color={actual ? 'blue' : 'orange'} title="快速模式按关键帧吸附">
+          {actual ? <>
+            实际起点 {timecode(actual.start)}，实际终点 {timecode(actual.end)}。音视频流时间基可能使文件时长略有差异。
+            <Button size="xs" variant="subtle" onClick={() => setSegments([actual])}>使用这些切点</Button>
+          </> : '正在读取关键帧，载入后显示实际切点。'}
+        </Alert>
+      )}
+      {!fast && <NumberInput label="画质 CRF（越小越清晰）" min={0} max={51} value={crf} onChange={(value) => setCrf(Number(value))} />}
       <OutputFields value={output} onChange={setOutput} />
+      <SequencePreview pause={pause} disabled={fast && !actual}
+        clips={(actual ? [actual] : segments).map((segment) => ({ video, ...segment }))}
+        note={fast ? '快速模式预览使用吸附后的关键帧切点。' : undefined} />
       <Button
         loading={busy}
-        disabled={!seg}
-        onClick={() => submit({ op: 'trim', mode: segments.length > 1 ? 'precise' : mode, segments }, output)}
+        disabled={!seg || (fast && !actual)}
+        onClick={() => submit({ op: 'trim', mode: segments.length > 1 ? 'precise' : mode, segments, crf }, output)}
       >
         剪辑（输出时长 {formatDuration(total, true)}）
       </Button>

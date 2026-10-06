@@ -1,5 +1,7 @@
 import {
   ActionIcon,
+  Alert,
+  Highlight,
   Button,
   Center,
   Group,
@@ -32,10 +34,17 @@ import {
   IconUpload,
   IconX,
 } from '@tabler/icons-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import BatchEditForm from '../editor/BatchEditForm'
+import AdvancedFilters from '../components/AdvancedFilters'
+import { FILTER_KEYS } from '../lib/filters'
+import CollectionAddForm from '../components/CollectionAddForm'
 import FolderSelect from '../components/FolderSelect'
 import VideoCard from '../components/VideoCard'
+import VideoRating from '../components/VideoRating'
+import SelectionArea from '../components/SelectionArea'
+import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE, selectRange, type Modifiers } from '../lib/selection'
 import { api } from '../lib/api'
 import { formatBytes, formatDate, formatDuration } from '../lib/format'
 import { useFolders, useVideos } from '../lib/queries'
@@ -43,6 +52,10 @@ import { useFolders, useVideos } from '../lib/queries'
 const PAGE_SIZE = 48
 
 const SORTS = [
+  { value: 'relevance', label: '相关度' },
+  { value: 'captured', label: '拍摄时间' },
+  { value: 'rating', label: '评分' },
+  { value: 'favorite', label: '收藏' },
   { value: 'created', label: '上传时间' },
   { value: 'updated', label: '修改时间' },
   { value: 'title', label: '名称' },
@@ -86,15 +99,42 @@ export default function LibraryPage() {
   const [sort, setSort] = useLocalStorage({ key: 'rv-sort', defaultValue: 'created' })
   const [order, setOrder] = useLocalStorage<'asc' | 'desc'>({ key: 'rv-order', defaultValue: 'desc' })
   const [selected, setSelected] = useState<string[]>([])
+  const anchor = useRef<string | null>(null)
+  useEffect(() => {
+    const clear = () => { setSelected([]); anchor.current = null }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (event.target instanceof HTMLElement && event.target.closest('[role="dialog"]')) return
+      clear()
+    }
+    window.addEventListener('keydown', escape)
+    window.addEventListener(CLEAR_SELECTION_EVENT, clear)
+    return () => {
+      window.removeEventListener('keydown', escape)
+      window.removeEventListener(CLEAR_SELECTION_EVENT, clear)
+    }
+  }, [])
 
   const folder = params.get('folder') ?? 'all'
   const tag = params.get('tag') ?? undefined
   const q = params.get('q') ?? undefined
+  const rating_min = Number(params.get('rating_min') ?? 0)
+  const favorite = params.get('favorite') === 'true' ? true : undefined
+  const setFilter = (key: string, value: string | null) => {
+    const next = new URLSearchParams(params)
+    if (value) next.set(key, value)
+    else next.delete(key)
+    next.delete('page')
+    setParams(next)
+  }
   const page = Number(params.get('page') ?? 1)
 
-  const { data, isLoading } = useVideos({ folder, tag, q, sort, order, page, page_size: PAGE_SIZE })
+  const effectiveSort = q && !params.has('sort') ? 'relevance' : (params.get('sort') ?? sort)
+  const filters = Object.fromEntries(FILTER_KEYS.map((key) => [key, params.get(key) ?? undefined]))
+  const { data, isLoading, error } = useVideos({ ...filters, folder, tag, q, rating_min, favorite, sort: effectiveSort, order, page, page_size: PAGE_SIZE })
 
-  const filterKey = `${folder}|${tag}|${q}|${page}`
+  const filterKey = params.toString()
+  useEffect(() => { anchor.current = null }, [filterKey])
   const [prevFilter, setPrevFilter] = useState(filterKey)
   if (prevFilter !== filterKey) {
     setPrevFilter(filterKey)
@@ -109,8 +149,21 @@ export default function LibraryPage() {
         : (folders.data?.find((f) => String(f.id) === folder)?.name ?? '文件夹')
   const title = q ? `搜索「${q}」` : tag ? `#${tag}` : folderName
 
-  const toggle = (id: string) =>
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+  const toggle = (id: string, modifiers: Modifiers = {}) => {
+    setSelected((current) => selectRange(data?.items.map((video) => video.id) ?? [], current, id, anchor.current, modifiers))
+    if (!modifiers.shiftKey) anchor.current = id
+  }
+  const clickVideo = (id: string, event: MouseEvent) => {
+    if (event.shiftKey || event.ctrlKey || event.metaKey || selected.length) toggle(id, event)
+    else navigate(`/videos/${id}`)
+  }
+  const dragVideo = (id: string, event: DragEvent) => {
+    if (event.target instanceof HTMLElement && event.target.closest('button, input, [role="slider"]')) { event.preventDefault(); return }
+    const ids = selected.includes(id) ? selected : [id]
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData(VIDEO_DRAG_TYPE, JSON.stringify(ids))
+    event.dataTransfer.setData('text/plain', `${ids.length} 个视频`)
+  }
 
   const batch = async (body: Record<string, unknown>, message: string) => {
     try {
@@ -171,7 +224,7 @@ export default function LibraryPage() {
           )}
         </Group>
         <Group gap="xs">
-          <Select data={SORTS} value={sort} onChange={(v) => v && setSort(v)} w={120} size="xs" allowDeselect={false} />
+          <Select data={SORTS} value={effectiveSort} onChange={(v) => { if (v) { setSort(v); setFilter("sort", v) } }} w={120} size="xs" allowDeselect={false} />
           <ActionIcon variant="default" onClick={() => setOrder(order === 'asc' ? 'desc' : 'asc')} aria-label="排序方向">
             {order === 'asc' ? <IconSortAscending size={16} /> : <IconSortDescending size={16} />}
           </ActionIcon>
@@ -192,11 +245,27 @@ export default function LibraryPage() {
         </Group>
       </Group>
 
+      <Group>
+        <Select aria-label="按评分筛选" placeholder="全部评分" clearable w={150} value={rating_min ? String(rating_min) : null}
+          data={[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${n} 星及以上` }))}
+          onChange={(value) => setFilter("rating_min", value)} />
+        <Button variant={favorite ? "filled" : "default"} onClick={() => setFilter("favorite", favorite ? null : "true")}>收藏</Button>
+      </Group>
+
+      <AdvancedFilters />
+      {error && <Alert color="red">{error.message}</Alert>}
+
       {selected.length > 0 && (
         <Paper withBorder p="xs" pos="sticky" top={70} style={{ zIndex: 5 }}>
           <Group justify="space-between">
             <Text size="sm">已选择 {selected.length} 个</Text>
             <Group gap="xs">
+              <Button size="xs" variant="light" onClick={() => {
+                const modal = modals.open({ title: '加入合集', children: <CollectionAddForm ids={selected} onDone={() => { modals.close(modal); setSelected([]); notifications.show({ message: '已加入合集' }) }} /> })
+              }}>加入合集</Button>
+              <Button size="xs" variant="light" onClick={() => {
+                const modal = modals.open({ title: '批量编辑', children: <BatchEditForm ids={selected} onDone={() => { modals.close(modal); setSelected([]) }} /> })
+              }}>批量编辑</Button>
               <Button size="xs" variant="light" leftSection={<IconFolderShare size={14} />} onClick={openMove}>
                 移动
               </Button>
@@ -238,15 +307,20 @@ export default function LibraryPage() {
         </Center>
       )}
 
+      <Text size="xs" c="dimmed">Shift 连选 · Ctrl/⌘ 多选 · 在空白区域拖动框选 · 拖到侧栏文件夹移动 · Esc 取消选择</Text>
+      <SelectionArea selected={selected} onSelect={setSelected}>
       {view === 'grid' ? (
         <SimpleGrid cols={{ base: 1, xs: 2, sm: 2, md: 3, lg: 4, xl: 5 }} spacing="md">
           {items.map((v) => (
             <VideoCard
               key={v.id}
               video={v}
+              highlight={q}
               selected={selected.includes(v.id)}
               selectable={selected.length > 0}
-              onToggle={() => toggle(v.id)}
+              onToggle={(event) => toggle(v.id, event)}
+              onSelect={(event) => clickVideo(v.id, event)}
+              onDragStart={(event) => dragVideo(v.id, event)}
               onOpen={() => navigate(`/videos/${v.id}`)}
             />
           ))}
@@ -258,6 +332,7 @@ export default function LibraryPage() {
               <Table.Tr>
                 <Table.Th w={40} />
                 <Table.Th>名称</Table.Th>
+                <Table.Th>评分 / 收藏</Table.Th>
                 <Table.Th>时长</Table.Th>
                 <Table.Th>分辨率</Table.Th>
                 <Table.Th>大小</Table.Th>
@@ -266,9 +341,11 @@ export default function LibraryPage() {
             </Table.Thead>
             <Table.Tbody>
               {items.map((v) => (
-                <Table.Tr key={v.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/videos/${v.id}`)}>
+                <Table.Tr key={v.id} data-video-id={v.id} draggable onDragStart={(event) => dragVideo(v.id, event)}
+                  style={{ cursor: 'pointer', background: selected.includes(v.id) ? 'var(--mantine-color-violet-light)' : undefined }}
+                  onClick={(event) => clickVideo(v.id, event)}>
                   <Table.Td onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={selected.includes(v.id)} onChange={() => toggle(v.id)} />
+                    <input type="checkbox" aria-label={`选择 ${v.title}`} checked={selected.includes(v.id)} onChange={(event) => toggle(v.id, event.nativeEvent as unknown as Modifiers)} />
                   </Table.Td>
                   <Table.Td>
                     <Group gap="sm" wrap="nowrap">
@@ -276,10 +353,12 @@ export default function LibraryPage() {
                         <img src={v.poster_url} alt="" style={{ width: 64, height: 36, objectFit: 'cover', borderRadius: 4 }} />
                       )}
                       <Text size="sm" truncate maw={360}>
-                        {v.title}
+                        <Highlight component="span" highlight={q?.split(/\s+/) ?? []}>{v.title}</Highlight>
                       </Text>
                     </Group>
+                    {q && v.search_excerpt && <Highlight size="xs" c="dimmed" lineClamp={2} highlight={q.split(/\s+/)}>{v.search_excerpt}</Highlight>}
                   </Table.Td>
+                  <Table.Td><VideoRating video={v} /></Table.Td>
                   <Table.Td>{formatDuration(v.duration)}</Table.Td>
                   <Table.Td>{v.width ? `${v.width}×${v.height}` : '-'}</Table.Td>
                   <Table.Td>{formatBytes(v.size)}</Table.Td>
@@ -290,6 +369,8 @@ export default function LibraryPage() {
           </Table>
         </Table.ScrollContainer>
       )}
+
+      </SelectionArea>
 
       {totalPages > 1 && (
         <Center>

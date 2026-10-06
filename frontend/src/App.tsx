@@ -1,17 +1,19 @@
+import { lazy, Suspense } from 'react'
 import { Center, Loader } from '@mantine/core'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
 import { useAuth } from './lib/auth'
 import { useJobEvents } from './lib/jobs'
-import JobsPage from './pages/JobsPage'
-import LibraryPage from './pages/LibraryPage'
-import LoginPage from './pages/LoginPage'
-import SettingsPage from './pages/SettingsPage'
-import SetupPage from './pages/SetupPage'
-import TrashPage from './pages/TrashPage'
-import VideoPage from './pages/VideoPage'
+const CollectionPage = lazy(() => import('./pages/CollectionPage'))
+const JobsPage = lazy(() => import('./pages/JobsPage'))
+const LibraryPage = lazy(() => import('./pages/LibraryPage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const SetupPage = lazy(() => import('./pages/SetupPage'))
+const TrashPage = lazy(() => import('./pages/TrashPage'))
+const VideoPage = lazy(() => import('./pages/VideoPage'))
 
-export default function App() {
+function AppRoutes() {
   const { loading, user, setupRequired } = useAuth()
   const location = useLocation()
   useJobEvents(!!user)
@@ -36,6 +38,7 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route index element={<LibraryPage />} />
         <Route path="videos/:id" element={<VideoPage />} />
+        <Route path="collections/:id" element={<CollectionPage />} />
         <Route path="jobs" element={<JobsPage />} />
         <Route path="trash" element={<TrashPage />} />
         <Route path="settings" element={<SettingsPage />} />
@@ -44,4 +47,8 @@ export default function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
+}
+
+export default function App() {
+  return <Suspense fallback={<Center mih="100vh"><Loader /></Center>}><AppRoutes /></Suspense>
 }

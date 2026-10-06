@@ -38,8 +38,13 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import FolderSelect from '../components/FolderSelect'
 import JobRow from '../components/JobRow'
 import Player from '../components/Player'
+import EditHistory from '../components/EditHistory'
+import PlaylistPanel from '../components/PlaylistPanel'
+import { playlistNeighbors, playlistUrl, useCollection } from '../lib/collections'
+import VideoRating from '../components/VideoRating'
 import { confirmAction } from '../components/prompt'
 import type { EditorContext, Overlay } from '../editor/edit'
+import FrameControls from '../editor/FrameControls'
 import CompressPanel from '../editor/CompressPanel'
 import CoverPanel from '../editor/CoverPanel'
 import MergePanel from '../editor/MergePanel'
@@ -110,6 +115,7 @@ function InfoPanel({ video }: { video: Video }) {
 
   return (
     <Stack>
+      <VideoRating video={video} />
       <TextInput
         label="标题"
         value={title}
@@ -157,7 +163,10 @@ function InfoPanel({ video }: { video: Video }) {
 
 export default function VideoPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
+  const collectionId = params.get('collection')
+  const collection = useCollection(collectionId)
   const { data: video, isLoading, error } = useVideo(id)
   const jobs = useJobs()
   const player = useRef<MediaPlayerInstance>(null)
@@ -178,6 +187,7 @@ export default function VideoPage() {
   if (overlayKey !== `${tool}:${id}`) {
     setOverlayKey(`${tool}:${id}`)
     setOverlay({})
+    setTime(0)
   }
 
   if (isLoading) {
@@ -190,7 +200,7 @@ export default function VideoPage() {
   if (error || !video) return <Alert color="red">{error instanceof Error ? error.message : '视频不存在'}</Alert>
 
   const videoJobs = (jobs.data ?? []).filter((j) => j.video_ids.includes(video.id)).slice(0, 5)
-  const ingest = videoJobs.find((j) => j.kind === 'ingest' && (j.status === 'running' || j.status === 'queued'))
+  const ingest = videoJobs.find((j) => j.kind === 'ingest' && ['running', 'queued', 'paused'].includes(j.status))
   const ctx: EditorContext = { video, currentTime: time, seek, play, pause, setOverlay: setOverlayStable }
   const ready = video.status === 'ready' && !video.deleted_at
   const maxW = video.width && video.height ? `calc(70vh * ${video.width / video.height})` : undefined
@@ -210,12 +220,21 @@ export default function VideoPage() {
           {video.title}
         </Text>
       </Breadcrumbs>
+      {collection.data && <PlaylistPanel collection={collection.data} videoId={video.id} />}
+      {collection.error && <Alert color="orange">合集载入失败，自动续播已停止：{collection.error.message}</Alert>}
       <Grid gap="lg">
         <Grid.Col span={{ base: 12, lg: 8 }}>
           <Stack>
             <Box className="player-wrap" pos="relative" mx="auto" w="100%" maw={maxW}
               style={{ '--rv-transform': overlay.transform ?? 'none' } as React.CSSProperties}>
-              <Player key={video.stream_url} ref={player} video={video} onTimeUpdate={setTime} />
+              <Player key={video.stream_url} ref={player} video={video} onTimeUpdate={setTime}
+                playbackRate={overlay.playbackRate ?? 1}
+                autoPlay={params.get('autoplay') === '1' && ready}
+                onEnded={() => {
+                  if (!collection.data || collection.error || !ready) return
+                  const next = playlistNeighbors(collection.data.items, video.id).next
+                  if (next) navigate(playlistUrl(next.id, collection.data.id))
+                }} />
               {overlay.crop && video.width > 0 && (
                 <div
                   className="crop-box"
@@ -246,6 +265,8 @@ export default function VideoPage() {
                 截图
               </Button>
             </Group>
+
+            {ready && tool === 'trim' && <FrameControls video={video} currentTime={time} seek={seek} pause={pause} />}
 
             {video.status === 'processing' && (
               <Alert color="blue" title="正在处理">
@@ -321,6 +342,9 @@ export default function VideoPage() {
           <Stack>
             <Paper withBorder p="md">
               <InfoPanel key={`${video.id}:${video.updated_at}`} video={video} />
+            </Paper>
+            <Paper withBorder p="md">
+              <EditHistory videoId={video.id} />
             </Paper>
             {videoJobs.length > 0 && (
               <Paper withBorder p="md">

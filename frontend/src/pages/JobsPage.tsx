@@ -10,7 +10,7 @@ export default function JobsPage() {
   const qc = useQueryClient()
   const [filter, setFilter] = useState('all')
   const list = (jobs.data ?? []).filter((j) => {
-    if (filter === 'active') return j.status === 'running' || j.status === 'queued'
+    if (filter === 'active') return ['running', 'queued', 'paused'].includes(j.status)
     if (filter === 'done') return j.status === 'succeeded'
     if (filter === 'failed') return j.status === 'failed' || j.status === 'canceled'
     return true
@@ -44,6 +44,7 @@ export default function JobsPage() {
           </Button>
         </Group>
       </Group>
+      <Text size="xs" c="dimmed">优先级仅影响尚未启动的任务，同优先级按提交顺序。运行中暂停保留编码进程和工作槽位，暂停期间不估算剩余时间；服务重启后中断的任务需要重试。</Text>
       {list.length === 0 && (
         <Center mih={200}>
           <Text c="dimmed">暂无任务</Text>

@@ -1,7 +1,14 @@
 import { Button, Divider, Group, NumberInput, Select, SegmentedControl, Stack, Text, Title } from '@mantine/core'
 import { useEffect, useState } from 'react'
 import { defaultOutput, useSubmitEdit, type EditorContext } from './edit'
+import PresetControls from './PresetControls'
 import { OutputFields } from './OutputFields'
+import AudioPanel from './AudioPanel'
+import SubtitlePanel from './SubtitlePanel'
+import WatermarkPanel from './WatermarkPanel'
+import AnimationPanel from './AnimationPanel'
+import AdjustPanel from './AdjustPanel'
+import EffectPanel from './EffectPanel'
 
 const RATIOS: Record<string, number | null> = { free: null, '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4 }
 
@@ -15,7 +22,8 @@ function centered(w: number, h: number, ratio: number) {
   return { x: Math.floor((w - cw) / 2), y: Math.floor((h - ch) / 2), width: cw, height: ch }
 }
 
-export default function MorePanel({ video, setOverlay }: EditorContext) {
+export default function MorePanel({ video, setOverlay, currentTime, pause }: EditorContext) {
+  const [crf, setCrf] = useState(20)
   const [tool, setTool] = useState('crop')
   const [output, setOutput] = useState(defaultOutput)
   const { submit, busy } = useSubmitEdit(video.id)
@@ -26,8 +34,8 @@ export default function MorePanel({ video, setOverlay }: EditorContext) {
   const [audioFormat, setAudioFormat] = useState('mp3')
 
   useEffect(() => {
-    setOverlay(tool === 'crop' ? { crop } : {})
-  }, [tool, crop, setOverlay])
+    setOverlay(tool === 'crop' ? { crop } : tool === 'speed' ? { playbackRate: Number(speed) } : {})
+  }, [tool, crop, speed, setOverlay])
   useEffect(() => () => setOverlay({}), [setOverlay])
 
   const setCropField = (k: keyof typeof crop, v: number) => {
@@ -39,6 +47,14 @@ export default function MorePanel({ video, setOverlay }: EditorContext) {
 
   return (
     <Stack>
+      {tool === 'crop' && <PresetControls key="crop" edit={{ op: 'crop', ...crop, crf }} onApply={(params) => {
+        setCrf(Number(params.crf ?? 20))
+        setRatio('free')
+        setCrop({ x: Number(params.x), y: Number(params.y), width: Number(params.width), height: Number(params.height) })
+      }} />}
+      {tool === 'speed' && <PresetControls key="speed" edit={{ op: 'speed', factor: Number(speed), crf }} onApply={(params) => { setCrf(Number(params.crf ?? 20)); setSpeed(String(params.factor)) }} />}
+      {tool === 'convert' && <PresetControls key="convert" edit={{ op: 'convert', format }} onApply={(params) => setFormat(String(params.format))} />}
+      {(tool === 'crop' || tool === 'speed') && <NumberInput label="画质 CRF（越小越清晰）" min={0} max={51} value={crf} onChange={(value) => setCrf(Number(value))} />}
       <SegmentedControl
         fullWidth
         value={tool}
@@ -47,6 +63,11 @@ export default function MorePanel({ video, setOverlay }: EditorContext) {
           { value: 'crop', label: '裁切画面' },
           { value: 'speed', label: '变速' },
           { value: 'audio', label: '音频' },
+          { value: 'subtitle', label: '字幕' },
+          { value: 'watermark', label: '水印' },
+          { value: 'animation', label: '动图' },
+          { value: 'adjust', label: '画面调整' },
+          { value: 'effect', label: '片段效果' },
           { value: 'convert', label: '格式' },
         ]}
       />
@@ -77,28 +98,30 @@ export default function MorePanel({ video, setOverlay }: EditorContext) {
             </Text>
           )}
           <OutputFields value={output} onChange={setOutput} />
-          <Button loading={busy} disabled={!cropValid} onClick={() => submit({ op: 'crop', ...crop }, output)}>
+          <Button loading={busy} disabled={!cropValid} onClick={() => submit({ op: 'crop', ...crop, crf }, output)}>
             裁切
           </Button>
         </Stack>
       )}
       {tool === 'speed' && (
         <Stack gap="xs">
+          <Text size="sm" c="dimmed">播放器实时以 {speed}× 预览，提交后生成变速视频。</Text>
           <Select
             label="播放速度"
             value={speed}
             onChange={(v) => v && setSpeed(v)}
             allowDeselect={false}
-            data={['0.25', '0.5', '0.75', '1.25', '1.5', '2', '3', '4'].map((v) => ({ value: v, label: `${v}×` }))}
+            data={[...new Set(['0.25', '0.5', '0.75', '1.25', '1.5', '2', '3', '4', speed])].map((v) => ({ value: v, label: `${v}×` }))}
           />
           <OutputFields value={output} onChange={setOutput} />
-          <Button loading={busy} onClick={() => submit({ op: 'speed', factor: Number(speed) }, output)}>
+          <Button loading={busy} onClick={() => submit({ op: 'speed', factor: Number(speed), crf }, output)}>
             生成变速视频
           </Button>
         </Stack>
       )}
       {tool === 'audio' && (
         <Stack gap="xs">
+          <PresetControls key="mute" edit={{ op: 'mute' }} onApply={() => {}} />
           <Title order={6}>去除声音</Title>
           <Text size="xs" c="dimmed">
             移除全部音轨，画面无损保留。
@@ -108,6 +131,7 @@ export default function MorePanel({ video, setOverlay }: EditorContext) {
             静音
           </Button>
           <Divider my="xs" />
+          <PresetControls key="extract_audio" edit={{ op: 'extract_audio', format: audioFormat }} onApply={(params) => setAudioFormat(String(params.format))} />
           <Title order={6}>提取音频</Title>
           <Group align="flex-end" grow>
             <Select
@@ -129,6 +153,8 @@ export default function MorePanel({ video, setOverlay }: EditorContext) {
               提取（在任务中心下载）
             </Button>
           </Group>
+          <Divider my="xs" />
+          <AudioPanel videoId={video.id} duration={video.duration} hasAudio={!!video.audio_codec} />
         </Stack>
       )}
       {tool === 'convert' && (
@@ -150,6 +176,11 @@ export default function MorePanel({ video, setOverlay }: EditorContext) {
           </Button>
         </Stack>
       )}
+      {tool === 'effect' && <EffectPanel video={video} currentTime={currentTime} />}
+      {tool === 'adjust' && <AdjustPanel videoId={video.id} />}
+      {tool === 'subtitle' && <SubtitlePanel videoId={video.id} />}
+      {tool === 'watermark' && <WatermarkPanel video={video} />}
+      {tool === 'animation' && <AnimationPanel video={video} currentTime={currentTime} pause={pause} />}
     </Stack>
   )
 }

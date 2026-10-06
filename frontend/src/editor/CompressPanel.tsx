@@ -2,6 +2,7 @@ import { Button, Group, NumberInput, Select, SegmentedControl, Stack, Switch, Te
 import { useState } from 'react'
 import { formatBytes } from '../lib/format'
 import { defaultOutput, useSubmitEdit, type EditorContext } from './edit'
+import PresetControls from './PresetControls'
 import { OutputFields } from './OutputFields'
 
 // rough bits-per-pixel for the CRF presets, used only for the size estimate
@@ -20,7 +21,7 @@ export default function CompressPanel({ video }: EditorContext) {
   const { submit, busy } = useSubmitEdit(video.id)
 
   const short = Math.min(video.width, video.height)
-  const resOptions = [2160, 1440, 1080, 720, 480, 360].filter((r) => r < short)
+  const resOptions = [2160, 1440, 1080, 720, 480, 360].filter((r) => r < short || String(r) === resolution)
   const scale = resolution === 'original' ? 1 : Number(resolution) / short
   const fps = maxFps === 'original' ? video.fps || 30 : Math.min(video.fps || 30, Number(maxFps))
   const pixels = video.width * scale * video.height * scale
@@ -33,23 +34,26 @@ export default function CompressPanel({ video }: EditorContext) {
           8,
       )
 
-  const run = () =>
-    submit(
-      {
-        op: 'compress',
-        codec,
-        quality,
-        resolution: resolution === 'original' ? null : Number(resolution),
-        target_size_mb: useTarget ? targetMb : null,
-        audio_bitrate: Number(audio),
-        max_fps: maxFps === 'original' ? null : Number(maxFps),
-        preset,
-      },
-      output,
-    )
+  const edit = {
+    op: 'compress', codec, quality,
+    resolution: resolution === 'original' ? null : Number(resolution),
+    target_size_mb: useTarget ? targetMb : null,
+    audio_bitrate: Number(audio), max_fps: maxFps === 'original' ? null : Number(maxFps), preset,
+  }
+  const run = () => submit(edit, output)
 
   return (
     <Stack>
+      <PresetControls edit={edit} onApply={(params) => {
+        setCodec(String(params.codec ?? 'h264'))
+        setQuality(String(params.quality ?? 'medium'))
+        setResolution(params.resolution ? String(params.resolution) : 'original')
+        setUseTarget(params.target_size_mb != null)
+        if (params.target_size_mb != null) setTargetMb(Number(params.target_size_mb))
+        setAudio(String(params.audio_bitrate ?? 128))
+        setMaxFps(params.max_fps ? String(params.max_fps) : 'original')
+        setPreset(String(params.preset ?? 'medium'))
+      }} />
       <Text size="sm">
         原始大小 <b>{formatBytes(video.size)}</b>，预计压缩后约 <b>{formatBytes(estimate)}</b>
         {!useTarget && <Text span c="dimmed" size="xs">（估算）</Text>}
@@ -70,7 +74,7 @@ export default function CompressPanel({ video }: EditorContext) {
           value={resolution}
           onChange={(v) => v && setResolution(v)}
           allowDeselect={false}
-          data={[{ value: 'original', label: `原始（${video.width}×${video.height}）` }, ...resOptions.map((r) => ({ value: String(r), label: `${r}p` }))]}
+          data={[{ value: 'original', label: `原始（${video.width}×${video.height}）` }, ...resOptions.map((r) => ({ value: String(r), label: `${r}p 上限` }))]}
         />
       </Group>
       <Switch label="按目标文件大小压缩（两遍编码）" checked={useTarget} onChange={(e) => setUseTarget(e.currentTarget.checked)} />
@@ -99,14 +103,14 @@ export default function CompressPanel({ video }: EditorContext) {
           value={maxFps}
           onChange={(v) => v && setMaxFps(v)}
           allowDeselect={false}
-          data={[{ value: 'original', label: `原始（${Math.round(video.fps)}）` }, '60', '30', '24']}
+          data={[{ value: 'original', label: `原始（${Math.round(video.fps)}）` }, ...[...new Set(['60', '30', '24', maxFps])].filter((value) => value !== 'original')]}
         />
         <Select
           label="音频码率"
           value={audio}
           onChange={(v) => v && setAudio(v)}
           allowDeselect={false}
-          data={['64', '96', '128', '160', '192'].map((v) => ({ value: v, label: `${v} kbps` }))}
+          data={['64', '96', '128', '160', '192', '256'].map((v) => ({ value: v, label: `${v} kbps` }))}
         />
         <Select
           label="编码速度"

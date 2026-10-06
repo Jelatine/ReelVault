@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import shutil
 import tarfile
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,8 @@ from fastapi.testclient import TestClient
 
 from reelvault import updates
 from reelvault.config import Settings
+from reelvault.db import make_engine
+from reelvault.migrate import upgrade
 from reelvault.updates import UpdateError, Updater, is_newer, parse_version
 
 REPO = "Jelatine/ReelVault"
@@ -147,6 +151,9 @@ def run_upgrade(
     restarted: list[bool] = []
     settings = Settings(data_dir=tmp_path / "data", install_mode="package", uv=shutil.which(uv))
     settings.ensure_dirs()
+    engine = make_engine(settings.db_path)
+    upgrade(engine)
+    engine.dispose()
     up = Updater(
         settings,
         app_dir=app,
@@ -176,6 +183,21 @@ def test_package_upgrade_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert not (app / "reelvault" / "._junk.py").exists()
     assert not (app / ".upgrade-backup").exists()
     assert not list((tmp_path / "data" / "tmp").glob("update-*"))
+    archives = list((tmp_path / "data" / "backups").glob("before-upgrade-*.zip"))
+    assert len(archives) == 1
+    with zipfile.ZipFile(archives[0]) as archive:
+        assert json.loads(archive.read("manifest.json"))["revision"] == "0012"
+
+
+def test_backup_failure_aborts_upgrade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_backup(*args: Any, **kwargs: Any) -> None:
+        raise OSError("backup disk full")
+
+    monkeypatch.setattr(updates, "create_backup", fail_backup)
+    up, app, restarted = run_upgrade(tmp_path, monkeypatch)
+    assert not restarted
+    assert up.state.phase == "failed" and "backup disk full" in (up.state.error or "")
+    assert '"0.1.0"' in (app / "reelvault" / "__init__.py").read_text()
 
 
 def test_failed_dependency_install_rolls_back(

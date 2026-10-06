@@ -12,12 +12,16 @@ import {
   IconTrash,
   IconVideo,
 } from '@tabler/icons-react'
+import { useState, type DragEvent } from 'react'
+import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE, dragIds } from '../lib/selection'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { buildTree, useFolders, useTags, type FolderNode } from '../lib/queries'
+import CollectionNav from './CollectionNav'
 import { confirmAction, promptText } from './prompt'
 
 export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
+  const [dropTarget, setDropTarget] = useState<number | 'root' | null>(null)
   const folders = useFolders()
   const tags = useTags()
   const qc = useQueryClient()
@@ -69,9 +73,39 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
     }
   }
 
+  const dropProps = (folderId: number | null) => ({
+    onDragOver: (event: DragEvent) => {
+      if (!event.dataTransfer.types.includes(VIDEO_DRAG_TYPE)) return
+      event.preventDefault()
+      event.stopPropagation()
+      event.dataTransfer.dropEffect = 'move'
+      setDropTarget(folderId ?? 'root')
+    },
+    onDragLeave: (event: DragEvent) => {
+      if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+      setDropTarget(null)
+    },
+    onDrop: async (event: DragEvent) => {
+      if (!event.dataTransfer.types.includes(VIDEO_DRAG_TYPE)) return
+      event.preventDefault()
+      event.stopPropagation()
+      setDropTarget(null)
+      const ids = dragIds(event.dataTransfer.getData(VIDEO_DRAG_TYPE))
+      if (!ids.length) return
+      try {
+        const result = await api.post<{ updated: number }>('/api/videos/batch', { ids, action: 'move', folder_id: folderId })
+        refresh()
+        window.dispatchEvent(new Event(CLEAR_SELECTION_EVENT))
+        notifications.show({ message: `已移动 ${result.updated} 个视频` })
+      } catch (error) { notifications.show({ color: 'red', message: error instanceof Error ? error.message : String(error) }) }
+    },
+    style: dropTarget === (folderId ?? 'root') ? { outline: '2px solid var(--mantine-color-violet-6)' } : undefined,
+  })
+
   const renderNode = (node: FolderNode): React.ReactNode => (
     <NavLink
       key={node.id}
+      {...dropProps(node.id)}
       label={node.name}
       leftSection={<IconFolder size={16} />}
       active={folder === String(node.id)}
@@ -118,6 +152,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         onClick={() => go({ folder: 'all' })}
       />
       <NavLink
+        {...dropProps(null)}
         label="未分类"
         leftSection={<IconInbox size={16} />}
         active={folder === 'root'}
@@ -152,6 +187,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
           </Group>
         </>
       )}
+      <CollectionNav onNavigate={onNavigate} />
       <Divider my="sm" />
       <NavLink
         component={Link}

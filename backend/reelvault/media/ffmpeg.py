@@ -4,8 +4,10 @@ import asyncio
 import contextlib
 import json
 import re
+import signal
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 ProgressCallback = Callable[[float], None]
@@ -25,9 +27,34 @@ class ProcessHandle:
 
     process: asyncio.subprocess.Process | None = None
     canceled: bool = False
+    paused: bool = False
+    _resumed: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def pause(self) -> None:
+        self.paused = True
+        self._resumed.clear()
+        if self.process and self.process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                self.process.send_signal(signal.SIGSTOP)
+
+    def resume(self) -> None:
+        self.paused = False
+        self._resumed.set()
+        if self.process and self.process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                self.process.send_signal(signal.SIGCONT)
+
+    async def checkpoint(self) -> None:
+        while self.paused and not self.canceled:
+            await self._resumed.wait()
+        if self.canceled:
+            raise Canceled()
 
     def cancel(self) -> None:
         self.canceled = True
+        # Wake a task paused between subprocesses as well as killing stopped processes.
+        self.paused = False
+        self._resumed.set()
         if self.process and self.process.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 self.process.kill()
@@ -46,20 +73,28 @@ async def run_command(
     duration: float = 0,
     on_progress: ProgressCallback | None = None,
     handle: ProcessHandle | None = None,
+    cwd: Path | None = None,
 ) -> RunResult:
     """Run ffmpeg/ffprobe. When `duration` is set, ffmpeg's -progress output on stdout is
     parsed into a 0..1 fraction and reported through `on_progress`."""
-    if handle and handle.canceled:
-        raise Canceled()
+    if handle:
+        await handle.checkpoint()
     track = on_progress is not None and duration > 0
+    if cwd is not None and '/' in args[0] and not Path(args[0]).is_absolute():
+        args = [str(Path(args[0]).resolve()), *args[1:]]
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
     )
     if handle:
         handle.process = proc
+        if handle.canceled:
+            handle.cancel()
+        elif handle.paused:
+            handle.pause()
     assert proc.stdout and proc.stderr
 
     stderr_tail: list[str] = []
@@ -84,12 +119,20 @@ async def run_command(
                 if value.isdigit() and on_progress:
                     on_progress(min(1.0, int(value) / 1_000_000 / duration))
 
-    await asyncio.gather(read_stderr(), read_stdout())
-    code = await proc.wait()
+    try:
+        await asyncio.gather(read_stderr(), read_stdout())
+        code = await proc.wait()
+    except asyncio.CancelledError:
+        if proc.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+        await proc.wait()
+        raise
     if handle:
         handle.process = None
         if handle.canceled:
             raise Canceled()
+        await handle.checkpoint()
     if code != 0:
         tail = "".join(stderr_tail).strip()
         raise FFmpegError(tail[-2000:] or f"{args[0]} exited with code {code}")
@@ -103,9 +146,12 @@ def ffmpeg_args(ffmpeg: str, args: list[str], *, progress: bool = True) -> list[
     return base + args
 
 
-async def ffprobe_json(ffprobe: str, path: str) -> dict[str, Any]:
+async def ffprobe_json(
+    ffprobe: str, path: str, handle: ProcessHandle | None = None
+) -> dict[str, Any]:
     result = await run_command(
-        [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path]
+        [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
+        handle=handle,
     )
     data: dict[str, Any] = json.loads(result.stdout or b"{}")
     return data

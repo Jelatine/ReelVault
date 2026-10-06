@@ -26,6 +26,7 @@ class OpPlan:
     duration: float
     ext: str = "mp4"
     files: list[Path] = field(default_factory=list)
+    cwd: Path | None = None
 
 
 # ---------------------------------------------------------------- parameters
@@ -72,6 +73,25 @@ class MergeParams(BaseModel):
     height: int | None = Field(None, ge=16, le=4320)
     fps: float | None = Field(None, gt=0, le=120)
     crf: int = Field(21, ge=0, le=51)
+    transition: Literal[
+        "none",
+        "fade",
+        "fadeblack",
+        "fadewhite",
+        "wipeleft",
+        "wiperight",
+        "slideleft",
+        "slideright",
+        "dissolve",
+        "circleopen",
+    ] = "none"
+    transition_duration: float = Field(0.5, ge=0.05, le=10, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def transition_needs_encoding(self) -> MergeParams:
+        if self.transition != "none" and self.mode == "lossless":
+            raise ValueError("合并转场需要重新编码，不能使用无损模式")
+        return self
 
 
 class CompressParams(BaseModel):
@@ -120,6 +140,140 @@ class EmbedCoverParams(BaseModel):
     op: Literal["embed_cover"] = "embed_cover"
 
 
+class AudioParams(BaseModel):
+    op: Literal["audio"] = "audio"
+    mode: Literal["adjust", "replace", "mix"] = "adjust"
+    gain_db: float = Field(0, ge=-60, le=24, allow_inf_nan=False)
+    music_gain_db: float = Field(-12, ge=-60, le=24, allow_inf_nan=False)
+    normalize: bool = False
+    target_lufs: float = Field(-16, ge=-70, le=-5, allow_inf_nan=False)
+    fade_in: float = Field(0, ge=0, le=3600, allow_inf_nan=False)
+    fade_out: float = Field(0, ge=0, le=3600, allow_inf_nan=False)
+    audio_asset_id: str | None = Field(None, pattern=r"^[a-f0-9]{32}$")
+    loop: bool = False
+    offset: float = Field(0, ge=0, le=86400, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def asset_required(self) -> AudioParams:
+        if self.mode != "adjust" and not self.audio_asset_id:
+            raise ValueError("替换或混音需要选择上传的音频")
+        if self.mode == "adjust" and self.audio_asset_id:
+            raise ValueError("调整原音轨不使用外部音频")
+        return self
+
+
+class SubtitleParams(BaseModel):
+    op: Literal["subtitle"] = "subtitle"
+    subtitle_asset_id: str | None = Field(None, pattern=r"^[a-f0-9]{32}$")
+    embedded_index: int | None = Field(None, ge=0, le=1000)
+    crf: int = Field(20, ge=0, le=51)
+
+    @model_validator(mode="after")
+    def one_source(self) -> SubtitleParams:
+        if (self.subtitle_asset_id is None) == (self.embedded_index is None):
+            raise ValueError("请选择一份外挂字幕或一条内封字幕")
+        return self
+
+
+class AnimationParams(BaseModel):
+    op: Literal["animation"] = "animation"
+    format: Literal["gif", "webp"] = "gif"
+    start: float = Field(0, ge=0, allow_inf_nan=False)
+    end: float = Field(gt=0, allow_inf_nan=False)
+    fps: int = Field(12, ge=1, le=60)
+    width: int = Field(480, ge=16, le=1920)
+    loop: bool = True
+    colors: int = Field(256, ge=16, le=256)
+    dither: Literal["sierra2_4a", "bayer", "none"] = "sierra2_4a"
+    quality: int = Field(80, ge=1, le=100)
+    lossless: bool = False
+
+    @model_validator(mode="after")
+    def valid_range(self) -> AnimationParams:
+        if self.end <= self.start:
+            raise ValueError("动图片段结束时间必须大于开始时间")
+        return self
+
+
+class WatermarkParams(BaseModel):
+    op: Literal["watermark"] = "watermark"
+    mode: Literal["image", "text"] = "text"
+    image_asset_id: str | None = Field(None, pattern=r"^[a-f0-9]{32}$")
+    text: str = Field("", max_length=2000)
+    position: Literal[
+        "top-left", "top-right", "bottom-left", "bottom-right", "center", "custom"
+    ] = "bottom-right"
+    x: float = Field(50, ge=0, le=100, allow_inf_nan=False)
+    y: float = Field(50, ge=0, le=100, allow_inf_nan=False)
+    margin_percent: float = Field(2, ge=0, le=25, allow_inf_nan=False)
+    opacity: float = Field(0.65, ge=0, le=1, allow_inf_nan=False)
+    width_percent: float = Field(20, ge=1, le=100, allow_inf_nan=False)
+    font_size: int = Field(32, ge=8, le=512)
+    color: str = Field("#ffffff", pattern=r"^#[0-9a-fA-F]{6}$")
+    border_width: int = Field(2, ge=0, le=20)
+    box: bool = False
+    crf: int = Field(20, ge=0, le=51)
+
+    @model_validator(mode="after")
+    def valid_content(self) -> WatermarkParams:
+        if self.mode == "image":
+            if not self.image_asset_id or self.text:
+                raise ValueError("图片水印需要选择图片，不能同时指定文字")
+        elif self.image_asset_id or not self.text.strip():
+            raise ValueError("文字水印需要非空文字，不能同时指定图片")
+        if any(ord(char) < 32 and char not in "\n\r\t" for char in self.text):
+            raise ValueError("文字不能包含控制字符")
+        self.text = self.text.replace("\r\n", "\n").replace("\r", "\n")
+        return self
+
+
+class AdjustParams(BaseModel):
+    op: Literal["adjust"] = "adjust"
+    brightness: float = Field(0, ge=-1, le=1, allow_inf_nan=False)
+    contrast: float = Field(1, ge=0, le=3, allow_inf_nan=False)
+    saturation: float = Field(1, ge=0, le=3, allow_inf_nan=False)
+    lut_asset_id: str | None = Field(None, pattern=r"^[a-f0-9]{32}$")
+    denoise: float = Field(0, ge=0, le=20, allow_inf_nan=False)
+    stabilize: bool = False
+    shakiness: int = Field(5, ge=1, le=10)
+    accuracy: int = Field(15, ge=1, le=15)
+    smoothing: int = Field(15, ge=1, le=100)
+    zoom: float = Field(0, ge=0, le=100, allow_inf_nan=False)
+    autozoom: bool = True
+    crf: int = Field(20, ge=0, le=51)
+
+    @model_validator(mode="after")
+    def valid_adjustment(self) -> AdjustParams:
+        if self.stabilize and self.accuracy < self.shakiness:
+            raise ValueError("防抖精度不能小于抖动强度")
+        if not (
+            self.brightness
+            or self.contrast != 1
+            or self.saturation != 1
+            or self.lut_asset_id
+            or self.denoise
+            or self.stabilize
+        ):
+            raise ValueError("请至少启用一项画面调整")
+        return self
+
+
+class EffectParams(BaseModel):
+    op: Literal["effect"] = "effect"
+    mode: Literal["reverse", "freeze", "slow"] = "reverse"
+    start: float = Field(0, ge=0, allow_inf_nan=False)
+    end: float | None = Field(None, gt=0, allow_inf_nan=False)
+    duration: float = Field(2, ge=0.04, le=3600, allow_inf_nan=False)
+    factor: float = Field(0.5, ge=0.1, lt=1, allow_inf_nan=False)
+    crf: int = Field(20, ge=0, le=51)
+
+    @model_validator(mode="after")
+    def valid_range(self) -> EffectParams:
+        if self.mode != "freeze" and (self.end is None or self.end <= self.start):
+            raise ValueError("效果片段结束时间必须大于开始时间")
+        return self
+
+
 EditParams = Annotated[
     RotateParams
     | TrimParams
@@ -130,7 +284,13 @@ EditParams = Annotated[
     | MuteParams
     | ConvertParams
     | ExtractAudioParams
-    | EmbedCoverParams,
+    | EmbedCoverParams
+    | AudioParams
+    | SubtitleParams
+    | WatermarkParams
+    | AnimationParams
+    | AdjustParams
+    | EffectParams,
     Field(discriminator="op"),
 ]
 
@@ -145,6 +305,12 @@ OP_LABELS = {
     "convert": "转换格式",
     "extract_audio": "提取音频",
     "embed_cover": "写入封面",
+    "audio": "音频处理",
+    "subtitle": "烧录字幕",
+    "watermark": "水印与文字",
+    "animation": "导出动图",
+    "adjust": "画面调整",
+    "effect": "片段效果",
 }
 
 # ---------------------------------------------------------------- helpers
@@ -283,6 +449,10 @@ def merge_lossless_ok(sources: list[Source]) -> bool:
 
 
 def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> OpPlan:
+    if p.transition != "none":
+        from .transitions import plan_transitions
+
+        return plan_transitions(p, sources, out)
     total = sum(i.duration for _, i in sources)
     lossless = p.mode == "lossless" or (p.mode == "auto" and merge_lossless_ok(sources))
     if p.mode == "lossless" and not merge_lossless_ok(sources):
@@ -464,3 +634,78 @@ def plan_embed_cover(src: Source, cover: Path, out: Path) -> OpPlan:
     args += ["-c", "copy", "-c:v:1", "mjpeg", "-disposition:v:1", "attached_pic"]
     args += [*MP4_FLAGS, str(out)]
     return OpPlan([args], info.duration, ext=ext)
+
+
+def plan_audio(
+    p: AudioParams, src: Source, out: Path, asset: tuple[Path, int] | None = None
+) -> OpPlan:
+    path, info = src
+    duration = info.duration
+    if duration <= 0:
+        raise OpError("无法获取视频时长")
+    if p.fade_in + p.fade_out > duration:
+        raise OpError("淡入与淡出总时长不能超过视频时长")
+    if p.mode != "adjust" and p.offset >= duration:
+        raise OpError("音频开始时间必须小于视频时长")
+    if p.mode == "adjust" and not info.has_audio:
+        raise OpError("该视频没有音轨，请选择替换音轨或背景音乐")
+    ext = copy_ext(info)
+    if ext == "webm":
+        ext = "mkv"  # WebM cannot hold the AAC output.
+    args = ["-i", str(path)]
+    chains = []
+    common = "aformat=sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS"
+    original = p.mode in {"adjust", "mix"} and info.has_audio
+    if original:
+        alignment = f"atrim=start={max(0, -info.audio_delay)},{common}"
+        if info.audio_delay > 0:
+            alignment += f",adelay={round(info.audio_delay * 1000)}:all=1"
+        chains.append(
+            f"[0:{info.audio_index}]{alignment},volume={p.gain_db}dB,apad,atrim=duration={duration}[original]"
+        )
+    if p.mode != "adjust":
+        if asset is None:
+            raise OpError("音频素材不存在")
+        audio_path, stream_index = asset
+        if p.loop:
+            args += ["-stream_loop", "-1"]
+        args += ["-i", str(audio_path)]
+        delay = round(p.offset * 1000)
+        chains.append(
+            f"[1:{stream_index}]{common},volume={p.music_gain_db}dB,adelay={delay}:all=1,apad,atrim=duration={duration}[music]"
+        )
+    if p.mode == "mix" and original:
+        chains.append(
+            "[original][music]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed]"
+        )
+        selected = "mixed"
+    else:
+        selected = "original" if p.mode == "adjust" else "music"
+    filters = []
+    if p.normalize:
+        filters.append(f"loudnorm=I={p.target_lufs}:TP=-1.5:LRA=11:linear=false")
+    if p.fade_in:
+        filters.append(f"afade=t=in:st=0:d={p.fade_in}")
+    if p.fade_out:
+        filters.append(f"afade=t=out:st={duration - p.fade_out}:d={p.fade_out}")
+    filters += ["alimiter=limit=0.95:level=false:latency=true", "aresample=48000"]
+    chains.append(f"[{selected}]" + ",".join(filters) + "[audio_out]")
+    target = out.with_suffix("." + ext)
+    args += [
+        "-filter_complex",
+        ";".join(chains),
+        "-map",
+        f"0:{info.video_index}",
+        "-map",
+        "[audio_out]",
+        "-c:v",
+        "copy",
+        *aac(192),
+        "-ar",
+        "48000",
+        "-t",
+        str(duration),
+    ]
+    if ext in {"mp4", "mov", "m4v"}:
+        args += MP4_FLAGS
+    return OpPlan([args + [str(target)]], duration, ext=ext)

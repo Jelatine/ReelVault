@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import mimetypes
 import shutil
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote
@@ -10,7 +11,7 @@ import aiofiles
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, column, func, literal_column, or_, select, table, text
 from sqlalchemy.orm import Session
 
 from ..auth import require_auth
@@ -30,8 +31,9 @@ from ..library import (
 from ..media import derive
 from ..media.ffmpeg import FFmpegError, ffmpeg_args, run_command
 from ..media.probe import probe
-from ..models import Tag, Upload, Video, new_id, utcnow, video_tags
-from .deps import get_jobs, get_settings
+from ..media.timing import timing_index
+from ..models import Folder, Tag, Upload, Video, new_id, utcnow, video_tags
+from .deps import FiniteNumber, get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["videos"], dependencies=[Depends(require_auth)])
 
@@ -180,13 +182,19 @@ def abort_upload(
 
 # ------------------------------------------------------------------ listing / CRUD
 
-SortKey = Literal["created", "title", "size", "duration", "updated"]
+SortKey = Literal[
+    "created", "title", "size", "duration", "updated", "rating", "favorite", "relevance", "captured"
+]
 SORT_COLUMNS = {
     "created": Video.created_at,
     "title": Video.title,
     "size": Video.size,
     "duration": Video.duration,
     "updated": Video.updated_at,
+    "rating": Video.rating,
+    "favorite": Video.favorite,
+    "captured": Video.captured_at,
+    "relevance": Video.created_at,
 }
 
 
@@ -196,7 +204,21 @@ def list_videos(
     folder: str = "all",
     tag: str | None = None,
     trash: bool = False,
-    sort: SortKey = "created",
+    rating_min: int = Query(0, ge=0, le=5),
+    favorite: bool | None = None,
+    duration_min: FiniteNumber | None = Query(None, ge=0),
+    duration_max: FiniteNumber | None = Query(None, ge=0),
+    size_min: int | None = Query(None, ge=0),
+    size_max: int | None = Query(None, ge=0),
+    resolution: Literal["4k", "1080p", "720p", "portrait", "landscape"] | None = None,
+    codec: str | None = None,
+    format: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    captured_after: datetime | None = None,
+    captured_before: datetime | None = None,
+    include_children: bool = False,
+    sort: SortKey = "relevance",
     order: Literal["asc", "desc"] = "desc",
     page: int = Query(1, ge=1),
     page_size: int = Query(48, ge=1, le=500),
@@ -204,26 +226,122 @@ def list_videos(
 ) -> dict[str, Any]:
     stmt = select(Video)
     stmt = stmt.where(Video.deleted_at.is_not(None) if trash else Video.deleted_at.is_(None))
+    stmt = stmt.where(Video.rating >= rating_min)
+    if favorite is not None:
+        stmt = stmt.where(Video.favorite == favorite)
+    ranges: list[tuple[Any, Any, Any]] = [
+        (duration_min, duration_max, Video.duration),
+        (size_min, size_max, Video.size),
+        (created_after, created_before, Video.created_at),
+        (captured_after, captured_before, Video.captured_at),
+    ]
+    for minimum, maximum, filter_col in ranges:
+        if isinstance(minimum, datetime):
+            minimum = (
+                minimum.replace(tzinfo=UTC) if minimum.tzinfo is None else minimum.astimezone(UTC)
+            )
+        if isinstance(maximum, datetime):
+            maximum = (
+                maximum.replace(tzinfo=UTC) if maximum.tzinfo is None else maximum.astimezone(UTC)
+            )
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise HTTPException(400, "筛选范围的下限不能超过上限")
+        if minimum is not None:
+            stmt = stmt.where(filter_col >= minimum)
+        if maximum is not None:
+            stmt = stmt.where(filter_col <= maximum)
+    if resolution in {"4k", "1080p", "720p"}:
+        height = {"4k": 2160, "1080p": 1080, "720p": 720}[resolution]
+        # Compare the shorter side to also recognize vertical UHD/HD video.
+        stmt = stmt.where(func.min(Video.width, Video.height) >= height)
+    elif resolution == "portrait":
+        stmt = stmt.where(Video.height > Video.width)
+    elif resolution == "landscape":
+        stmt = stmt.where(Video.width > Video.height)
+    if codec:
+        stmt = stmt.where(Video.video_codec == codec)
+    if format:
+        stmt = stmt.where(Video.container == format)
+    has_match = False
+    short_rank: Any = None
     if q.strip():
-        like = f"%{q.strip()}%"
-        stmt = stmt.where(
-            or_(Video.title.ilike(like), Video.original_name.ilike(like),
-                Video.description.ilike(like))
-        )  # fmt: skip
+        search = table(
+            "video_search",
+            *(column(c) for c in ("video_id", "title", "description", "original_name", "tags")),
+        )
+        stmt = stmt.join(search, search.c.video_id == Video.id)
+        terms = q.strip().split()
+        short_rank = sum(
+            case((func.instr(func.lower(search.c[c]), term.lower()) > 0, weight), else_=0)
+            for term in terms
+            for c, weight in (("title", 8), ("tags", 4), ("original_name", 3), ("description", 1))
+        )
+        long_terms = [term for term in terms if len(term) >= 3]
+        if long_terms:
+            match = " AND ".join('"' + term.replace('"', '""') + '"' for term in long_terms)
+            stmt = stmt.where(text("video_search MATCH :search_query")).params(search_query=match)
+            has_match = True
+        # Trigram MATCH cannot match one/two-character words. Search the FTS
+        # document itself for those, retaining Chinese short-word support.
+        for term in (t for t in terms if len(t) < 3):
+            escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            stmt = stmt.where(
+                or_(
+                    *(
+                        search.c[c].like(f"%{escaped}%", escape="\\")
+                        for c in ("title", "description", "original_name", "tags")
+                    )
+                )
+            )
     if folder == "root":
         stmt = stmt.where(Video.folder_id.is_(None))
     elif folder != "all":
         try:
-            stmt = stmt.where(Video.folder_id == int(folder))
+            folder_id = int(folder)
+            if include_children:
+                descendants = select(Folder.id).where(Folder.id == folder_id).cte(recursive=True)
+                descendants = descendants.union_all(
+                    select(Folder.id).join(descendants, Folder.parent_id == descendants.c.id)
+                )
+                stmt = stmt.where(Video.folder_id.in_(select(descendants.c.id)))
+            else:
+                stmt = stmt.where(Video.folder_id == folder_id)
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "无效的文件夹") from e
     if tag:
         stmt = stmt.where(Video.tags.any(Tag.name == tag))
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     col = SORT_COLUMNS[sort]
-    stmt = stmt.order_by(col.asc() if order == "asc" else col.desc(), Video.id)
+    if sort == "relevance" and has_match:
+        stmt = stmt.order_by(literal_column("bm25(video_search, 0, 8, 1, 3, 4)"), Video.id)
+    elif sort == "relevance" and short_rank is not None:
+        stmt = stmt.order_by(short_rank.desc(), Video.id)
+    else:
+        stmt = stmt.order_by(col.asc() if order == "asc" else col.desc(), Video.id)
     stmt = stmt.offset((page - 1) * page_size).limit(page_size)
-    items = [video_to_dict(v) for v in db.scalars(stmt).all()]
+    items = []
+    if has_match:
+        excerpts = stmt.add_columns(literal_column("snippet(video_search, -1, '', '', '…', 32)"))
+        for video, excerpt in db.execute(excerpts):
+            items.append({**video_to_dict(video), "search_excerpt": excerpt})
+    else:
+        for video in db.scalars(stmt).all():
+            item = video_to_dict(video)
+            if q.strip():
+                fields = [
+                    video.title,
+                    " ".join(t.name for t in video.tags),
+                    video.original_name,
+                    video.description,
+                ]
+                for value in fields:
+                    matches = [value.lower().find(term.lower()) for term in q.strip().split()]
+                    positions = [position for position in matches if position >= 0]
+                    if positions:
+                        start = max(0, min(positions) - 30)
+                        item["search_excerpt"] = ("…" if start else "") + value[start : start + 120]
+                        break
+            items.append(item)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -233,6 +351,8 @@ def video_detail(video_id: str, db: Session = Depends(get_db)) -> dict[str, Any]
 
 
 class VideoPatch(BaseModel):
+    rating: int | None = Field(None, ge=0, le=5)
+    favorite: bool | None = None
     title: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = Field(None, max_length=10000)
     folder_id: int | None = None
@@ -243,6 +363,10 @@ class VideoPatch(BaseModel):
 @router.patch("/videos/{video_id}")
 def update_video(video_id: str, body: VideoPatch, db: Session = Depends(get_db)) -> dict[str, Any]:
     video = get_video(db, video_id)
+    if body.rating is not None:
+        video.rating = body.rating
+    if body.favorite is not None:
+        video.favorite = body.favorite
     if body.title is not None:
         video.title = body.title.strip()
     if body.description is not None:
@@ -348,6 +472,28 @@ def list_tags(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 
 
 # ------------------------------------------------------------------ media files
+
+
+@router.get("/videos/{video_id}/timing")
+async def video_timing(
+    video_id: str,
+    keyframes_only: bool = False,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, list[float]]:
+    video = get_video(db, video_id)
+    if video.status != "ready":
+        raise HTTPException(409, "请等待视频处理完成后载入帧索引")
+    try:
+        return await timing_index(
+            settings,
+            video.id,
+            abs_path(settings, video.file_path),
+            int((video.meta or {}).get("video_index", 0)),
+            keyframes_only=keyframes_only,
+        )
+    except (OSError, FFmpegError, RuntimeError, ValueError) as exc:
+        raise HTTPException(500, f"无法读取帧索引: {exc}") from exc
 
 
 def _cache_headers() -> dict[str, str]:

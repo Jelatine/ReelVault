@@ -20,6 +20,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconDeviceDesktop, IconEdit, IconLogout } from '@tabler/icons-react'
 import { promptText } from '../components/prompt'
 import UpdatePanel from '../components/UpdatePanel'
+import BackupPanel from '../components/BackupPanel'
+import EncodingPanel from '../components/EncodingPanel'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatBytes, formatDate } from '../lib/format'
@@ -198,7 +200,7 @@ function SystemPanel() {
         <Text size="sm">FFmpeg：{data.ffmpeg_version}</Text>
         <Text size="sm">并发任务数：{data.workers}</Text>
         <Text size="sm">
-          运行中 / 排队：{data.running_jobs} / {data.queued_jobs}
+          运行中 / 排队 / 暂停：{data.running_jobs} / {data.queued_jobs} / {data.paused_jobs ?? 0}
         </Text>
       </SimpleGrid>
       {data.import_dir && (
@@ -230,6 +232,12 @@ export default function SettingsPage() {
       </Paper>
       <Paper withBorder p="md">
         <UpdatePanel />
+      </Paper>
+      <Paper withBorder p="md">
+        <BackupPanel />
+      </Paper>
+      <Paper withBorder p="md">
+        <EncodingPanel />
       </Paper>
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Paper withBorder p="md">

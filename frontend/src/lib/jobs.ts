@@ -15,6 +15,10 @@ export const OP_LABELS: Record<string, string> = {
   convert: '转换格式',
   extract_audio: '提取音频',
   embed_cover: '写入封面',
+  audio: '音频处理',
+  subtitle: '烧录字幕',
+  watermark: '水印与文字',
+  animation: '导出动图',
 }
 
 export function jobLabel(job: Job): string {
@@ -41,8 +45,11 @@ export function useJobEvents(enabled: boolean) {
         return next
       })
       if (FINAL.has(job.status)) {
+        qc.invalidateQueries({ queryKey: ['jobs'] })
         qc.invalidateQueries({ queryKey: ['videos'] })
         qc.invalidateQueries({ queryKey: ['video'] })
+        qc.invalidateQueries({ queryKey: ['history'] })
+        qc.invalidateQueries({ queryKey: ['encoding'] })
         qc.invalidateQueries({ queryKey: ['folders'] })
         if (job.kind === 'edit') {
           const label = jobLabel(job)

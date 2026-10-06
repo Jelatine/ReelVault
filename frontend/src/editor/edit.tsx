@@ -1,4 +1,4 @@
-import { Button } from '@mantine/core'
+import { Button, Stack, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -16,6 +16,7 @@ export interface EditorContext {
 }
 
 export interface Overlay {
+  playbackRate?: number
   transform?: string
   crop?: { x: number; y: number; width: number; height: number }
   segments?: { start: number; end: number }[]
@@ -41,9 +42,12 @@ export function useSubmitEdit(videoId: string) {
       notifications.show({
         title: '任务已提交',
         message: (
+          <Stack gap={4}>
+          {!!job.conflicting_jobs?.length && <Text size="sm">同一视频还有 {job.conflicting_jobs.length} 个未结束任务，将依次处理。</Text>}
           <Button size="compact-xs" variant="subtle" onClick={() => navigate('/jobs')}>
             查看任务进度
           </Button>
+          </Stack>
         ),
       })
       return job

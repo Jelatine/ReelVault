@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .backup import create_backup
 from .config import PACKAGE_DIR, Settings
 
 log = logging.getLogger("reelvault.updates")
@@ -356,6 +357,9 @@ class Updater:
                     raise UpdateError(f"安装包不完整：缺少 {required}")
 
             self._set("installing", "正在安装新版本")
+            if self.settings.db_path.is_file():
+                backup_path = create_backup(self.settings, reason="before-upgrade")
+                log.info("database/config backed up before upgrade: %s", backup_path)
             self._swap_and_sync(src)
         finally:
             shutil.rmtree(work, ignore_errors=True)

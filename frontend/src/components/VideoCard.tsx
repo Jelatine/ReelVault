@@ -1,14 +1,19 @@
-import { Badge, Card, Checkbox, Group, Loader, Text } from '@mantine/core'
+import { Badge, Card, Checkbox, Group, Highlight, Loader, Text } from '@mantine/core'
 import { IconAlertTriangle, IconMovie } from '@tabler/icons-react'
-import { useState } from 'react'
+import { useState, type DragEvent, type MouseEvent } from 'react'
+import type { Modifiers } from '../lib/selection'
 import { formatBytes, formatDuration } from '../lib/format'
+import VideoRating from './VideoRating'
 import type { Video } from '../lib/types'
 
 interface Props {
   video: Video
+  highlight?: string
   selected?: boolean
   selectable?: boolean
-  onToggle?: () => void
+  onToggle?: (event?: Modifiers) => void
+  onSelect?: (event: MouseEvent) => void
+  onDragStart?: (event: DragEvent) => void
   onOpen: () => void
 }
 
@@ -30,16 +35,19 @@ export function Thumb({ video, hover }: { video: Video; hover: boolean }) {
   )
 }
 
-export default function VideoCard({ video, selected, selectable, onToggle, onOpen }: Props) {
+export default function VideoCard({ video, highlight, selected, selectable, onToggle, onSelect, onDragStart, onOpen }: Props) {
   const [hover, setHover] = useState(false)
   return (
     <Card
       withBorder
       padding={0}
       className="video-card"
+      data-video-id={video.id}
+      draggable={!!onDragStart}
+      onDragStart={onDragStart}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      onClick={() => (selectable ? onToggle?.() : onOpen())}
+      onClick={(event) => onSelect ? onSelect(event) : (selectable ? onToggle?.(event) : onOpen())}
       style={selected ? { outline: '2px solid var(--mantine-color-violet-6)' } : undefined}
     >
       <Card.Section pos="relative">
@@ -47,7 +55,7 @@ export default function VideoCard({ video, selected, selectable, onToggle, onOpe
           <Checkbox
             className="thumb-select"
             checked={!!selected}
-            onChange={() => onToggle()}
+            onChange={(event) => onToggle(event.nativeEvent as unknown as Modifiers)}
             onClick={(e) => e.stopPropagation()}
             aria-label="选择"
           />
@@ -56,8 +64,12 @@ export default function VideoCard({ video, selected, selectable, onToggle, onOpe
       </Card.Section>
       <div style={{ padding: '8px 10px' }}>
         <Text size="sm" fw={500} truncate title={video.title}>
-          {video.title}
+          <Highlight component="span" highlight={highlight?.split(/\s+/) ?? []}>{video.title}</Highlight>
         </Text>
+        {highlight && video.search_excerpt && (
+          <Highlight size="xs" c="dimmed" lineClamp={2} highlight={highlight.split(/\s+/)}>{video.search_excerpt}</Highlight>
+        )}
+        <VideoRating video={video} />
         <Group gap={6} mt={4} wrap="nowrap">
           {video.status === 'processing' && (
             <Badge size="xs" variant="light" color="blue">

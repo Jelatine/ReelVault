@@ -3,6 +3,20 @@ import { api, qs } from './api'
 import type { Folder, Job, Tag, UpdateStatus, Video, VideoPage } from './types'
 
 export interface VideoQuery {
+  duration_min?: string
+  duration_max?: string
+  size_min?: string
+  size_max?: string
+  resolution?: string
+  codec?: string
+  format?: string
+  created_after?: string
+  created_before?: string
+  captured_after?: string
+  captured_before?: string
+  include_children?: string
+  rating_min?: number
+  favorite?: boolean
   q?: string
   folder?: string
   tag?: string

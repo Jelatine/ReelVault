@@ -1,23 +1,76 @@
 from __future__ import annotations
 
 import shutil
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from .. import __version__
 from ..auth import require_auth
+from ..backup import create_backup
 from ..config import Settings
 from ..db import get_db
 from ..jobs.manager import JobManager
 from ..library import VIDEO_EXTENSIONS, stem_of, store_file
-from ..models import Video
+from ..models import Job, RuntimeSetting, Video
 from ..updates import UpdateError, Updater
 from .deps import get_jobs, get_settings
 
 router = APIRouter(tags=["system"])
+
+
+@router.get("/api/system/encoding", dependencies=[Depends(require_auth)])
+def encoding_status(
+    settings: Settings = Depends(get_settings), jobs: JobManager = Depends(get_jobs)
+) -> dict[str, Any]:
+    return jobs.encoding.status(settings.encoder)
+
+
+class EncodingPreference(BaseModel):
+    encoder: Literal["software", "auto", "videotoolbox", "qsv", "vaapi", "nvenc"]
+
+
+@router.put("/api/system/encoding", dependencies=[Depends(require_auth)])
+def select_encoding(
+    body: EncodingPreference,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    jobs: JobManager = Depends(get_jobs),
+) -> dict[str, Any]:
+    if body.encoder not in ("software", "auto"):
+        family = next(
+            f
+            for f in jobs.encoding.status(settings.encoder)["families"]
+            if f["value"] == body.encoder
+        )
+        if not any(encoder["compiled"] for encoder in family["encoders"]):
+            raise HTTPException(400, "当前 ffmpeg 未编译该硬件编码器")
+    saved = db.get(RuntimeSetting, "encoding")
+    if saved is None:
+        saved = RuntimeSetting(key="encoding", value={"encoder": body.encoder})
+        db.add(saved)
+    else:
+        saved.value = {"encoder": body.encoder}
+    db.commit()
+    settings.encoder = body.encoder
+    return jobs.encoding.status(settings.encoder)
+
+
+@router.post("/api/system/backup", dependencies=[Depends(require_auth)])
+def export_backup(settings: Settings = Depends(get_settings)) -> FileResponse:
+    path = create_backup(settings)
+    return FileResponse(
+        path,
+        filename=f"reelvault-{path.name}",
+        media_type="application/zip",
+        headers={"Cache-Control": "no-store"},
+        background=BackgroundTask(path.unlink, missing_ok=True),
+    )
 
 
 @router.get("/healthz")
@@ -47,11 +100,17 @@ def info(
         "version": __version__,
         "ffmpeg_version": request.app.state.ffmpeg_version,
         "workers": settings.workers,
-        "running_jobs": len(jobs.running),
-        "queued_jobs": jobs.queue.qsize(),
+        "running_jobs": int(
+            db.scalar(select(func.count()).select_from(Job).where(Job.status == "running")) or 0
+        ),
+        "queued_jobs": jobs.pending_count(),
+        "paused_jobs": int(
+            db.scalar(select(func.count()).select_from(Job).where(Job.status == "paused")) or 0
+        ),
         "disk": {"total": usage.total, "used": usage.used, "free": usage.free},
         "library": {"count": count, "size": total_size},
         "trash": {"count": trash_count, "size": trash_size},
+        "trash_retention_days": settings.trash_retention_days,
         "import_dir": str(settings.import_dir) if settings.import_dir else None,
     }
 

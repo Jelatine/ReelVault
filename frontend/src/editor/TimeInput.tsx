@@ -1,6 +1,7 @@
 import { TextInput, type TextInputProps } from '@mantine/core'
 import { useState } from 'react'
-import { formatDuration, parseTime } from '../lib/format'
+import { timecode } from './frames'
+import { parseTime } from '../lib/format'
 
 interface Props extends Omit<TextInputProps, 'value' | 'onChange'> {
   value: number
@@ -10,16 +11,16 @@ interface Props extends Omit<TextInputProps, 'value' | 'onChange'> {
 
 /** Text field accepting "m:ss.s", "h:mm:ss" or plain seconds. */
 export default function TimeInput({ value, onChange, max, ...rest }: Props) {
-  const [text, setText] = useState(formatDuration(value, true))
+  const [text, setText] = useState(timecode(value))
   const [prev, setPrev] = useState(value)
   if (prev !== value) {
     setPrev(value)
-    setText(formatDuration(value, true))
+    setText(timecode(value))
   }
   const commit = () => {
     const parsed = parseTime(text)
     if (parsed == null) {
-      setText(formatDuration(value, true))
+      setText(timecode(value))
       return
     }
     onChange(max != null ? Math.min(parsed, max) : parsed)

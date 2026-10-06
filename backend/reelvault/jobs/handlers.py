@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 from pathlib import Path
+from typing import Any
 
 from pydantic import TypeAdapter
 
@@ -13,8 +15,14 @@ from ..library import (
     stem_of,
 )
 from ..media import derive, ops
-from ..media.ffmpeg import ffmpeg_args, run_command
+from ..media.adjust import plan_adjust
+from ..media.animation import plan_animation
+from ..media.assets import audio_asset, image_asset, lut_asset, subtitle_asset
+from ..media.effects import plan_effect
 from ..media.probe import MediaInfo, probe
+from ..media.subtitles import plan_subtitle
+from ..media.timing import snap_cut, timing_index
+from ..media.watermark import plan_watermark
 from ..models import Job, Video, new_id, utcnow
 from .manager import Handler, JobContext
 
@@ -24,6 +32,7 @@ edit_params: TypeAdapter[ops.EditParams] = TypeAdapter(ops.EditParams)
 async def ingest(ctx: JobContext, job: Job) -> None:
     """Probe a library video and generate poster, preview, sprite and playable copy."""
     s = ctx.settings
+    encoder = s.encoder
     video_id = job.video_ids[0]
     with ctx.db() as db:
         video = db.get(Video, video_id)
@@ -36,7 +45,7 @@ async def ingest(ctx: JobContext, job: Job) -> None:
 
     try:
         ctx.set_progress(0, "分析视频")
-        info = await probe(s.ffprobe, str(src))
+        info = await probe(s.ffprobe, str(src), ctx.handle)
         with ctx.db() as db:
             video = db.get(Video, video_id)
             assert video is not None
@@ -49,12 +58,23 @@ async def ingest(ctx: JobContext, job: Job) -> None:
         ctx.stage(1, steps, "生成封面")
         if not custom_cover:
             t = cover_time if cover_time is not None else derive.default_cover_time(info)
-            await derive.extract_frame(s.ffmpeg, src, info, out / derive.POSTER, t)
+            await derive.extract_frame(
+                s.ffmpeg, src, info, out / derive.POSTER, t, handle=ctx.handle
+            )
         _update(ctx, video_id, has_poster=True)
 
         ctx.check_canceled()
         ctx.stage(2, steps, "生成预览片段")
-        await derive.make_preview(s.ffmpeg, src, info, out / derive.PREVIEW, ctx.handle)
+        preview_encoding = await derive.make_preview(
+            s.ffmpeg,
+            src,
+            info,
+            out / derive.PREVIEW,
+            ctx.handle,
+            encoding=ctx.manager.encoding,
+            encoder=encoder,
+        )
+        _set_job(ctx, job.id, params={**job.params, "preview_encoding": preview_encoding})
         _update(ctx, video_id, has_preview=True)
 
         cb = ctx.stage(3, steps, "生成进度条缩略图")
@@ -69,7 +89,21 @@ async def ingest(ctx: JobContext, job: Job) -> None:
         if not info.browser_playable:
             cb = ctx.stage(4, steps, "转码为浏览器可播放格式")
             target = out / derive.PLAYABLE
-            await derive.make_playable(s.ffmpeg, src, info, target, ctx.handle, cb)
+            playable_encoding = await derive.make_playable(
+                s.ffmpeg,
+                src,
+                info,
+                target,
+                ctx.handle,
+                cb,
+                encoding=ctx.manager.encoding,
+                encoder=encoder,
+            )
+            with ctx.db() as db:
+                stored = db.get(Job, job.id)
+                if stored:
+                    stored.params = {**stored.params, "playable_encoding": playable_encoding}
+                    db.commit()
             playable = rel_path(s, target)
         _update(ctx, video_id, playable_path=playable, status="ready", error=None)
     except Exception as e:
@@ -87,28 +121,62 @@ def _update(ctx: JobContext, video_id: str, **fields: object) -> None:
         db.commit()
 
 
-async def _load_sources(ctx: JobContext, ids: list[str]) -> list[tuple[Path, MediaInfo, Video]]:
+async def _load_sources(
+    ctx: JobContext, ids: list[str], *, allow_deleted: bool = False
+) -> list[tuple[Path, MediaInfo, Video]]:
     out = []
     for vid in ids:
         with ctx.db() as db:
             video = db.get(Video, vid)
-            if video is None or video.deleted_at is not None:
+            if video is None or (video.deleted_at is not None and not allow_deleted):
                 raise RuntimeError("源视频不存在或已删除")
             db.expunge(video)
         path = abs_path(ctx.settings, video.file_path)
-        out.append((path, await probe(ctx.settings.ffprobe, str(path)), video))
+        out.append((path, await probe(ctx.settings.ffprobe, str(path), ctx.handle), video))
     return out
 
 
 async def edit(ctx: JobContext, job: Job) -> None:
     s = ctx.settings
     params = edit_params.validate_python(job.params["edit"])
+    asset = None
+    if isinstance(params, ops.AdjustParams):
+        with ctx.db() as db:
+            asset = lut_asset(db, s, params)
+        if asset and job.params.get("lut_sha256", asset.sha256) != asset.sha256:
+            raise RuntimeError("LUT 素材版本已变化")
+    if isinstance(params, ops.WatermarkParams):
+        with ctx.db() as db:
+            asset = image_asset(db, s, params)
+        if asset and job.params.get("image_sha256", asset.sha256) != asset.sha256:
+            raise RuntimeError("图片素材版本已变化")
+    if isinstance(params, ops.SubtitleParams):
+        with ctx.db() as db:
+            asset = subtitle_asset(db, s, params)
+        if asset and job.params.get("subtitle_sha256", asset.sha256) != asset.sha256:
+            raise RuntimeError("字幕素材版本已变化")
+    if isinstance(params, ops.AudioParams):
+        with ctx.db() as db:
+            asset = audio_asset(db, s, params)
+        if asset and job.params.get("audio_sha256", asset.sha256) != asset.sha256:
+            raise RuntimeError("音频素材版本已变化")
     output = job.params.get("output") or {}
     replace = output.get("mode") == "replace"
 
-    ids = params.video_ids if isinstance(params, ops.MergeParams) else job.video_ids[:1]
+    ids = (
+        params.video_ids
+        if isinstance(params, ops.MergeParams)
+        else job.video_ids[:1]
+    )
     ctx.set_progress(0, "读取源视频")
-    loaded = await _load_sources(ctx, ids)
+    loaded = await _load_sources(ctx, ids, allow_deleted=bool(job.params.get("history_replay")))
+    expected = job.params.get("source_versions")
+    if expected and any(v.file_path != expected[v.id] for _, _, v in loaded):
+        raise RuntimeError("源视频版本已变化，无法使用原参数重新生成")
+    for source_id, digest in (job.params.get("source_covers") or {}).items():
+        cover = derived_dir(s, source_id) / derive.POSTER
+        if not cover.is_file() or hashlib.sha256(cover.read_bytes()).hexdigest() != digest:
+            raise RuntimeError("源封面已变化，无法使用原参数重新生成")
     sources = [(p, i) for p, i, _ in loaded]
     first_video = loaded[0][2]
 
@@ -120,6 +188,33 @@ async def edit(ctx: JobContext, job: Job) -> None:
             case ops.RotateParams():
                 plan = ops.plan_rotate(params, sources[0], out)
             case ops.TrimParams():
+                if params.mode == "fast" and len(params.segments) == 1:
+                    index = await timing_index(
+                        s,
+                        first_video.id,
+                        sources[0][0],
+                        sources[0][1].video_index,
+                        keyframes_only=True,
+                        handle=ctx.handle,
+                    )
+                    segment = params.segments[0]
+                    if segment.start >= sources[0][1].duration:
+                        raise ops.OpError("剪辑区间超出视频时长")
+                    start, end = snap_cut(
+                        segment.start, segment.end, index["keyframes"], sources[0][1].duration
+                    )
+                    if end <= start:
+                        raise ops.OpError("剪辑区间超出视频时长")
+                    params.segments = [ops.Segment(start=start, end=end)]
+                    _set_job(
+                        ctx,
+                        job.id,
+                        params={
+                            **job.params,
+                            "requested_edit": job.params["edit"],
+                            "edit": params.model_dump(),
+                        },
+                    )
                 plan = ops.plan_trim(params, sources[0], out)
             case ops.MergeParams():
                 plan = ops.plan_merge(params, sources, out, tmp)
@@ -140,41 +235,91 @@ async def edit(ctx: JobContext, job: Job) -> None:
                 if not cover.exists():
                     raise RuntimeError("该视频还没有封面")
                 plan = ops.plan_embed_cover(sources[0], cover, out)
+            case ops.AudioParams():
+                plan = ops.plan_audio(
+                    params,
+                    sources[0],
+                    out,
+                    (abs_path(s, asset.file_path), asset.stream_index) if asset else None,
+                )
+            case ops.SubtitleParams():
+                plan = plan_subtitle(
+                    params, sources[0], out, tmp, abs_path(s, asset.file_path) if asset else None
+                )
+            case ops.WatermarkParams():
+                plan = plan_watermark(
+                    params, sources[0], out, tmp, abs_path(s, asset.file_path) if asset else None
+                )
+            case ops.AdjustParams():
+                plan = plan_adjust(
+                    params,
+                    sources[0],
+                    out,
+                    tmp,
+                    abs_path(s, asset.file_path) if asset else None,
+                    int(asset.meta["dimension"]) if asset else 3,
+                )
+            case ops.EffectParams():
+                plan, actual = plan_effect(params, sources[0], out, tmp)
+                _set_job(ctx, job.id, params={**job.params, "actual_effect": actual})
+            case ops.AnimationParams():
+                plan = plan_animation(params, sources[0], out, tmp)
         result = out.with_suffix("." + plan.ext)
 
         n = len(plan.commands)
-        for i, cmd in enumerate(plan.commands):
-            ctx.check_canceled()
-            label = ops.OP_LABELS.get(params.op, params.op)
-            message = f"{label} ({i + 1}/{n})" if n > 1 else label
-            cb = ctx.stage(i, n, message)
-            await run_command(
-                ffmpeg_args(s.ffmpeg, cmd),
-                duration=plan.duration,
-                on_progress=cb,
-                handle=ctx.handle,
-            )
+        ctx.check_canceled()
+        label = ops.OP_LABELS.get(params.op, params.op)
+        cb = ctx.stage(0, 1, f"{label}（{n} 步）")
+        encoding = await ctx.manager.encoding.run(
+            plan.commands,
+            s.encoder,
+            duration=plan.duration,
+            on_progress=cb,
+            handle=ctx.handle,
+            cwd=plan.cwd,
+        )
+        with ctx.db() as db:
+            stored = db.get(Job, job.id)
+            if stored:
+                stored.params = {**stored.params, "encoding": encoding}
+                db.commit()
         if not result.exists() or result.stat().st_size == 0:
             raise RuntimeError("ffmpeg 未生成输出文件")
         ctx.set_progress(0.99, "保存结果")
 
-        if isinstance(params, ops.ExtractAudioParams):
+        if isinstance(params, (ops.ExtractAudioParams, ops.AnimationParams)):
             dest = s.exports_dir / f"{job.id}{result.suffix}"
             shutil.move(str(result), dest)
-            name = f"{stem_of(first_video.title)}{result.suffix}"
-            _set_job(
-                ctx, job.id, result_file=rel_path(s, dest), params={**job.params, "name": name}
-            )
+            name = f"{stem_of(output.get('title') or first_video.title)}{result.suffix}"
+            with ctx.db() as db:
+                stored = db.get(Job, job.id)
+                if stored:
+                    extra: dict[str, Any] = {"name": name}
+                    if isinstance(params, ops.AnimationParams):
+                        extra["actual_range"] = {
+                            "start": params.start,
+                            "end": min(params.end, sources[0][1].duration),
+                        }
+                    stored.params = {**stored.params, **extra}
+                    stored.result_file = rel_path(s, dest)
+                    db.commit()
             return
 
+        provenance = [
+            {"id": v.id, "title": v.title, "file_path": v.file_path, "size": v.size}
+            for _, _, v in loaded
+        ]
         if isinstance(params, ops.EmbedCoverParams):
-            _replace_in_place(ctx, first_video, result)
-            return
-
-        if replace and not isinstance(params, ops.MergeParams):
-            new_id_ = _replace_with_backup(ctx, first_video, result)
+            provenance[0]["cover_sha256"] = hashlib.sha256(cover.read_bytes()).hexdigest()
+        # Replays always create a new output, including embedded covers.
+        if (
+            (replace or isinstance(params, ops.EmbedCoverParams))
+            and not isinstance(params, ops.MergeParams)
+            and not job.params.get("history_replay")
+        ):
+            new_id_ = _replace_with_backup(ctx, first_video, result, params, provenance)
         else:
-            new_id_ = _store_new(ctx, first_video, result, params, output.get("title"))
+            new_id_ = _store_new(ctx, first_video, result, params, output.get("title"), provenance)
         _set_job(ctx, job.id, result_video_id=new_id_)
         ctx.manager.submit_from_worker("ingest", {}, [new_id_])
     finally:
@@ -192,7 +337,12 @@ def _set_job(ctx: JobContext, job_id: str, **fields: object) -> None:
 
 
 def _store_new(
-    ctx: JobContext, source: Video, result: Path, params: ops.EditParams, title: str | None
+    ctx: JobContext,
+    source: Video,
+    result: Path,
+    params: ops.EditParams,
+    title: str | None,
+    provenance: list[dict[str, Any]],
 ) -> str:
     s = ctx.settings
     vid = new_id()
@@ -211,6 +361,9 @@ def _store_new(
             folder_id=source.folder_id,
             size=dest.stat().st_size,
             status="processing",
+            source_video_id=source.id,
+            edit_params=params.model_dump(),
+            edit_sources=provenance,
         )
         if src is not None:
             video.tags = list(src.tags)
@@ -219,7 +372,13 @@ def _store_new(
     return vid
 
 
-def _replace_with_backup(ctx: JobContext, source: Video, result: Path) -> str:
+def _replace_with_backup(
+    ctx: JobContext,
+    source: Video,
+    result: Path,
+    params: ops.EditParams,
+    provenance: list[dict[str, Any]],
+) -> str:
     """Swap the edited file into the existing video; the old file goes to the trash
     as a separate video so it can still be restored."""
     s = ctx.settings
@@ -228,7 +387,11 @@ def _replace_with_backup(ctx: JobContext, source: Video, result: Path) -> str:
     with ctx.db() as db:
         video = db.get(Video, source.id)
         if video is None:
+            new_file.unlink(missing_ok=True)
             raise RuntimeError("源视频已被删除")
+        if video.file_path != source.file_path:
+            new_file.unlink(missing_ok=True)
+            raise RuntimeError("源视频已被其他任务修改，请重新提交")
         backup = Video(
             title=f"{video.title} (编辑前)"[:255],
             description=video.description,
@@ -238,8 +401,25 @@ def _replace_with_backup(ctx: JobContext, source: Video, result: Path) -> str:
             size=video.size,
             status="processing",
             deleted_at=utcnow(),
+            source_video_id=video.source_video_id,
+            edit_params=video.edit_params,
+            edit_sources=video.edit_sources,
+            rating=video.rating,
+            favorite=video.favorite,
+            cover_time=video.cover_time,
+            meta=video.meta,
         )
+        backup.tags = list(video.tags)
         db.add(backup)
+        db.flush()
+        # Preserve the exact cover image for embedding/replay and custom covers.
+        old_cover = derived_dir(s, video.id) / derive.POSTER
+        if old_cover.is_file():
+            shutil.copy2(old_cover, derived_dir(s, backup.id) / derive.POSTER)
+            backup.meta = {**(backup.meta or {}), "custom_cover": True}
+        video.source_video_id = backup.id
+        video.edit_params = params.model_dump()
+        video.edit_sources = [{**provenance[0], "id": backup.id}]
         old_playable = video.playable_path
         video.file_path = rel_path(s, new_file)
         video.playable_path = None
@@ -253,23 +433,6 @@ def _replace_with_backup(ctx: JobContext, source: Video, result: Path) -> str:
         abs_path(s, old_playable).unlink(missing_ok=True)
     ctx.manager.submit_from_worker("ingest", {}, [backup_id])
     return source.id
-
-
-def _replace_in_place(ctx: JobContext, source: Video, result: Path) -> None:
-    s = ctx.settings
-    new_file = s.library_dir / f"{source.id}-{new_id()[:8]}{result.suffix}"
-    shutil.move(str(result), new_file)
-    with ctx.db() as db:
-        video = db.get(Video, source.id)
-        if video is None:
-            new_file.unlink(missing_ok=True)
-            raise RuntimeError("源视频已被删除")
-        old = abs_path(s, video.file_path)
-        video.file_path = rel_path(s, new_file)
-        video.size = new_file.stat().st_size
-        video.asset_version += 1
-        db.commit()
-    old.unlink(missing_ok=True)
 
 
 HANDLERS: dict[str, Handler] = {"ingest": ingest, "edit": edit}

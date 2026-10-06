@@ -1,4 +1,4 @@
-import { ActionIcon, Button, Group, Paper, Select, Stack, Text } from '@mantine/core'
+import { ActionIcon, Alert, Button, Group, NativeSelect, NumberInput, Paper, Select, Stack, Text } from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { IconArrowDown, IconArrowUp, IconX } from '@tabler/icons-react'
@@ -8,10 +8,13 @@ import { formatDuration } from '../lib/format'
 import type { Video, VideoPage } from '../lib/types'
 import { defaultOutput, useSubmitEdit, type EditorContext } from './edit'
 import { OutputFields } from './OutputFields'
+import SequencePreview from './SequencePreview'
 
-export default function MergePanel({ video, initialIds }: EditorContext & { initialIds?: string[] }) {
+export default function MergePanel({ video, initialIds, pause }: EditorContext & { initialIds?: string[] }) {
   const [ids, setIds] = useState<string[]>(initialIds?.length ? initialIds : [video.id])
   const [mode, setMode] = useState('auto')
+  const [transition, setTransition] = useState('none')
+  const [transitionDuration, setTransitionDuration] = useState(0.5)
   const [resolution, setResolution] = useState<string>('first')
   const [search, setSearch] = useState('')
   const [debounced] = useDebouncedValue(search, 250)
@@ -38,11 +41,13 @@ export default function MergePanel({ video, initialIds }: EditorContext & { init
     })
 
   const loaded = videos.map((q) => q.data).filter(Boolean) as Video[]
-  const total = loaded.reduce((acc, v) => acc + v.duration, 0)
+  const total = loaded.reduce((acc, v) => acc + v.duration, 0) - (transition === 'none' ? 0 : Math.max(0, loaded.length - 1) * transitionDuration)
+  const transitionValid = transition === 'none' || (transitionDuration >= 0.05 && transitionDuration <= 10 &&
+    loaded.every((v, i) => v.duration > transitionDuration && (i === 0 || i === loaded.length - 1 || v.duration >= 2 * transitionDuration)))
   const sizes = Array.from(new Set(loaded.map((v) => `${v.width}x${v.height}`)))
 
   const run = () => {
-    const edit: Record<string, unknown> = { op: 'merge', video_ids: ids, mode }
+    const edit: Record<string, unknown> = { op: 'merge', video_ids: ids, mode, transition, transition_duration: transitionDuration }
     if (resolution !== 'first') {
       const [w, h] = resolution.split('x').map(Number)
       edit.width = w
@@ -115,6 +120,7 @@ export default function MergePanel({ video, initialIds }: EditorContext & { init
           value={mode}
           onChange={(v) => v && setMode(v)}
           allowDeselect={false}
+          disabled={transition !== 'none'}
           data={[
             { value: 'auto', label: '自动' },
             { value: 'lossless', label: '无损（需格式一致）' },
@@ -135,8 +141,27 @@ export default function MergePanel({ video, initialIds }: EditorContext & { init
           ].filter((o, i, arr) => arr.findIndex((x) => x.value === o.value) === i)}
         />
       </Group>
+      <NativeSelect label="合并转场" value={transition} onChange={(event) => {
+        const value = event.currentTarget.value; setTransition(value)
+        if (value !== 'none') setMode('reencode')
+      }} data={[
+        { value: 'none', label: '无转场' }, { value: 'fade', label: '交叉淡化' },
+        { value: 'fadeblack', label: '淡至黑色' }, { value: 'fadewhite', label: '淡至白色' },
+        { value: 'wipeleft', label: '向左擦除' }, { value: 'wiperight', label: '向右擦除' },
+        { value: 'slideleft', label: '向左滑动' }, { value: 'slideright', label: '向右滑动' },
+        { value: 'dissolve', label: '溶解' }, { value: 'circleopen', label: '圆形展开' },
+      ]} />
+      {transition !== 'none' && <>
+        <NumberInput label="每处转场时长（秒）" min={0.05} max={10} step={0.1} decimalScale={3}
+          value={transitionDuration} onChange={(value) => setTransitionDuration(Number(value))} />
+        <Text size="xs" c="dimmed">转场重新编码，音轨同时交叉淡化；没有音轨的片段补静音。每处衔接重叠 {transitionDuration} 秒，预计输出 {Math.max(0, total).toFixed(2)} 秒。</Text>
+        {!transitionValid && <Alert color="red">转场必须短于每段视频，中间片段至少为转场时长的两倍。</Alert>}
+      </>}
       <OutputFields value={output} onChange={setOutput} allowReplace={false} />
-      <Button loading={busy} disabled={ids.length < 2} onClick={run}>
+      <SequencePreview pause={pause} disabled={loaded.length !== ids.length || videos.some((query) => !!query.error)}
+        clips={loaded.map((item) => ({ video: item, start: 0, end: item.duration }))}
+        note={transition === 'none' ? '预览保持源视频尺寸，输出会按选定的分辨率统一画面。' : '原始片段顺序预览不模拟转场；生成时统一画面尺寸，并将相邻片段重叠衔接。'} />
+      <Button loading={busy} disabled={ids.length < 2 || loaded.length !== ids.length || !transitionValid || videos.some((q) => !!q.error || q.data?.status !== 'ready')} onClick={run}>
         合并 {ids.length} 个视频（共 {formatDuration(total)}）
       </Button>
     </Stack>
