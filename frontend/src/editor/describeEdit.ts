@@ -2,6 +2,7 @@ import { timecode } from './frames'
 
 export function describeEdit(edit: Record<string, unknown>): string {
   switch (edit.op) {
+    case 'composite': return `${{ pip: '画中画', horizontal: '横排分屏', vertical: '竖排分屏', grid: '网格分屏' }[String(edit.layout)] ?? '拼接'} · ${(edit.video_ids as string[]).length} 个输入 · ${edit.width ?? 1280}×${edit.height ?? 720} · ${edit.fps ?? 30} fps · ${{ source: '单源音轨', mix: '混音', none: '无声' }[String(edit.audio_mode ?? 'source')]}`
     case 'effect': return `${{ reverse: '倒放区间', freeze: '插入定格', slow: '局部慢动作' }[String(edit.mode)] ?? '片段效果'} · ${timecode(Number(edit.start ?? 0))}${edit.mode === 'freeze' ? ` · ${edit.duration ?? 2}s` : `–${timecode(Number(edit.end))}${edit.mode === 'slow' ? ` · ${edit.factor ?? 0.5}×` : ''}`} · CRF ${edit.crf ?? 20}`
     case 'adjust': return `画面调整 · 亮度 ${edit.brightness ?? 0} · 对比度 ${edit.contrast ?? 1} · 饱和度 ${edit.saturation ?? 1}${edit.lut_asset_id ? ' · LUT' : ''}${edit.stabilize ? ' · 两遍防抖' : ''}${Number(edit.denoise) > 0 ? ` · 降噪 ${edit.denoise}` : ''}`
     case 'animation': return `导出 ${String(edit.format ?? 'gif').toUpperCase()} 动图 · ${timecode(Number(edit.start ?? 0))}–${timecode(Number(edit.end))} · ${edit.fps ?? 12} fps · ${edit.width ?? 480}px · ${edit.loop === false ? '播放一次' : '循环'}`

@@ -275,6 +275,16 @@ FFmpeg 需包含 `eq`、`lut1d`、`lut3d`、`hqdn3d`、`vidstabdetect` 和 `vids
 
 使用 FFV1/PCM 无损临时文件再合并编码为 H.264/AAC MP4（音轨为 48 kHz 立体声），避免片段间重复有损编码。倒放分块并从后向前衔接，按画面尺寸和音频估算每块约 128 MiB 的原始帧缓存预算；解码、编码和滤镜另需内存。临时文件包含标准化源及分段结果，可能远大于原视频，长片段/高分辨率需充足临时磁盘空间，完成或取消后自动清理。参考 [FFmpeg reverse 文档](https://ffmpeg.org/ffmpeg-filters.html#reverse) 与 [atempo 文档](https://ffmpeg.org/ffmpeg-filters.html#atempo)。
 
+### 画中画与分屏拼接
+
+在详情页「更多 → 拼接」添加已就绪的视频并调整顺序。画中画使用两个输入，第一个为主画面；横排、竖排和网格支持 2–9 个输入，网格可设 1–3 列。当前视频须保留在输入中，结果另存为新视频。封面预览展示布局、大小、位置和透明度，播放器播放原视频；输出生成后可播放检查。
+
+画布宽高须为偶数，默认 1280×720、30 fps，可设置 CRF、留边颜色及完整显示或填满裁切。按显示宽高比适配，支持非方形像素。画中画大小同时按画布宽高缩放（5%–80%），水平/垂直位置 0%–100% 表示剩余空间的两端，可设置不透明度。网格空格及偶数格子分配后的余边使用留边颜色。
+
+输出时长可选第一个、最长或最短输入。每个输入从自身时间轴开头播放，保留音视频相对起始延迟；短画面延续末帧，短音轨补静音，长输入裁到输出结尾。声音可用任一输入音轨、混合全部有声输入或无声；混音按有声输入数平均，输出 AAC 48 kHz 立体声。选择无音轨输入时输出无声。
+
+使用 overlay/xstack 重新编码为 H.264 MP4，接入公共硬件编码适配。任务与编辑链保存全部输入顺序、参数及实际布局，支持失败重试和历史重放。此操作涉及多个输入，不适用于每视频独立批处理与编辑预设。参考 [FFmpeg overlay 文档](https://ffmpeg.org/ffmpeg-filters.html#overlay) 与 [xstack 文档](https://ffmpeg.org/ffmpeg-filters.html#xstack)。
+
 ## 开发
 
 需要 Python 3.12（由 uv 自动管理）、Node.js 22+、ffmpeg。macOS 下用 `brew install ffmpeg-full uv node` 安装；FFmpeg 须包含 libass/subtitles 滤镜。

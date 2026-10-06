@@ -9,6 +9,7 @@ import WatermarkPanel from './WatermarkPanel'
 import AnimationPanel from './AnimationPanel'
 import AdjustPanel from './AdjustPanel'
 import EffectPanel from './EffectPanel'
+import CompositePanel from './CompositePanel'
 
 const RATIOS: Record<string, number | null> = { free: null, '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4 }
 
@@ -68,6 +69,7 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
           { value: 'animation', label: '动图' },
           { value: 'adjust', label: '画面调整' },
           { value: 'effect', label: '片段效果' },
+          { value: 'composite', label: '拼接' },
           { value: 'convert', label: '格式' },
         ]}
       />
@@ -176,6 +178,7 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
           </Button>
         </Stack>
       )}
+      {tool === 'composite' && <CompositePanel video={video} />}
       {tool === 'effect' && <EffectPanel video={video} currentTime={currentTime} />}
       {tool === 'adjust' && <AdjustPanel videoId={video.id} />}
       {tool === 'subtitle' && <SubtitlePanel videoId={video.id} />}

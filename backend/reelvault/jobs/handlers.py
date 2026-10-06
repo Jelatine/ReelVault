@@ -18,6 +18,7 @@ from ..media import derive, ops
 from ..media.adjust import plan_adjust
 from ..media.animation import plan_animation
 from ..media.assets import audio_asset, image_asset, lut_asset, subtitle_asset
+from ..media.composite import plan_composite
 from ..media.effects import plan_effect
 from ..media.probe import MediaInfo, probe
 from ..media.subtitles import plan_subtitle
@@ -165,7 +166,7 @@ async def edit(ctx: JobContext, job: Job) -> None:
 
     ids = (
         params.video_ids
-        if isinstance(params, ops.MergeParams)
+        if isinstance(params, (ops.MergeParams, ops.CompositeParams))
         else job.video_ids[:1]
     )
     ctx.set_progress(0, "读取源视频")
@@ -218,6 +219,9 @@ async def edit(ctx: JobContext, job: Job) -> None:
                 plan = ops.plan_trim(params, sources[0], out)
             case ops.MergeParams():
                 plan = ops.plan_merge(params, sources, out, tmp)
+            case ops.CompositeParams():
+                plan, actual = plan_composite(params, sources, out)
+                _set_job(ctx, job.id, params={**job.params, "actual_composition": actual})
             case ops.CompressParams():
                 plan = ops.plan_compress(params, sources[0], out, tmp)
             case ops.CropParams():
@@ -314,7 +318,7 @@ async def edit(ctx: JobContext, job: Job) -> None:
         # Replays always create a new output, including embedded covers.
         if (
             (replace or isinstance(params, ops.EmbedCoverParams))
-            and not isinstance(params, ops.MergeParams)
+            and not isinstance(params, (ops.MergeParams, ops.CompositeParams))
             and not job.params.get("history_replay")
         ):
             new_id_ = _replace_with_backup(ctx, first_video, result, params, provenance)

@@ -159,6 +159,72 @@ test('倒放、定格和局部慢动作提交、生成与播放', async ({ page 
   }
 })
 
+test('画中画与三路网格布局、真实拼接输出及播放', async ({ page }, testInfo) => {
+  await login(page)
+  const inputs: { id: string; title: string }[] = []
+  for (const [index, color] of ['red', 'blue', 'lime'].entries()) {
+    await page.goto('/')
+    const sample = execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i',
+      `color=${color}:size=160x120:rate=10:duration=2`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+      '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1'])
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'), page.getByRole('button', { name: '上传', exact: true }).click(),
+    ])
+    const [completed] = await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST'),
+      chooser.setFiles({ name: `composite-${index}.mp4`, mimeType: 'video/mp4', buffer: sample }),
+    ])
+    const uploaded = await completed.json()
+    await expect.poll(async () => (await (await page.request.get(`/api/videos/${uploaded.id}`)).json()).status,
+      { timeout: 60_000 }).toBe('ready')
+    inputs.push(await (await page.request.get(`/api/videos/${uploaded.id}`)).json())
+  }
+  for (const layout of ['pip', 'grid']) {
+    await page.goto(`/videos/${inputs[0].id}?tool=more`)
+    await page.getByText('拼接', { exact: true }).click()
+    await expect(page.getByRole('button', { name: '生成拼接视频' })).toBeDisabled()
+    await page.getByLabel('拼接布局', { exact: true }).selectOption(layout)
+    for (const input of inputs.slice(1, layout === 'pip' ? 2 : 3)) {
+      await page.getByRole('combobox', { name: '添加拼接视频' }).click()
+      await page.getByRole('option', { name: input.title, exact: true }).click()
+    }
+    await page.getByLabel('拼接画布宽（偶数像素）').fill('320')
+    await page.getByLabel('拼接画布高（偶数像素）').fill('240')
+    await page.getByLabel('拼接帧率（fps）').fill('10')
+    await page.getByLabel('画面适配').selectOption('cover')
+    await page.getByLabel('拼接声音').selectOption('none')
+    if (layout === 'pip') {
+      await page.getByLabel('画中画大小（画布百分比）').fill('40')
+      await page.getByLabel('画中画水平位置（%）').fill('25')
+      await page.getByLabel('画中画垂直位置（%）').fill('75')
+      await page.getByLabel('画中画不透明度（%）').fill('50')
+    }
+    const preview = page.getByRole('img', { name: '拼接布局预览' })
+    await expect(preview.locator('img')).toHaveCount(layout === 'pip' ? 2 : 3)
+    await expect(page.getByRole('button', { name: '生成拼接视频' })).toBeEnabled()
+    await page.screenshot({ path: testInfo.outputPath(`composite-${layout}.png`), fullPage: true })
+    const submitted = page.waitForResponse((r) => r.url().endsWith('/edit') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: '生成拼接视频' }).click()
+    const response = await submitted
+    expect(response.ok()).toBeTruthy()
+    const job = await response.json()
+    await expect.poll(async () => (await (await page.request.get(`/api/jobs/${job.id}`)).json()).status,
+      { timeout: 60_000 }).toBe('succeeded')
+    const result = await (await page.request.get(`/api/jobs/${job.id}`)).json()
+    await expect.poll(async () => (await (await page.request.get(`/api/videos/${result.result_video_id}`)).json()).status,
+      { timeout: 60_000 }).toBe('ready')
+    const output = await (await page.request.get(`/api/videos/${result.result_video_id}`)).json()
+    expect(output).toMatchObject({ width: 320, height: 240, audio_codec: null })
+    expect(result.params.edit.layout).toBe(layout)
+    expect(result.params.actual_composition.cells.length).toBe(layout === 'pip' ? 2 : 3)
+    const history = await (await page.request.get(`/api/videos/${result.result_video_id}/history`)).json()
+    expect(history.nodes[0].sources.map((source: { id: string }) => source.id)).toEqual(inputs.slice(0, layout === 'pip' ? 2 : 3).map((input) => input.id))
+    await page.goto(`/videos/${result.result_video_id}`)
+    await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThanOrEqual(2)
+    await expect(page.getByText(layout === 'pip' ? /画中画 · 2 个输入/ : /网格分屏 · 3 个输入/)).toBeVisible()
+  }
+})
+
 async function login(page: Page) {
   await page.goto('/')
   await page.getByRole('textbox', { name: '用户名', exact: true }).fill('e2e-admin')

@@ -274,6 +274,38 @@ class EffectParams(BaseModel):
         return self
 
 
+class CompositeParams(BaseModel):
+    op: Literal["composite"] = "composite"
+    video_ids: list[str] = Field(min_length=2, max_length=9)
+    layout: Literal["pip", "horizontal", "vertical", "grid"] = "pip"
+    width: int = Field(1280, ge=32, le=7680)
+    height: int = Field(720, ge=32, le=4320)
+    fps: float = Field(30, ge=1, le=120, allow_inf_nan=False)
+    columns: int = Field(2, ge=1, le=3)
+    fit: Literal["contain", "cover"] = "contain"
+    background: str = Field("#000000", pattern=r"^#[0-9a-fA-F]{6}$")
+    duration_mode: Literal["first", "longest", "shortest"] = "first"
+    audio_mode: Literal["source", "mix", "none"] = "source"
+    audio_source: int = Field(0, ge=0, le=8)
+    pip_scale: float = Field(30, ge=5, le=80, allow_inf_nan=False)
+    pip_x: float = Field(98, ge=0, le=100, allow_inf_nan=False)
+    pip_y: float = Field(98, ge=0, le=100, allow_inf_nan=False)
+    pip_opacity: float = Field(1, ge=0, le=1, allow_inf_nan=False)
+    crf: int = Field(20, ge=0, le=51)
+
+    @model_validator(mode="after")
+    def valid_layout(self) -> CompositeParams:
+        if len(set(self.video_ids)) != len(self.video_ids):
+            raise ValueError("拼接输入不能重复")
+        if self.layout == "pip" and len(self.video_ids) != 2:
+            raise ValueError("画中画需要一个主视频和一个叠加视频")
+        if self.width % 2 or self.height % 2:
+            raise ValueError("拼接画布宽高必须为偶数")
+        if self.audio_mode == "source" and self.audio_source >= len(self.video_ids):
+            raise ValueError("音轨来源超出输入范围")
+        return self
+
+
 EditParams = Annotated[
     RotateParams
     | TrimParams
@@ -290,7 +322,8 @@ EditParams = Annotated[
     | WatermarkParams
     | AnimationParams
     | AdjustParams
-    | EffectParams,
+    | EffectParams
+    | CompositeParams,
     Field(discriminator="op"),
 ]
 
@@ -311,6 +344,7 @@ OP_LABELS = {
     "animation": "导出动图",
     "adjust": "画面调整",
     "effect": "片段效果",
+    "composite": "画中画与分屏",
 }
 
 # ---------------------------------------------------------------- helpers

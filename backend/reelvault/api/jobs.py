@@ -78,8 +78,8 @@ class PresetBody(BaseModel):
         self.name = self.name.strip()
         if not self.name:
             raise ValueError("预设名称不能为空")
-        if isinstance(self.edit, ops.MergeParams):
-            raise ValueError("合并涉及多个源视频，请在合并编辑器中设置")
+        if isinstance(self.edit, (ops.MergeParams, ops.CompositeParams)):
+            raise ValueError("此操作涉及多个源视频，请在对应编辑器中设置")
         return self
 
 
@@ -144,8 +144,8 @@ class BatchEditBody(BaseModel):
     def one_source(self) -> BatchEditBody:
         if (self.edit is None) == (self.preset_id is None):
             raise ValueError("请提供编辑参数或选择一个预设")
-        if isinstance(self.edit, ops.MergeParams):
-            raise ValueError("批处理为每个视频创建独立任务，合并请使用合并编辑器")
+        if isinstance(self.edit, (ops.MergeParams, ops.CompositeParams)):
+            raise ValueError("批处理为每个视频创建独立任务，多源操作请使用对应编辑器")
         return self
 
 
@@ -162,8 +162,8 @@ def batch_edit(
     assert edit is not None
     if isinstance(edit, ops.AnimationParams) and body.output.mode == "replace":
         raise HTTPException(400, "动图为下载文件，不能替换原视频")
-    if isinstance(edit, ops.MergeParams):
-        raise HTTPException(400, "合并预设不能用于每视频独立批处理")
+    if isinstance(edit, (ops.MergeParams, ops.CompositeParams)):
+        raise HTTPException(400, "多源操作不能用于每视频独立批处理")
     ids = list(dict.fromkeys(body.video_ids))
     validate_sources(db, ids)
     params = {
@@ -186,15 +186,20 @@ def submit_edit(
 ) -> dict[str, Any]:
     ids = (
         body.edit.video_ids
-        if isinstance(body.edit, ops.MergeParams)
+        if isinstance(body.edit, (ops.MergeParams, ops.CompositeParams))
         else [video_id]
     )
     if isinstance(body.edit, ops.AnimationParams) and body.output.mode == "replace":
         raise HTTPException(400, "动图为下载文件，不能替换原视频")
+    if isinstance(body.edit, ops.CompositeParams):
+        if body.output.mode == "replace":
+            raise HTTPException(400, "多源拼接必须另存为新视频")
+        if video_id not in ids:
+            raise HTTPException(400, "当前视频必须包含在拼接输入中")
     if video_id not in ids:
         ids = [video_id, *ids]
     validate_sources(db, ids)
-    if isinstance(body.edit, ops.MergeParams):
+    if isinstance(body.edit, (ops.MergeParams, ops.CompositeParams)):
         body.edit.video_ids = ids
     params = {
         "edit": body.edit.model_dump(),

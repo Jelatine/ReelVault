@@ -173,7 +173,7 @@ def recreate(
         except AssetError as error:
             raise HTTPException(409, str(error)) from error
     ids = [source["id"] for source in resolved]
-    if isinstance(edit, ops.MergeParams):
+    if isinstance(edit, (ops.MergeParams, ops.CompositeParams)):
         edit.video_ids = ids
     params = {
         "edit": edit.model_dump(),
