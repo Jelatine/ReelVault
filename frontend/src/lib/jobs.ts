@@ -60,6 +60,7 @@ export function useJobEvents(enabled: boolean) {
         qc.invalidateQueries({ queryKey: ['hls'] })
         qc.invalidateQueries({ queryKey: ['hls-settings'] })
         qc.invalidateQueries({ queryKey: ['folders'] })
+        qc.invalidateQueries({ queryKey: ['dashboard'] })
         if (job.kind === 'edit') {
           const label = jobLabel(job)
           if (job.status === 'succeeded') {

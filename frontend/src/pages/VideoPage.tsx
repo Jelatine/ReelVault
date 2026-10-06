@@ -249,7 +249,7 @@ export default function VideoPage() {
   return (
     <Stack>
       <Breadcrumbs>
-        <Anchor component={Link} to="/">
+        <Anchor component={Link} to="/library">
           视频库
         </Anchor>
         <Text truncate maw={400}>
@@ -270,6 +270,7 @@ export default function VideoPage() {
                 playbackRate={overlay.playbackRate} loopRange={loopRange}
                 hlsUrl={usingHls ? hls.data!.package!.url : undefined} resumeSource={resumeSource}
                 autoPlay={params.get('autoplay') === '1' && ready}
+                resumePlayback={params.get('resume') === '1' && ready}
                 onEnded={() => {
                   if (!preferences.autoNext || !ready) return
                   if (folderMode) {

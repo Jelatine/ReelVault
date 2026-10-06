@@ -45,10 +45,15 @@ export default function VideoCard({ video, highlight, selected, selectable, onTo
       padding={0}
       className="video-card"
       data-video-id={video.id}
-      tabIndex={onContextMenu ? 0 : undefined}
+      tabIndex={0}
       aria-label={video.title}
       onContextMenu={onContextMenu}
-      onKeyDown={onContextMenu ? keyboardContext : undefined}
+      onKeyDown={(event) => {
+        if (onContextMenu) keyboardContext(event)
+        else if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault(); onOpen()
+        }
+      }}
       draggable={!!onDragStart}
       onDragStart={onDragStart}
       onMouseEnter={() => setHover(true)}

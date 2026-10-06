@@ -22,7 +22,7 @@ export function keyboardContext(event: KeyboardEvent) {
 export function useVideoRefresh() {
   const qc = useQueryClient()
   return (id: string) => {
-    for (const key of ['videos', 'folders', 'tags', 'collections', 'folder-playlist']) void qc.invalidateQueries({ queryKey: [key] })
+    for (const key of ['videos', 'folders', 'tags', 'collections', 'folder-playlist', 'dashboard']) void qc.invalidateQueries({ queryKey: [key] })
     void qc.invalidateQueries({ queryKey: ['video', id] })
   }
 }

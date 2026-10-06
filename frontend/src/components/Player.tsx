@@ -3,7 +3,7 @@ import '@vidstack/react/player/styles/default/layouts/video.css'
 
 import { isHLSProvider, MediaPlayer, MediaProvider, Poster, Track, type MediaPlayerInstance } from '@vidstack/react'
 import { defaultLayoutIcons, DefaultVideoLayout } from '@vidstack/react/player/layouts/default'
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Group, Text } from '@mantine/core'
 import { useMergedRef } from '@mantine/hooks'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -22,6 +22,7 @@ interface Props {
   video: Video
   onTimeUpdate?: (t: number) => void
   autoPlay?: boolean
+  resumePlayback?: boolean
   onEnded?: () => void
   bookmarks?: Bookmark[]
   chapters?: Chapter[]
@@ -31,11 +32,12 @@ interface Props {
   resumeSource?: { position: number; playing: boolean; token: number }
 }
 
-const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, onEnded, playbackRate, loopRange, hlsUrl, resumeSource, bookmarks = [], chapters = [] }, ref) {
+const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, resumePlayback, onEnded, playbackRate, loopRange, hlsUrl, resumeSource, bookmarks = [], chapters = [] }, ref) {
   const player = useRef<MediaPlayerInstance>(null)
   const mergedRef = useMergedRef(player, ref)
   const [sourceError, setSourceError] = useState<{ url: string; message: string }>()
   const resumedToken = useRef<number | undefined>(undefined)
+  const historyResumed = useRef(false)
   const played = useRef(false)
   const [hasPlayed, setHasPlayed] = useState(false)
   const lastReport = useRef(0)
@@ -50,6 +52,15 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
     queryFn: () => api.get<{ position: number; play_count: number; last_played_at: string | null }>(endpoint),
     enabled: !video.deleted_at,
   })
+  const resumeFromHistory = useCallback(() => {
+    const position = history.data?.position
+    if (!resumePlayback || historyResumed.current || position == null || position <= 1
+      || position >= video.duration - 1 || !player.current?.state.canPlay) return
+    historyResumed.current = true
+    player.current.currentTime = position
+    void player.current.play().catch(() => {})
+  }, [resumePlayback, history.data?.position, video.duration])
+  useEffect(resumeFromHistory, [resumeFromHistory])
   const report = (position: number) => {
     if (!played.current || video.deleted_at) return
     lastReport.current = Date.now()
@@ -105,6 +116,7 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
       }}
       onError={(error) => { if (hlsUrl) setSourceError({ url: hlsUrl, message: error.message }) }}
       onCanPlay={() => {
+        resumeFromHistory()
         if (resumeSource && resumedToken.current !== resumeSource.token && player.current) {
           resumedToken.current = resumeSource.token
           player.current.currentTime = Math.min(resumeSource.position, video.duration)

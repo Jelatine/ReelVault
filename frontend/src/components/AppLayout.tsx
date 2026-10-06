@@ -45,6 +45,10 @@ export default function AppLayout() {
   const qc = useQueryClient()
   const [params] = useSearchParams()
   const [search, setSearch] = useState(params.get('q') ?? '')
+  const [searchQuery, setSearchQuery] = useState(params.get('q') ?? '')
+  if (searchQuery !== (params.get('q') ?? '')) {
+    setSearchQuery(params.get('q') ?? ''); setSearch(params.get('q') ?? '')
+  }
   const fileInput = useRef<HTMLInputElement>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const { setColorScheme } = useMantineColorScheme()
@@ -89,7 +93,7 @@ export default function AppLayout() {
     if (search.trim()) next.set('q', search.trim())
     else next.delete('q')
     next.delete('page')
-    navigate({ pathname: '/', search: next.toString() })
+    navigate({ pathname: '/library', search: next.toString() })
   }
 
   return (

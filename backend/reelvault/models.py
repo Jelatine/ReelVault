@@ -122,6 +122,7 @@ class Video(Base):
     # Keep identifiers after source deletion so provenance is not silently lost.
     source_video_id: Mapped[str | None] = mapped_column(String(32), index=True)
     edit_params: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    edited_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
     edit_sources: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     folder_id: Mapped[int | None] = mapped_column(
         ForeignKey("folders.id", ondelete="SET NULL"), index=True

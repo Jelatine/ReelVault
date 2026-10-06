@@ -8,6 +8,7 @@ export interface Video {
   description: string
   source_video_id?: string | null
   edit_params?: Record<string, unknown> | null
+  edited_at?: string | null
   original_name: string
   folder_id: number | null
   status: 'processing' | 'ready' | 'error'

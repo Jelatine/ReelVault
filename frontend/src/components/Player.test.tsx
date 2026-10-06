@@ -7,7 +7,7 @@ import type { Video } from '../lib/types'
 import Player from './Player'
 
 const provider = vi.hoisted(() => ({ type: 'hls', library: null as unknown, config: {} as Record<string, unknown> }))
-const media = vi.hoisted(() => ({ currentTime: 0, state: { ended: false, paused: false }, play: vi.fn(async () => {}) }))
+const media = vi.hoisted(() => ({ currentTime: 0, state: { ended: false, paused: false, canPlay: false }, play: vi.fn(async () => {}) }))
 vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }))
 vi.mock('@mantine/core', () => ({
   Button: ({ children, onClick }: { children: ReactNode; onClick: () => void }) => <button onClick={onClick}>{children}</button>,
@@ -47,10 +47,30 @@ vi.mock('@vidstack/react/player/layouts/default', () => ({
 }))
 
 afterEach(() => {
+  media.state.canPlay = false
   cleanup()
   localStorage.clear()
   vi.restoreAllMocks()
   vi.clearAllMocks()
+})
+
+test('dashboard resume waits for media readiness and restores history only once', async () => {
+  vi.mocked(api.get).mockImplementation(async (url) => url.endsWith('/subtitles') ? [] : { position: 25, play_count: 2, last_played_at: null })
+  media.currentTime = 0; media.state.canPlay = false
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(<QueryClientProvider client={client}><Player resumePlayback video={{ id: 'resume-dashboard', duration: 90, container: 'mp4', stream_url: '/stream' } as Video} /></QueryClientProvider>)
+  await screen.findByText('从 0:25 继续')
+  expect(media.currentTime).toBe(0)
+  expect(media.play).not.toHaveBeenCalled()
+  media.state.canPlay = true
+  fireEvent.click(screen.getByText('canplay event'))
+  expect(media.currentTime).toBe(25)
+  expect(media.play).toHaveBeenCalledOnce()
+  media.currentTime = 35
+  fireEvent.click(screen.getByText('canplay event'))
+  expect(media.currentTime).toBe(35)
+  expect(media.play).toHaveBeenCalledOnce()
+  client.clear()
 })
 
 test('resume, count once per opening, report every ten seconds and flush on exit', async () => {

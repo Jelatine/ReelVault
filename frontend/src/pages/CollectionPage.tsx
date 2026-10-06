@@ -35,7 +35,7 @@ function CollectionView({ collection }: { collection: CollectionDetail }) {
       <Title order={3}>{collection.name}</Title>
       <Group>
         <Button disabled={!playable.length} onClick={() => navigate(playlistUrl(playable[0].id, collection.id))}>播放整个合集</Button>
-        <Button variant="default" component={Link} to="/">从视频库添加</Button>
+        <Button variant="default" component={Link} to="/library">从视频库添加</Button>
       </Group>
     </Group>
     <Paper withBorder p="md"><Stack>
@@ -47,7 +47,7 @@ function CollectionView({ collection }: { collection: CollectionDetail }) {
           try {
             await api.del(`/api/collections/${collection.id}`)
             await qc.invalidateQueries({ queryKey: ['collections'] })
-            navigate('/')
+            navigate('/library')
           } catch (error) { notifications.show({ color: 'red', message: error instanceof Error ? error.message : String(error) }) }
         }}>删除合集</Button>
       </Group>

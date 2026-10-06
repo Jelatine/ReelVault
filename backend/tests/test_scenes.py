@@ -201,6 +201,7 @@ def test_scene_auth_and_unready(anon, client, settings):
 
 def test_scene_migration_preserves_existing_video(tmp_path):
     from alembic import command
+    from sqlalchemy import select
     from sqlalchemy.orm import Session
 
     from reelvault.db import make_engine
@@ -209,16 +210,20 @@ def test_scene_migration_preserves_existing_video(tmp_path):
     engine = make_engine(tmp_path / "old.db")
     config = alembic_config(str(engine.url))
     command.upgrade(config, "0012")
-    with Session(engine) as db:
-        video = Video(title="before scenes", file_path="library/existing.mp4", status="ready")
-        db.add(video)
-        db.commit()
-        vid = video.id
+    with engine.begin() as db:
+        vid = db.execute(
+            Video.__table__.insert().values(
+                title="before scenes", file_path="library/existing.mp4", status="ready"
+            )
+        ).inserted_primary_key[0]
     upgrade(engine)
     with Session(engine) as db:
         assert db.get(Video, vid).title == "before scenes"
         assert db.get(SceneAnalysis, vid) is None
     command.downgrade(config, "0012")
-    with Session(engine) as db:
-        assert db.get(Video, vid).title == "before scenes"
+    with engine.connect() as db:
+        assert (
+            db.scalar(select(Video.__table__.c.title).where(Video.__table__.c.id == vid))
+            == "before scenes"
+        )
     engine.dispose()

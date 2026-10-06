@@ -119,6 +119,7 @@ def video_to_dict(v: Video) -> dict[str, Any]:
         "description": v.description,
         "source_video_id": v.source_video_id,
         "edit_params": v.edit_params,
+        "edited_at": v.edited_at.isoformat() if v.edited_at else None,
         "rating": v.rating,
         "favorite": v.favorite,
         "captured_at": v.captured_at.isoformat() if v.captured_at else None,

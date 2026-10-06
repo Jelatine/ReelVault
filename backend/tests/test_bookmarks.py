@@ -130,13 +130,14 @@ def test_bookmark_migration_upgrade_and_downgrade(tmp_path: Path):
     engine = make_engine(tmp_path / "old.db")
     cfg = alembic_config(str(engine.url))
     command.upgrade(cfg, "0013")
-    with Session(engine) as db:
-        user = User(username="old", password_hash="hash")
-        video = Video(title="old", file_path="library/old.mp4")
-        db.add_all([user, video])
-        db.commit()
-        uid = user.id
-        vid = video.id
+    # Historical schemas must not be read through today's full ORM mapping.
+    with engine.begin() as db:
+        uid = db.execute(
+            User.__table__.insert().values(username="old", password_hash="hash")
+        ).inserted_primary_key[0]
+        vid = db.execute(
+            Video.__table__.insert().values(title="old", file_path="library/old.mp4")
+        ).inserted_primary_key[0]
     upgrade(engine)
     with Session(engine) as db:
         db.add(
@@ -153,6 +154,11 @@ def test_bookmark_migration_upgrade_and_downgrade(tmp_path: Path):
         db.commit()
         assert db.scalar(select(Bookmark)).note == "备注"
     command.downgrade(cfg, "0013")
-    with Session(engine) as db:
-        assert db.get(Video, vid).title == "old" and db.get(User, uid).username == "old"
+    with engine.connect() as db:
+        assert (
+            db.scalar(select(Video.__table__.c.title).where(Video.__table__.c.id == vid)) == "old"
+        )
+        assert (
+            db.scalar(select(User.__table__.c.username).where(User.__table__.c.id == uid)) == "old"
+        )
     engine.dispose()

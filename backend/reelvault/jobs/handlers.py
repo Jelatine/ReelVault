@@ -369,6 +369,7 @@ def _store_new(
             status="processing",
             source_video_id=source.id,
             edit_params=params.model_dump(),
+            edited_at=utcnow(),
             edit_sources=provenance,
         )
         if src is not None:
@@ -409,6 +410,7 @@ def _replace_with_backup(
             deleted_at=utcnow(),
             source_video_id=video.source_video_id,
             edit_params=video.edit_params,
+            edited_at=video.edited_at,
             edit_sources=video.edit_sources,
             rating=video.rating,
             favorite=video.favorite,
@@ -425,6 +427,7 @@ def _replace_with_backup(
             backup.meta = {**(backup.meta or {}), "custom_cover": True}
         video.source_video_id = backup.id
         video.edit_params = params.model_dump()
+        video.edited_at = utcnow()
         video.edit_sources = [{**provenance[0], "id": backup.id}]
         old_playable = video.playable_path
         video.file_path = rel_path(s, new_file)

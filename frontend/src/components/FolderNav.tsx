@@ -11,6 +11,7 @@ import {
   IconSettings,
   IconTrash,
   IconVideo,
+  IconHome,
 } from '@tabler/icons-react'
 import { useState, type DragEvent } from 'react'
 import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE, dragIds } from '../lib/selection'
@@ -31,12 +32,12 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [params] = useSearchParams()
-  const onLibrary = location.pathname === '/'
+  const onLibrary = location.pathname === '/library'
   const folder = onLibrary ? (params.get('folder') ?? 'all') : null
   const tag = onLibrary ? params.get('tag') : null
 
   const go = (search: Record<string, string>) => {
-    navigate({ pathname: '/', search: new URLSearchParams(search).toString() })
+    navigate({ pathname: '/library', search: new URLSearchParams(search).toString() })
     onNavigate()
   }
 
@@ -150,6 +151,8 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
 
   return (
     <ScrollArea style={{ flex: 1 }}>
+      <NavLink component={Link} to="/" label="首页" leftSection={<IconHome size={16} />}
+        active={location.pathname === '/'} onClick={onNavigate} />
       {context && <ContextMenu key={`${context.node.id}:${context.position.x}:${context.position.y}`} position={context.position}
         label={`${context.node.name}的文件夹菜单`} close={() => setContext(undefined)}>
         <Menu.Label>{context.node.name}</Menu.Label>

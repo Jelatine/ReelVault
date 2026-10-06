@@ -15,6 +15,7 @@ export default function VideoRating({ video }: { video: Video }) {
       const updated = await api.patch<Video>(`/api/videos/${video.id}`, patch)
       qc.setQueryData(['video', video.id], updated)
       await qc.invalidateQueries({ queryKey: ['videos'] })
+      void qc.invalidateQueries({ queryKey: ['dashboard'] })
     } catch (error) {
       notifications.show({ color: 'red', message: error instanceof Error ? error.message : String(error) })
     } finally {
