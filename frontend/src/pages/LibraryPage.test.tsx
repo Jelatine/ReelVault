@@ -55,3 +55,25 @@ test('list rows and checkboxes support the same range selection', () => {
   expect(screen.queryByText(/已选择 \d 个/)).toBeNull()
   client.clear()
 })
+
+test('list keyboard navigation moves focus, skips form controls, and opens the focused row', () => {
+  localStorage.setItem('rv-view', JSON.stringify('list'))
+  function Location() { const location = useLocation(); return <output data-testid="path">{location.pathname}</output> }
+  const client = new QueryClient()
+  render(<MantineProvider><QueryClientProvider client={client}><MemoryRouter><main><LibraryPage /></main><Location /></MemoryRouter></QueryClientProvider></MantineProvider>)
+  const rows = ['甲', '乙', '丙'].map((name) => screen.getByText(`视频${name}`).closest<HTMLElement>('[data-video-id]')!)
+  rows.forEach((row, index) => {
+    row.scrollIntoView = () => {}
+    row.getBoundingClientRect = () => ({ left: 0, top: index * 80, width: 400, height: 70 }) as DOMRect
+  })
+  rows[0].focus()
+  fireEvent.keyDown(rows[0], { key: 'ArrowDown' })
+  expect(document.activeElement).toBe(rows[1])
+  fireEvent.keyDown(rows[1], { key: 'ArrowUp' })
+  expect(document.activeElement).toBe(rows[0])
+  fireEvent.keyDown(screen.getByLabelText('选择 视频甲'), { key: 'Enter' })
+  expect(screen.getByTestId('path').textContent).toBe('/')
+  fireEvent.keyDown(rows[0], { key: 'Enter' })
+  expect(screen.getByTestId('path').textContent).toBe(`/videos/${ids[0]}`)
+  client.clear()
+})

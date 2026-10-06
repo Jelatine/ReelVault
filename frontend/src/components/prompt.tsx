@@ -39,6 +39,7 @@ export function confirmAction(opts: {
       confirmProps: opts.danger ? { color: 'red' } : undefined,
       onConfirm: () => resolve(true),
       onCancel: () => resolve(false),
+      onClose: () => resolve(false),
     })
   })
 }

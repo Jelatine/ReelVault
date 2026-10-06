@@ -15,6 +15,7 @@ import {
 import { Dropzone } from '@mantine/dropzone'
 import { useDisclosure } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
+import { modals } from '@mantine/modals'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   IconLogout,
@@ -34,6 +35,8 @@ import { useJobs, useUpdateStatus } from '../lib/queries'
 import { uploads } from '../lib/uploads'
 import FolderNav from './FolderNav'
 import UploadPanel from './UploadPanel'
+import ShortcutHelp from './ShortcutHelp'
+import { shortcutBlocked } from '../lib/shortcuts'
 
 export default function AppLayout() {
   const [opened, { toggle, close }] = useDisclosure()
@@ -43,6 +46,7 @@ export default function AppLayout() {
   const [params] = useSearchParams()
   const [search, setSearch] = useState(params.get('q') ?? '')
   const fileInput = useRef<HTMLInputElement>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
   const { setColorScheme } = useMantineColorScheme()
   const scheme = useComputedColorScheme('light')
   const jobs = useJobs()
@@ -53,6 +57,18 @@ export default function AppLayout() {
     const f = params.get('folder')
     return f && f !== 'all' && f !== 'root' ? Number(f) : null
   }
+
+  const showShortcuts = () => modals.open({ title: '快捷键说明', size: 'lg', children: <ShortcutHelp /> })
+  useEffect(() => {
+    const handle = (event: KeyboardEvent) => {
+      if (shortcutBlocked(event)) return
+      if (event.key === '/') { event.preventDefault(); searchInput.current?.focus(); searchInput.current?.select() }
+      else if (event.key.toLowerCase() === 'u') { event.preventDefault(); fileInput.current?.click() }
+      else if (event.key === '?') { event.preventDefault(); showShortcuts() }
+    }
+    window.addEventListener('keydown', handle)
+    return () => window.removeEventListener('keydown', handle)
+  }, [])
 
   useEffect(() => {
     uploads.onComplete = (video) => {
@@ -100,6 +116,8 @@ export default function AppLayout() {
           </Group>
           <form onSubmit={submitSearch} style={{ flex: 1, maxWidth: 480 }}>
             <TextInput
+              ref={searchInput}
+              aria-label="搜索视频"
               placeholder="搜索视频"
               leftSection={<IconSearch size={16} />}
               value={search}
@@ -146,6 +164,7 @@ export default function AppLayout() {
               </Menu.Target>
               <Menu.Dropdown>
                 <Menu.Label>{user?.username}</Menu.Label>
+                <Menu.Item onClick={showShortcuts}>快捷键说明</Menu.Item>
                 <Menu.Item
                   leftSection={scheme === 'dark' ? <IconSun size={14} /> : <IconMoon size={14} />}
                   onClick={() => setColorScheme(scheme === 'dark' ? 'light' : 'dark')}

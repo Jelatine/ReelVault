@@ -50,6 +50,8 @@ import VideoRating from '../components/VideoRating'
 import SelectionArea from '../components/SelectionArea'
 import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE, selectRange, type Modifiers } from '../lib/selection'
 import { api } from '../lib/api'
+import { adjacentCard, shortcutBlocked } from '../lib/shortcuts'
+import { confirmAction } from '../components/prompt'
 import { formatBytes, formatDate, formatDuration } from '../lib/format'
 import { useFolders, useVideos } from '../lib/queries'
 
@@ -109,7 +111,7 @@ export default function LibraryPage() {
     const clear = () => { setSelected([]); anchor.current = null }
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (event.target instanceof HTMLElement && event.target.closest('[role="dialog"]')) return
+      if (shortcutBlocked(event)) return
       clear()
     }
     window.addEventListener('keydown', escape)
@@ -212,6 +214,38 @@ export default function LibraryPage() {
   }
 
   const items = data?.items ?? []
+  useEffect(() => {
+    const handle = (event: KeyboardEvent) => {
+      if (shortcutBlocked(event)) return
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      const card = target.closest<HTMLElement>('[data-video-id]')
+      if (target !== card && target !== document.body) return
+      const cards = Array.from(document.querySelectorAll<HTMLElement>('main [data-video-id]'))
+      if (event.key.startsWith('Arrow')) {
+        event.preventDefault()
+        const next = adjacentCard(cards, card ? cards.indexOf(card) : -1, event.key)
+        next?.focus(); next?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      } else if (event.key === 'Enter' && card?.dataset.videoId) {
+        event.preventDefault(); navigate(`/videos/${card.dataset.videoId}`)
+      } else if (event.key === 'Delete') {
+        const ids = selected.length ? selected : card?.dataset.videoId ? [card.dataset.videoId] : []
+        if (!ids.length) return
+        event.preventDefault()
+        void (async () => {
+          if (!await confirmAction({ title: '删除视频', message: `将 ${ids.length} 个视频移到回收站？`, confirm: '移到回收站', danger: true })) return
+          try {
+            await api.post('/api/videos/batch', { ids, action: 'delete' })
+            setSelected([]); anchor.current = null
+            for (const key of ['videos', 'folders', 'collections', 'folder-playlist']) void qc.invalidateQueries({ queryKey: [key] })
+            notifications.show({ message: '已移到回收站' })
+          } catch (e) { notifications.show({ color: 'red', message: e instanceof Error ? e.message : String(e) }) }
+        })()
+      }
+    }
+    window.addEventListener('keydown', handle)
+    return () => window.removeEventListener('keydown', handle)
+  }, [selected, navigate, qc])
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE))
 
   return (
@@ -312,7 +346,7 @@ export default function LibraryPage() {
         </Center>
       )}
 
-      <Text size="xs" c="dimmed">Shift 连选 · Ctrl/⌘ 多选 · 在空白区域拖动框选 · 拖到侧栏文件夹移动 · Esc 取消选择</Text>
+      <Text size="xs" c="dimmed">Shift 连选 · Ctrl/⌘ 多选 · 在空白区域拖动框选 · 拖到侧栏文件夹移动 · Esc 取消选择 · ? 快捷键说明</Text>
       <SelectionArea selected={selected} onSelect={setSelected}>
       {view === 'grid' ? (
         <SimpleGrid cols={{ base: 1, xs: 2, sm: 2, md: 3, lg: 4, xl: 5 }} spacing="md">
