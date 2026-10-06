@@ -84,7 +84,7 @@ docker compose up -d
 从 [Releases](https://github.com/Jelatine/ReelVault/releases) 下载发布包：
 
 ```bash
-VERSION=0.2.0
+VERSION=0.2.1
 curl -LO https://github.com/Jelatine/ReelVault/releases/download/v$VERSION/reelvault-$VERSION.tar.gz
 tar xzf reelvault-$VERSION.tar.gz && cd reelvault-$VERSION
 sudo ./deploy/install.sh
@@ -343,7 +343,7 @@ API 错误保留原有 HTTP 状态与 `detail`，另外返回稳定的 `code` �
 更新 `backend/reelvault/__init__.py` 与 `backend/pyproject.toml` 中的版本号，然后推送 tag：
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.2.1 && git push origin v0.2.1
 ```
 
 GitHub Actions 会构建 `linux/amd64`、`linux/arm64` 镜像并推送到 `ghcr.io/jelatine/reelvault`，同时创建 Release 并附带 Ubuntu 安装包与 SHA256 校验文件。
