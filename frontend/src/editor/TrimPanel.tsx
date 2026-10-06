@@ -9,6 +9,7 @@ import { snapCut, timecode } from './frames'
 import { useTiming } from './timing'
 import TimeInput from './TimeInput'
 import SequencePreview from './SequencePreview'
+import ScenePanel from './ScenePanel'
 
 interface Seg {
   start: number
@@ -53,6 +54,11 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
 
   return (
     <Stack>
+      <ScenePanel video={video} seek={seek} onScene={(scene) => {
+        setSegments([{ start: scene.start, end: scene.end }]); setActive(0); setMode('precise')
+      }} onCut={(time, side) => update(active, { [side]: time })} onAll={(scenes) => {
+        setSegments(scenes.map(({ start, end }) => ({ start, end }))); setActive(0); setMode('precise')
+      }} />
       <PresetControls edit={{ op: 'trim', mode, segments, crf }} onApply={(params) => {
         setCrf(Number(params.crf ?? 20))
         const applied = (params.segments as Seg[]).map((segment) => ({ ...segment, end: Math.min(segment.end, duration) })).filter((segment) => segment.end > segment.start)

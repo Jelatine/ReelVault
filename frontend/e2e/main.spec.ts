@@ -129,7 +129,7 @@ test('倒放、定格和局部慢动作提交、生成与播放', async ({ page 
   const source = await (await page.request.get(`/api/videos/${uploaded.id}`)).json()
   for (const mode of ['reverse', 'freeze', 'slow']) {
     await page.goto(`/videos/${uploaded.id}?tool=more`)
-    await page.getByText('片段效果', { exact: true }).click()
+    await page.getByRole('tabpanel', { name: '更多' }).getByText('片段效果', { exact: true }).click()
     await page.getByLabel('效果类型', { exact: true }).selectOption(mode)
     await page.getByLabel(mode === 'freeze' ? '定格位置' : '效果开始', { exact: true }).fill('0.5')
     await page.getByLabel(mode === 'freeze' ? '定格位置' : '效果开始', { exact: true }).blur()
@@ -149,6 +149,8 @@ test('倒放、定格和局部慢动作提交、生成与播放', async ({ page 
       { timeout: 60_000 }).toBe('succeeded')
     const result = await (await page.request.get(`/api/jobs/${job.id}`)).json()
     expect(result.params.edit.mode).toBe(mode)
+    await expect.poll(async () => (await (await page.request.get(`/api/videos/${result.result_video_id}`)).json()).status,
+      { timeout: 60_000 }).toBe('ready')
     const video = await (await page.request.get(`/api/videos/${result.result_video_id}`)).json()
     const duration = source.duration + (mode === 'freeze' ? 0.6 : mode === 'slow' ? 1 : 0)
     expect(Math.abs(video.duration-duration)).toBeLessThan(0.1)
@@ -223,6 +225,53 @@ test('画中画与三路网格布局、真实拼接输出及播放', async ({ pa
     await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThanOrEqual(2)
     await expect(page.getByText(layout === 'pip' ? /画中画 · 2 个输入/ : /网格分屏 · 3 个输入/)).toBeVisible()
   }
+})
+
+test('场景检测自动章节跳转、切点设置与真实章节剪辑', async ({ page }, testInfo) => {
+  await login(page)
+  const args = ['-v', 'error']
+  for (const color of ['black', 'white', 'black', 'white']) args.push('-f', 'lavfi', '-i', `color=c=${color}:s=160x120:r=10:d=1`)
+  args.push('-filter_complex', '[0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1')
+  const sample = execFileSync('ffmpeg', args)
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: '上传', exact: true }).click()])
+  const [completed] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST'),
+    chooser.setFiles({ name: 'scene-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
+  ])
+  const video = await completed.json()
+  await expect.poll(async () => (await (await page.request.get(`/api/videos/${video.id}`)).json()).status, { timeout: 60_000 }).toBe('ready')
+  await page.goto(`/videos/${video.id}`)
+  await page.getByRole('button', { name: /场景检测与自动章节/ }).click()
+  await page.getByLabel('场景最小间隔（秒）').fill('0.1')
+  const submitted = page.waitForResponse((r) => r.url().endsWith('/scenes') && r.request().method() === 'POST')
+  await page.getByRole('button', { name: '检测镜头切换', exact: true }).click()
+  const job = await (await submitted).json()
+  await expect.poll(async () => (await (await page.request.get(`/api/jobs/${job.id}`)).json()).status, { timeout: 60_000 }).toBe('succeeded')
+  await expect(page.getByText(/3 个候选切点 · 4 个自动章节/)).toBeVisible()
+  await page.getByRole('button', { name: '跳转场景 3', exact: true }).click()
+  await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.currentTime)).toBeCloseTo(2, 1)
+  await page.getByRole('button', { name: '场景 2切点设为起点', exact: true }).click()
+  await expect(page.getByLabel('开始', { exact: true })).toHaveValue('00:00:01.000')
+  await page.getByRole('button', { name: '选择场景 2剪辑', exact: true }).click()
+  await expect(page.getByLabel('结束', { exact: true })).toHaveValue('00:00:02.000')
+  await page.screenshot({ path: testInfo.outputPath('scene-chapters.png'), fullPage: true })
+  const editSubmitted = page.waitForResponse((r) => r.url().endsWith('/edit') && r.request().method() === 'POST')
+  await page.getByRole('button', { name: /剪辑（输出时长 0:01.0）/ }).click()
+  const editResponse = await editSubmitted
+  expect(editResponse.ok()).toBeTruthy()
+  expect(editResponse.request().postDataJSON().edit.segments).toEqual([{ start: 1, end: 2 }])
+  const editJob = await editResponse.json()
+  await expect.poll(async () => (await (await page.request.get(`/api/jobs/${editJob.id}`)).json()).status, { timeout: 60_000 }).toBe('succeeded')
+  const result = await (await page.request.get(`/api/jobs/${editJob.id}`)).json()
+  await expect.poll(async () => (await (await page.request.get(`/api/videos/${result.result_video_id}`)).json()).status, { timeout: 60_000 }).toBe('ready')
+  const output = await (await page.request.get(`/api/videos/${result.result_video_id}`)).json()
+  expect(output.duration).toBeCloseTo(1, 1)
+  await page.goto(`/videos/${result.result_video_id}`)
+  await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThanOrEqual(2)
+  await page.goto(`/videos/${video.id}`)
+  await page.getByRole('button', { name: /场景检测与自动章节/ }).click()
+  await page.getByRole('button', { name: '按全部章节设置剪辑片段' }).click()
+  await expect(page.getByLabel('开始', { exact: true })).toHaveCount(4)
 })
 
 async function login(page: Page) {

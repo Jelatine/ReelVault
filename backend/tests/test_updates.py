@@ -173,7 +173,9 @@ def run_upgrade(
     return up, app, restarted
 
 
-def test_package_upgrade_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_package_upgrade_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, schema_head: str
+) -> None:
     up, app, restarted = run_upgrade(tmp_path, monkeypatch)
     assert restarted == [True], up.state.error
     assert up.state.phase == "restarting"
@@ -186,7 +188,7 @@ def test_package_upgrade_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     archives = list((tmp_path / "data" / "backups").glob("before-upgrade-*.zip"))
     assert len(archives) == 1
     with zipfile.ZipFile(archives[0]) as archive:
-        assert json.loads(archive.read("manifest.json"))["revision"] == "0012"
+        assert json.loads(archive.read("manifest.json"))["revision"] == schema_head
 
 
 def test_backup_failure_aborts_upgrade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

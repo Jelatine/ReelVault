@@ -5,6 +5,10 @@ import type { Job } from './types'
 
 export const OP_LABELS: Record<string, string> = {
   ingest: '处理新视频',
+  scenes: '场景检测',
+  adjust: '画面调整',
+  effect: '片段效果',
+  composite: '画中画与分屏',
   rotate: '旋转',
   trim: '剪辑',
   merge: '合并',
@@ -22,7 +26,7 @@ export const OP_LABELS: Record<string, string> = {
 }
 
 export function jobLabel(job: Job): string {
-  if (job.kind === 'ingest') return OP_LABELS.ingest
+  if (job.kind !== 'edit') return OP_LABELS[job.kind] ?? job.kind
   return OP_LABELS[job.params.edit?.op ?? ''] ?? job.kind
 }
 
@@ -49,6 +53,7 @@ export function useJobEvents(enabled: boolean) {
         qc.invalidateQueries({ queryKey: ['videos'] })
         qc.invalidateQueries({ queryKey: ['video'] })
         qc.invalidateQueries({ queryKey: ['history'] })
+        qc.invalidateQueries({ queryKey: ['scenes'] })
         qc.invalidateQueries({ queryKey: ['encoding'] })
         qc.invalidateQueries({ queryKey: ['folders'] })
         if (job.kind === 'edit') {

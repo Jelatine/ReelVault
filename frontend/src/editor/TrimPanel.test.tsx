@@ -6,6 +6,7 @@ import TrimPanel from './TrimPanel'
 
 const submit = vi.hoisted(() => vi.fn())
 vi.mock('./edit', () => ({ defaultOutput: { mode: 'new', title: '' }, useSubmitEdit: () => ({ submit, busy: false }) }))
+vi.mock('./ScenePanel', () => ({ default: () => null }))
 vi.mock('./PresetControls', () => ({ default: () => null }))
 vi.mock('./timing', () => ({ useTiming: () => ({ data: { frames: [0, 1, 2, 3], keyframes: [0, 1, 2, 3] } }) }))
 beforeAll(() => {

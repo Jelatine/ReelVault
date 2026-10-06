@@ -258,3 +258,17 @@ class Job(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class SceneAnalysis(Base):
+    __tablename__ = "scene_analyses"
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), primary_key=True
+    )
+    asset_version: Mapped[int] = mapped_column(Integer)
+    signature: Mapped[list[Any]] = mapped_column(JSON)
+    threshold: Mapped[float] = mapped_column(Float)
+    min_interval: Mapped[float] = mapped_column(Float)
+    duration: Mapped[float] = mapped_column(Float)
+    cuts: Mapped[list[dict[str, float]]] = mapped_column(JSON)
+    detected_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

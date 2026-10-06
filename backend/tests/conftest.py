@@ -125,3 +125,12 @@ def wait_ready(client: TestClient, video_id: str, timeout: float = 90) -> dict[s
 
 def upload_ready(client: TestClient, path: Path, **kw: Any) -> dict[str, Any]:
     return wait_ready(client, upload(client, path, **kw)["id"])
+
+
+@pytest.fixture
+def schema_head() -> str:
+    from alembic.script import ScriptDirectory
+
+    from reelvault.migrate import alembic_config
+
+    return ScriptDirectory.from_config(alembic_config("sqlite://")).get_current_head()

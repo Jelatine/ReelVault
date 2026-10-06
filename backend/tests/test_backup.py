@@ -177,7 +177,7 @@ def test_replace_safety_backup_and_rollback(
         assert db.execute("SELECT COUNT(*) FROM sessions").fetchone() == (0,)
 
 
-def test_backup_before_migration_keeps_old_schema(tmp_path: Path) -> None:
+def test_backup_before_migration_keeps_old_schema(tmp_path: Path, schema_head: str) -> None:
     from alembic import command
 
     settings = Settings(data_dir=tmp_path / "old")
@@ -193,7 +193,7 @@ def test_backup_before_migration_keeps_old_schema(tmp_path: Path) -> None:
     upgrade(engine)
     engine.dispose()
     assert backup_before_migration(settings) is None
-    assert validate_database(settings.db_path) == "0012"
+    assert validate_database(settings.db_path) == schema_head
     # CLI import migrates an old backup before installing it.
     target = tmp_path / "restored-old"
     import sys
@@ -213,4 +213,4 @@ def test_backup_before_migration_keeps_old_schema(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    assert validate_database(target / "reelvault.db") == "0012"
+    assert validate_database(target / "reelvault.db") == schema_head

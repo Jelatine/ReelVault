@@ -21,10 +21,11 @@ from ..media.assets import audio_asset, image_asset, lut_asset, subtitle_asset
 from ..media.composite import plan_composite
 from ..media.effects import plan_effect
 from ..media.probe import MediaInfo, probe
+from ..media.scenes import SceneParams, detect_scenes, source_signature
 from ..media.subtitles import plan_subtitle
 from ..media.timing import snap_cut, timing_index
 from ..media.watermark import plan_watermark
-from ..models import Job, Video, new_id, utcnow
+from ..models import Job, SceneAnalysis, Video, new_id, utcnow
 from .manager import Handler, JobContext
 
 edit_params: TypeAdapter[ops.EditParams] = TypeAdapter(ops.EditParams)
@@ -439,4 +440,45 @@ def _replace_with_backup(
     return source.id
 
 
-HANDLERS: dict[str, Handler] = {"ingest": ingest, "edit": edit}
+async def scenes(ctx: JobContext, job: Job) -> None:
+    params = SceneParams.model_validate(job.params)
+    source, info, video = (await _load_sources(ctx, job.video_ids))[0]
+    signature = source_signature(source)
+    if video.asset_version != job.params["asset_version"] or signature != job.params["signature"]:
+        raise RuntimeError("源视频已变化，请重新提交场景检测")
+    temp = ctx.settings.tmp_dir / f"job-{job.id}"
+    temp.mkdir(parents=True, exist_ok=True)
+    try:
+        cuts = await detect_scenes(
+            ctx.settings.ffmpeg,
+            source,
+            info,
+            params,
+            temp,
+            handle=ctx.handle,
+            on_progress=ctx.stage(0, 1, "检测镜头切换"),
+        )
+        ctx.check_canceled()
+        with ctx.db() as db:
+            current = db.get(Video, video.id)
+            if (
+                current is None
+                or current.deleted_at
+                or current.asset_version != video.asset_version
+                or source_signature(source) != signature
+            ):
+                raise RuntimeError("源视频已变化，检测结果未保存")
+            analysis = db.get(SceneAnalysis, video.id)
+            if analysis is None:
+                analysis = SceneAnalysis(video_id=video.id)
+                db.add(analysis)
+            analysis.asset_version, analysis.signature = video.asset_version, signature
+            analysis.threshold, analysis.min_interval = params.threshold, params.min_interval
+            analysis.duration, analysis.cuts, analysis.detected_at = info.duration, cuts, utcnow()
+            db.commit()
+        ctx.set_progress(1, f"已检测 {len(cuts)} 个切点、{len(cuts) + 1} 个章节")
+    finally:
+        shutil.rmtree(temp, ignore_errors=True)
+
+
+HANDLERS: dict[str, Handler] = {"ingest": ingest, "scenes": scenes, "edit": edit}
