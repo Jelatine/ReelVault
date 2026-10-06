@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
@@ -15,8 +15,8 @@ from ..auth import require_auth
 from ..backup import create_backup
 from ..config import Settings
 from ..db import get_db
+from ..importer import Importer
 from ..jobs.manager import JobManager
-from ..library import VIDEO_EXTENSIONS, stem_of, store_file
 from ..models import Job, RuntimeSetting, Video
 from ..updates import UpdateError, Updater
 from .deps import get_jobs, get_settings
@@ -117,34 +117,44 @@ def info(
 
 @router.post("/api/system/import", dependencies=[Depends(require_auth)])
 def import_dir(
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    jobs: JobManager = Depends(get_jobs),
+    request: Request,
 ) -> dict[str, int]:
-    """Copy (hard-link when possible) videos from the configured import directory."""
-    root = settings.import_dir
-    if root is None or not root.is_dir():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "未配置导入目录 REELVAULT_IMPORT_DIR")
-    known = set(db.scalars(select(Video.source_path).where(Video.source_path.is_not(None))))
-    imported = 0
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
-            continue
-        if str(path) in known:
-            continue
-        video = store_file(
-            db,
-            settings,
-            path,
-            title=stem_of(path.name),
-            original_name=path.name,
-            folder_id=None,
-            move=False,
-            source_path=str(path),
-        )
-        jobs.submit(db, "ingest", {}, [video.id])
-        imported += 1
-    return {"imported": imported}
+    try:
+        return {"imported": request.app.state.importer.scan()}
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.get("/api/system/import-watch", dependencies=[Depends(require_auth)])
+def import_watch_status(request: Request) -> dict[str, Any]:
+    importer: Importer = request.app.state.importer
+    return importer.status()
+
+
+class ImportWatchPreference(BaseModel):
+    enabled: bool
+    stable_seconds: int = Field(default=10, ge=2, le=3600)
+
+
+@router.put("/api/system/import-watch", dependencies=[Depends(require_auth)])
+def configure_import_watch(body: ImportWatchPreference, request: Request,
+                           db: Session = Depends(get_db)) -> dict[str, Any]:
+    importer: Importer = request.app.state.importer
+    if body.enabled and not importer.status()["available"]:
+        raise HTTPException(400, "未配置可用的导入目录 REELVAULT_IMPORT_DIR")
+    root = importer.settings.import_dir
+    if (body.enabled and root
+            and root.resolve().is_relative_to(importer.settings.data_dir.resolve())):
+        raise HTTPException(400, "导入目录不能位于 ReelVault 数据目录内")
+    value = body.model_dump()
+    saved = db.get(RuntimeSetting, "import_watch")
+    if saved is None:
+        db.add(RuntimeSetting(key="import_watch", value=value))
+    else:
+        saved.value = value
+    db.commit()
+    importer.configure(body.enabled, body.stable_seconds)
+    return importer.status()
 
 
 def get_updater(request: Request) -> Updater:

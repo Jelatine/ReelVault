@@ -8,6 +8,25 @@ interface UploadInfo {
   chunk_size: number
 }
 
+export interface UploadOptions {
+  folderId: number | null
+  tags: string[]
+  username: string
+}
+
+export function uploadKey(file: File, options: UploadOptions) {
+  return JSON.stringify([options.username, file.webkitRelativePath || file.name, file.size,
+    file.lastModified, options.folderId, [...new Set(options.tags.map((t) => t.trim().slice(0, 64)).filter(Boolean))].sort()])
+}
+
+function savedUpload(key: string, value?: string | null): string | null {
+  try {
+    if (value === null) localStorage.removeItem(RESUME_PREFIX + key)
+    else if (value !== undefined) localStorage.setItem(RESUME_PREFIX + key, value)
+    return localStorage.getItem(RESUME_PREFIX + key)
+  } catch { return null }
+}
+
 export interface UploadItem {
   key: string
   name: string
@@ -25,9 +44,9 @@ const CONCURRENCY = 2
 
 /** Chunked, resumable uploads. Upload ids are remembered in localStorage so a page
  * reload (or retry) continues from the last byte the server acknowledged. */
-class UploadStore {
+export class UploadStore {
   items: UploadItem[] = []
-  private files = new Map<string, { file: File; folderId: number | null }>()
+  private files = new Map<string, { file: File; options: UploadOptions }>()
   private aborts = new Map<string, AbortController>()
   private listeners = new Set<Listener>()
   private active = 0
@@ -50,37 +69,40 @@ class UploadStore {
     this.listeners.forEach((l) => l())
   }
 
-  add(files: File[], folderId: number | null) {
+  add(files: File[], options: UploadOptions) {
     for (const file of files) {
-      const key = `${file.name}:${file.size}:${file.lastModified}`
+      const key = uploadKey(file, options)
       if (this.items.some((i) => i.key === key && ['pending', 'uploading'].includes(i.status))) {
         continue
       }
       this.items = this.items.filter((i) => i.key !== key)
-      this.items.push({ key, name: file.name, size: file.size, loaded: 0, status: 'pending' })
-      this.files.set(key, { file, folderId })
+      this.items.push({ key, name: file.webkitRelativePath || file.name, size: file.size, loaded: 0, status: 'pending' })
+      this.files.set(key, { file, options: { ...options, tags: [...options.tags] } })
     }
     this.emit()
     this.pump()
   }
 
   retry(key: string) {
-    if (!this.files.has(key)) return
+    if (!this.files.has(key) || this.aborts.has(key)) return
     this.update(key, { status: 'pending', error: undefined })
     this.pump()
   }
 
   cancel(key: string) {
     this.aborts.get(key)?.abort()
-    const resumeId = localStorage.getItem(RESUME_PREFIX + key)
+    const resumeId = savedUpload(key)
     if (resumeId) {
-      localStorage.removeItem(RESUME_PREFIX + key)
+      savedUpload(key, null)
       api.del(`/api/uploads/${resumeId}`).catch(() => undefined)
     }
     this.update(key, { status: 'canceled' })
   }
 
   clearFinished() {
+    for (const item of this.items) {
+      if (!['pending', 'uploading'].includes(item.status)) this.files.delete(item.key)
+    }
     this.items = this.items.filter((i) => i.status === 'pending' || i.status === 'uploading')
     this.emit()
   }
@@ -98,32 +120,39 @@ class UploadStore {
     }
   }
 
-  private async start(key: string, file: File, folderId: number | null): Promise<UploadInfo> {
-    const saved = localStorage.getItem(RESUME_PREFIX + key)
+  private async start(key: string, file: File, options: UploadOptions): Promise<UploadInfo> {
+    const saved = savedUpload(key)
     if (saved) {
       try {
         return await api.get<UploadInfo>(`/api/uploads/${saved}`)
       } catch {
-        localStorage.removeItem(RESUME_PREFIX + key)
+        savedUpload(key, null)
       }
     }
     const info = await api.post<UploadInfo>('/api/uploads', {
       filename: file.name,
       size: file.size,
-      folder_id: folderId,
+      folder_id: options.folderId,
+      tags: options.tags,
+      relative_path: file.webkitRelativePath || null,
     })
-    localStorage.setItem(RESUME_PREFIX + key, info.id)
+    savedUpload(key, info.id)
     return info
   }
 
   private async run(key: string) {
     const entry = this.files.get(key)
     if (!entry) return
-    const { file, folderId } = entry
+    const { file, options } = entry
     const abort = new AbortController()
     this.aborts.set(key, abort)
     try {
-      const info = await this.start(key, file, folderId)
+      const info = await this.start(key, file, options)
+      if (abort.signal.aborted) {
+        savedUpload(key, null)
+        await api.del(`/api/uploads/${info.id}`)
+        return
+      }
       let offset = info.received
       this.update(key, { loaded: offset })
       while (offset < file.size) {
@@ -151,8 +180,9 @@ class UploadStore {
         }
         this.update(key, { loaded: offset })
       }
-      const video = await api.post<Video>(`/api/uploads/${info.id}/complete`)
-      localStorage.removeItem(RESUME_PREFIX + key)
+      if (abort.signal.aborted) return
+      const video = await api.post<Video>(`/api/uploads/${info.id}/complete`, undefined, { signal: abort.signal })
+      savedUpload(key, null)
       this.files.delete(key)
       this.update(key, { status: 'done', loaded: file.size, video })
       this.onComplete?.(video)

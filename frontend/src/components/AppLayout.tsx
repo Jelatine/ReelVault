@@ -25,17 +25,19 @@ import {
   IconSettings,
   IconSun,
   IconUpload,
+  IconFolderUp,
   IconUser,
 } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
-import { VIDEO_ACCEPT } from '../lib/constants'
+import { VIDEO_ACCEPT, VIDEO_EXTENSIONS } from '../lib/constants'
 import { useJobs, useUpdateStatus } from '../lib/queries'
 import { uploads } from '../lib/uploads'
 import FolderNav from './FolderNav'
 import UploadPanel from './UploadPanel'
 import ShortcutHelp from './ShortcutHelp'
+import UploadReview from './UploadReview'
 import { shortcutBlocked } from '../lib/shortcuts'
 
 export default function AppLayout() {
@@ -50,6 +52,7 @@ export default function AppLayout() {
     setSearchQuery(params.get('q') ?? ''); setSearch(params.get('q') ?? '')
   }
   const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const { setColorScheme } = useMantineColorScheme()
   const scheme = useComputedColorScheme('light')
@@ -79,13 +82,34 @@ export default function AppLayout() {
       qc.invalidateQueries({ queryKey: ['videos'] })
       qc.invalidateQueries({ queryKey: ['folders'] })
       qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['tags'] })
+      qc.invalidateQueries({ queryKey: ['dashboard'] })
       notifications.show({ color: 'green', title: '上传完成', message: video.title })
     }
   }, [qc])
 
   const addFiles = (files: File[]) => {
-    if (files.length) uploads.add(files, currentFolder())
+    const supported = files.filter((f) => VIDEO_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext)))
+    if (!supported.length) {
+      if (files.length) notifications.show({ color: 'orange', message: '未找到支持的视频文件' })
+      return
+    }
+    const id = modals.open({ title: '上传设置', children: <UploadReview files={supported} folderId={currentFolder()}
+      onCancel={() => modals.close(id)} onStart={(folderId, tags) => {
+        uploads.add(supported, { folderId, tags, username: user?.username ?? '' }); modals.close(id)
+      }} /> })
   }
+
+  useEffect(() => {
+    const paste = (event: ClipboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (document.querySelector('[role="dialog"]') || target?.closest('input, textarea, [contenteditable="true"]')) return
+      const files = Array.from(event.clipboardData?.files ?? [])
+      if (files.length) { event.preventDefault(); addFiles(files) }
+    }
+    window.addEventListener('paste', paste)
+    return () => window.removeEventListener('paste', paste)
+  })
 
   const submitSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -129,6 +153,11 @@ export default function AppLayout() {
             />
           </form>
           <Group gap="xs" wrap="nowrap">
+            <Tooltip label="上传文件夹（保留目录结构）">
+              <ActionIcon variant="default" size="lg" visibleFrom="sm" aria-label="上传文件夹" onClick={() => folderInput.current?.click()}>
+                <IconFolderUp size={16} />
+              </ActionIcon>
+            </Tooltip>
             <Button
               leftSection={<IconUpload size={16} />}
               onClick={() => fileInput.current?.click()}
@@ -136,7 +165,7 @@ export default function AppLayout() {
             >
               上传
             </Button>
-            <ActionIcon size="lg" hiddenFrom="sm" onClick={() => fileInput.current?.click()}>
+            <ActionIcon size="lg" hiddenFrom="sm" aria-label="上传视频" onClick={() => fileInput.current?.click()}>
               <IconUpload size={18} />
             </ActionIcon>
             {update.data?.update_available && (
@@ -168,6 +197,7 @@ export default function AppLayout() {
               </Menu.Target>
               <Menu.Dropdown>
                 <Menu.Label>{user?.username}</Menu.Label>
+                <Menu.Item leftSection={<IconFolderUp size={14} />} onClick={() => folderInput.current?.click()}>上传文件夹</Menu.Item>
                 <Menu.Item onClick={showShortcuts}>快捷键说明</Menu.Item>
                 <Menu.Item
                   leftSection={scheme === 'dark' ? <IconSun size={14} /> : <IconMoon size={14} />}
@@ -196,6 +226,10 @@ export default function AppLayout() {
         <Outlet />
       </AppShell.Main>
 
+      <input
+        ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} aria-label="选择上传文件夹"
+        onChange={(e) => { addFiles(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }}
+      />
       <input
         ref={fileInput}
         type="file"

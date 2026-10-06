@@ -229,6 +229,13 @@ class Playback(Base):
     last_played_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class ImportSource(Base):
+    __tablename__ = "import_sources"
+
+    path: Mapped[str] = mapped_column(Text, primary_key=True)
+    imported_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class Upload(Base):
     __tablename__ = "uploads"
 
@@ -237,6 +244,8 @@ class Upload(Base):
     size: Mapped[int] = mapped_column(Integer)
     received: Mapped[int] = mapped_column(Integer, default=0)
     folder_id: Mapped[int | None] = mapped_column(Integer)
+    relative_path: Mapped[str | None] = mapped_column(String(2048))
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 

@@ -23,6 +23,7 @@ import UpdatePanel from '../components/UpdatePanel'
 import BackupPanel from '../components/BackupPanel'
 import HlsSettings from '../components/HlsSettings'
 import EncodingPanel from '../components/EncodingPanel'
+import ImportSettings from '../components/ImportSettings'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatBytes, formatDate } from '../lib/format'
@@ -183,7 +184,6 @@ function Devices() {
 }
 
 function SystemPanel() {
-  const qc = useQueryClient()
   const { data } = useQuery({ queryKey: ['system'], queryFn: () => api.get<SystemInfo>('/api/system/info') })
   if (!data) return null
   const usedPct = (data.disk.used / data.disk.total) * 100
@@ -204,22 +204,6 @@ function SystemPanel() {
           运行中 / 排队 / 暂停：{data.running_jobs} / {data.queued_jobs} / {data.paused_jobs ?? 0}
         </Text>
       </SimpleGrid>
-      {data.import_dir && (
-        <Group>
-          <Text size="sm">导入目录：{data.import_dir}</Text>
-          <Button
-            size="xs"
-            variant="light"
-            onClick={async () => {
-              const r = await api.post<{ imported: number }>('/api/system/import')
-              notifications.show({ message: `已导入 ${r.imported} 个新视频` })
-              qc.invalidateQueries({ queryKey: ['videos'] })
-            }}
-          >
-            扫描导入
-          </Button>
-        </Group>
-      )}
     </Stack>
   )
 }
@@ -237,6 +221,7 @@ export default function SettingsPage() {
       <Paper withBorder p="md">
         <BackupPanel />
       </Paper>
+      <Paper withBorder p="md"><ImportSettings /></Paper>
       <Paper withBorder p="md">
         <EncodingPanel />
         <HlsSettings />

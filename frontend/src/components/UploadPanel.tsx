@@ -34,7 +34,7 @@ export default function UploadPanel() {
           {active ? `正在上传 ${active} 个文件` : '上传完成'}
         </Text>
         <Group gap={4}>
-          <ActionIcon variant="subtle" onClick={() => setCollapsed((c) => !c)}>
+          <ActionIcon variant="subtle" aria-label={collapsed ? '展开上传列表' : '收起上传列表'} onClick={() => setCollapsed((c) => !c)}>
             {collapsed ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
           </ActionIcon>
           {!active && <CloseButton size="sm" onClick={() => uploads.clearFinished()} />}
@@ -55,12 +55,12 @@ export default function UploadPanel() {
                       : STATUS[item.status]}
                   </Text>
                   {item.status === 'error' && (
-                    <ActionIcon size="xs" variant="subtle" onClick={() => uploads.retry(item.key)}>
+                    <ActionIcon size="xs" variant="subtle" aria-label={`重试上传 ${item.name}`} onClick={() => uploads.retry(item.key)}>
                       <IconRefresh size={12} />
                     </ActionIcon>
                   )}
                   {(item.status === 'uploading' || item.status === 'pending') && (
-                    <ActionIcon size="xs" variant="subtle" color="gray" onClick={() => uploads.cancel(item.key)}>
+                    <ActionIcon size="xs" variant="subtle" color="gray" aria-label={`取消上传 ${item.name}`} onClick={() => uploads.cancel(item.key)}>
                       <IconX size={12} />
                     </ActionIcon>
                   )}

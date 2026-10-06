@@ -53,6 +53,7 @@ def store_file(
     move: bool = True,
     source_path: str | None = None,
     video_id: str | None = None,
+    commit: bool = True,
 ) -> Video:
     """Place a file into the library and create its (processing) Video row."""
     vid = video_id or new_id()
@@ -74,8 +75,19 @@ def store_file(
         status="processing",
         source_path=source_path,
     )
-    db.add(video)
-    db.commit()
+    try:
+        db.add(video)
+        if commit:
+            db.commit()
+        else:
+            db.flush()
+    except Exception:
+        db.rollback()
+        if move:
+            shutil.move(str(dest), src)
+        else:
+            dest.unlink(missing_ok=True)
+        raise
     return video
 
 

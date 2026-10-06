@@ -10,7 +10,7 @@ from urllib.parse import quote
 import aiofiles
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import case, column, func, literal_column, or_, select, table, text
 from sqlalchemy.orm import Session
 
@@ -78,6 +78,22 @@ class UploadInit(BaseModel):
     filename: str = Field(min_length=1, max_length=255)
     size: int = Field(gt=0)
     folder_id: int | None = None
+    relative_path: str | None = Field(default=None, max_length=2048)
+    tags: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_path(self) -> UploadInit:
+        parts = (self.relative_path or self.filename).split("/")
+        if (
+            len(parts) > 33
+            or any(not p.strip() or p in (".", "..") or len(p) > 255
+                   or any(c in p for c in ("\\", "\x00", ":")) for p in parts)
+            or parts[-1] != self.filename
+            or "/" in self.filename
+        ):
+            raise ValueError("无效的上传目录或文件名")
+        self.tags = sorted({t.strip()[:64] for t in self.tags if t.strip()})
+        return self
 
 
 def _upload_dict(u: Upload, settings: Settings) -> dict[str, Any]:
@@ -87,6 +103,9 @@ def _upload_dict(u: Upload, settings: Settings) -> dict[str, Any]:
         "size": u.size,
         "received": u.received,
         "chunk_size": settings.upload_chunk_size,
+        "folder_id": u.folder_id,
+        "relative_path": u.relative_path,
+        "tags": u.tags,
     }
 
 
@@ -107,7 +126,8 @@ def init_upload(
     free = shutil.disk_usage(settings.data_dir).free
     if body.size > free:
         raise HTTPException(status.HTTP_507_INSUFFICIENT_STORAGE, "磁盘空间不足")
-    upload = Upload(filename=Path(body.filename).name, size=body.size, folder_id=body.folder_id)
+    upload = Upload(filename=body.filename, size=body.size, folder_id=body.folder_id,
+                    relative_path=body.relative_path, tags=body.tags)
     db.add(upload)
     db.commit()
     _upload_path(settings, upload.id).touch()
@@ -162,12 +182,23 @@ def complete_upload(
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
+    # Serialize folder creation and completion across worker threads/processes.
+    db.execute(text("BEGIN IMMEDIATE"))
     upload = db.get(Upload, upload_id)
     if upload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "上传不存在")
     if upload.received != upload.size:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "文件尚未上传完成")
-    folder_id = upload.folder_id if folder_exists(db, upload.folder_id) else None
+    if not folder_exists(db, upload.folder_id):
+        raise HTTPException(409, "目标文件夹已删除，请取消并重新选择上传位置")
+    folder_id = upload.folder_id
+    for name in (upload.relative_path or upload.filename).split("/")[:-1]:
+        folder = db.scalar(select(Folder).where(Folder.name == name, Folder.parent_id == folder_id))
+        if folder is None:
+            folder = Folder(name=name, parent_id=folder_id)
+            db.add(folder)
+            db.flush()
+        folder_id = folder.id
     video = store_file(
         db,
         settings,
@@ -175,10 +206,16 @@ def complete_upload(
         title=stem_of(upload.filename),
         original_name=upload.filename,
         folder_id=folder_id,
+        commit=False,
     )
-    db.delete(upload)
-    db.commit()
-    jobs.submit(db, "ingest", {}, [video.id])
+    try:
+        set_tags(db, video, upload.tags)
+        db.delete(upload)
+        jobs.submit(db, "ingest", {}, [video.id])
+    except Exception:
+        db.rollback()
+        shutil.move(str(abs_path(settings, video.file_path)), _upload_path(settings, upload_id))
+        raise
     return video_to_dict(video)
 
 

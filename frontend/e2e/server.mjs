@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 
 // Each run owns a fresh library; never reuse a developer's database or credentials.
 const data = mkdtempSync(resolve(tmpdir(), 'reelvault-e2e-'))
+const incoming = mkdtempSync(resolve(tmpdir(), 'reelvault-incoming-'))
 const backend = resolve('../backend')
 const server = spawn(resolve(backend, '.venv/bin/python'), ['-m', 'reelvault'], {
   cwd: backend,
@@ -12,6 +13,7 @@ const server = spawn(resolve(backend, '.venv/bin/python'), ['-m', 'reelvault'], 
   env: {
     ...process.env,
     REELVAULT_DATA_DIR: data,
+    REELVAULT_IMPORT_DIR: incoming,
     REELVAULT_STATIC_DIR: resolve('dist'),
     REELVAULT_HOST: '127.0.0.1',
     REELVAULT_PORT: '18089',
@@ -27,9 +29,11 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
 server.on('error', (error) => {
   console.error(error)
   rmSync(data, { recursive: true, force: true })
+  rmSync(incoming, { recursive: true, force: true })
   process.exit(1)
 })
 server.on('exit', (code) => {
   rmSync(data, { recursive: true, force: true })
+  rmSync(incoming, { recursive: true, force: true })
   process.exit(code ?? 0)
 })

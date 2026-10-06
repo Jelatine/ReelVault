@@ -39,6 +39,7 @@ from .auth import LoginLimiter, hash_password
 from .backup import backup_before_migration, library_lock
 from .config import Settings
 from .db import make_engine, make_sessionmaker
+from .importer import Importer
 from .jobs.handlers import HANDLERS
 from .jobs.manager import JobManager
 from .maintenance import maintain
@@ -110,6 +111,9 @@ def cleanup_stale_uploads(app: FastAPI, settings: Settings, max_age_days: int = 
             shutil.rmtree(directory, ignore_errors=True)
     for f in settings.tmp_dir.glob("frame-*"):
         f.unlink(missing_ok=True)
+    for f in settings.tmp_dir.glob("import-*"):
+        if f.is_file() or f.is_symlink():
+            f.unlink(missing_ok=True)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -141,6 +145,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             manager.encoding.compiled = await detect_encoders(settings.ffmpeg)
             app.state.jobs = manager
             await manager.start()
+            importer = Importer(settings, app.state.sessionmaker, manager)
+            app.state.importer = importer
+            importer.start()
             maintenance = asyncio.create_task(maintain(settings, app.state.sessionmaker))
 
             def request_restart() -> None:
@@ -165,6 +172,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             try:
                 yield
             finally:
+                await importer.stop()
                 maintenance.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await maintenance

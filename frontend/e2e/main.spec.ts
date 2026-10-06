@@ -1,5 +1,107 @@
 import { execFileSync } from 'node:child_process'
-import { expect, test, type Page } from '@playwright/test'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { expect, test, type Page, type FileChooser } from '@playwright/test'
+
+async function selectUpload(page: Page, chooser: FileChooser, files: Parameters<FileChooser['setFiles']>[0]) {
+  await chooser.setFiles(files)
+  await page.getByRole('button', { name: '开始上传', exact: true }).click()
+}
+
+test('文件夹结构、上传设置、取消和粘贴上传', async ({ page }, testInfo) => {
+  await login(page)
+  const created = await page.request.post('/api/folders', { headers: { 'X-Requested-With': 'ReelVault' }, data: { name: '上传目标' } })
+  expect(created.ok()).toBeTruthy()
+  const target = await created.json()
+  const sample = execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i',
+    'color=blue:size=320x240:rate=25:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1'])
+  const temp = mkdtempSync(join(tmpdir(), 'reelvault-folder-'))
+  const root = join(temp, 'Trip')
+  try {
+    mkdirSync(join(root, 'day1'), { recursive: true }); mkdirSync(join(root, 'day2'), { recursive: true })
+    writeFileSync(join(root, 'day1', 'same.mp4'), sample)
+    writeFileSync(join(root, 'day2', 'same.mp4'), sample)
+    writeFileSync(join(root, 'notes.txt'), 'not a video')
+    await page.goto('/library')
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: '上传文件夹', exact: true }).click()])
+    await chooser.setFiles(root)
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByText('Trip/day1/same.mp4', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Trip/day2/same.mp4', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('notes.txt', { exact: false })).toHaveCount(0)
+    await dialog.getByLabel('上传到文件夹').click()
+    await page.getByRole('option', { name: '上传目标', exact: true }).click()
+    await dialog.getByLabel('上传视频标签').fill('旅行')
+    await dialog.getByLabel('上传视频标签').press('Enter')
+    await page.screenshot({ path: testInfo.outputPath('upload-folder-review.png') })
+    await dialog.getByRole('button', { name: '开始上传' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect.poll(async () => {
+      const list = await (await page.request.get('/api/videos?q=same.mp4')).json()
+      return list.items.filter((v: { tags: string[] }) => v.tags.includes('旅行')).length
+    }).toBe(2)
+    const folders = await (await page.request.get('/api/folders')).json()
+    const trip = folders.find((f: { name: string; parent_id: number }) => f.name === 'Trip' && f.parent_id === target.id)
+    expect(trip).toBeTruthy()
+    expect(folders.filter((f: { parent_id: number }) => f.parent_id === trip.id).map((f: { name: string }) => f.name).sort()).toEqual(['day1', 'day2'])
+    await page.evaluate(() => {
+      const dt = new DataTransfer(); dt.items.add(new File(['abcd'], 'canceled.mp4', { type: 'video/mp4' }))
+      document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }))
+    })
+    await expect(dialog.getByText('canceled.mp4', { exact: true })).toBeVisible()
+    await dialog.getByRole('button', { name: '取消', exact: true }).click()
+    expect((await (await page.request.get('/api/videos?q=canceled.mp4')).json()).total).toBe(0)
+    await page.getByLabel('搜索视频', { exact: true }).focus()
+    await page.evaluate(() => {
+      const dt = new DataTransfer(); dt.items.add(new File(['abcd'], 'ignored.mp4', { type: 'video/mp4' }))
+      document.activeElement!.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }))
+    })
+    await expect(dialog).toHaveCount(0)
+    await page.evaluate((bytes) => {
+      const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array(bytes)], 'pasted.mp4', { type: 'video/mp4' }))
+      document.body.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }))
+    }, Array.from(sample))
+    const response = page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST')
+    await dialog.getByRole('button', { name: '开始上传' }).click()
+    const uploaded = await (await response).json()
+    expect(uploaded.original_name).toBe('pasted.mp4')
+    await expect.poll(async () => (await (await page.request.get(`/api/videos/${uploaded.id}`)).json()).status,
+      { timeout: 60_000 }).toBe('ready')
+    await page.goto(`/videos/${uploaded.id}`)
+    await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThanOrEqual(2)
+  } finally { rmSync(temp, { recursive: true, force: true }) }
+})
+
+test('设置页启停自动导入、稳定等待和真实视频播放', async ({ page }) => {
+  await login(page)
+  const info = await (await page.request.get('/api/system/info')).json()
+  const sample = execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i',
+    'color=green:size=320x240:rate=25:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1'])
+  writeFileSync(join(info.import_dir, 'auto-incoming.mp4'), sample)
+  await page.goto('/settings')
+  await expect(page.getByRole('heading', { name: '目录导入' })).toBeVisible()
+  const toggle = page.getByRole('switch', { name: '自动监听新视频' })
+  await expect(toggle).not.toBeChecked()
+  await page.getByLabel('文件稳定等待（秒）').fill('2')
+  await page.getByRole('button', { name: '保存等待时间' }).click()
+  await expect(page.getByRole('button', { name: '保存等待时间' })).toBeDisabled()
+  await toggle.click()
+  await expect(toggle).toBeChecked()
+  await expect.poll(async () => (await (await page.request.get('/api/videos?q=auto-incoming.mp4')).json()).total,
+    { timeout: 25_000 }).toBe(1)
+  const imported = (await (await page.request.get('/api/videos?q=auto-incoming.mp4')).json()).items[0]
+  await expect.poll(async () => (await (await page.request.get(`/api/videos/${imported.id}`)).json()).status,
+    { timeout: 60_000 }).toBe('ready')
+  await toggle.click()
+  await expect(toggle).not.toBeChecked()
+  await page.getByRole('button', { name: '扫描导入', exact: true }).click()
+  await expect(page.getByText('已导入 0 个新视频', { exact: true })).toBeVisible()
+  await page.goto(`/videos/${imported.id}`)
+  await expect.poll(() => page.locator('video').evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThanOrEqual(2)
+})
 
 test('中文文字与图片水印预览、生成和编辑链', async ({ page }) => {
   await login(page)
@@ -11,7 +113,7 @@ test('中文文字与图片水印预览、生成和编辑链', async ({ page }) 
   ])
   const [completed] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST'),
-    chooser.setFiles({ name: 'watermark-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
+    selectUpload(page, chooser, { name: 'watermark-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
   ])
   expect(completed.ok()).toBeTruthy()
   const uploaded = await completed.json()
@@ -73,7 +175,7 @@ test('画面调整 LUT 上传、两遍防抖生成与播放', async ({ page }, t
   ])
   const [completed] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST'),
-    chooser.setFiles({ name: 'adjust-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
+    selectUpload(page, chooser, { name: 'adjust-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
   ])
   const uploaded = await completed.json()
   await expect.poll(async () => (await (await page.request.get(`/api/videos/${uploaded.id}`)).json()).status,
@@ -121,7 +223,7 @@ test('倒放、定格和局部慢动作提交、生成与播放', async ({ page 
   ])
   const [completed] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST'),
-    chooser.setFiles({ name: 'effect-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
+    selectUpload(page, chooser, { name: 'effect-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
   ])
   const uploaded = await completed.json()
   await expect.poll(async () => (await (await page.request.get(`/api/videos/${uploaded.id}`)).json()).status,
@@ -174,7 +276,7 @@ test('画中画与三路网格布局、真实拼接输出及播放', async ({ pa
     ])
     const [completed] = await Promise.all([
       page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST'),
-      chooser.setFiles({ name: `composite-${index}.mp4`, mimeType: 'video/mp4', buffer: sample }),
+      selectUpload(page, chooser, { name: `composite-${index}.mp4`, mimeType: 'video/mp4', buffer: sample }),
     ])
     const uploaded = await completed.json()
     await expect.poll(async () => (await (await page.request.get(`/api/videos/${uploaded.id}`)).json()).status,
@@ -236,7 +338,7 @@ test('场景检测自动章节跳转、切点设置与真实章节剪辑', async
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('button', { name: '上传', exact: true }).click()])
   const [completed] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST'),
-    chooser.setFiles({ name: 'scene-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
+    selectUpload(page, chooser, { name: 'scene-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
   ])
   const video = await completed.json()
   await expect.poll(async () => (await (await page.request.get(`/api/videos/${video.id}`)).json()).status, { timeout: 60_000 }).toBe('ready')
@@ -281,7 +383,7 @@ test('个人书签备注、进度条跳转、手动章节与删除', async ({ pa
     '-c:v','libx264','-pix_fmt','yuv420p','-movflags','frag_keyframe+empty_moov','-f','mp4','pipe:1'])
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'),page.getByRole('button',{name:'上传',exact:true}).click()])
   const [completed] = await Promise.all([page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method()==='POST'),
-    chooser.setFiles({name:'bookmark-sample.mp4',mimeType:'video/mp4',buffer:sample})])
+    selectUpload(page, chooser, {name:'bookmark-sample.mp4',mimeType:'video/mp4',buffer:sample})])
   const video=await completed.json()
   await expect.poll(async () => (await (await page.request.get(`/api/videos/${video.id}`)).json()).status,{timeout:60_000}).toBe('ready')
   await page.goto(`/videos/${video.id}`)
@@ -374,7 +476,7 @@ test('真实上传、解码播放、精确剪辑与结果播放', async ({ page 
   ])
   const [completed] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST'),
-    chooser.setFiles({ name: 'browser-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
+    selectUpload(page, chooser, { name: 'browser-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
   ])
   expect(completed.ok()).toBeTruthy()
   const uploaded = await completed.json()
@@ -585,7 +687,7 @@ test('GIF 与 WebP 片段导出、下载和浏览器解码', async ({ page }) =>
   ])
   const [completed] = await Promise.all([
     page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST'),
-    chooser.setFiles({ name: 'animation-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
+    selectUpload(page, chooser, { name: 'animation-sample.mp4', mimeType: 'video/mp4', buffer: sample }),
   ])
   const source = await completed.json()
   await expect.poll(async () => (await (await page.request.get(`/api/videos/${source.id}`)).json()).status,
@@ -887,7 +989,7 @@ test('全局快捷键搜索上传、卡片方向导航、打开、删除保护�
   await card(0).focus()
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.keyboard.press('u')])
   const uploaded = page.waitForResponse((r) => r.url().endsWith('/complete') && r.request().method() === 'POST')
-  await chooser.setFiles({ name: 'shortcut-u.mp4', mimeType: 'video/mp4', buffer: sample })
+  await selectUpload(page, chooser, { name: 'shortcut-u.mp4', mimeType: 'video/mp4', buffer: sample })
   const newVideo = await (await uploaded).json()
   expect(newVideo.folder_id).toBe(folder.id)
   await expect(cards).toHaveCount(7)
