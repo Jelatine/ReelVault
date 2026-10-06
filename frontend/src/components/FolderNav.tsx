@@ -19,9 +19,12 @@ import { api } from '../lib/api'
 import { buildTree, useFolders, useTags, type FolderNode } from '../lib/queries'
 import CollectionNav from './CollectionNav'
 import { confirmAction, promptText } from './prompt'
+import ContextMenu from './ContextMenu'
+import { contextPosition, keyboardContext, type MenuPosition } from '../lib/context-menu'
 
 export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
   const [dropTarget, setDropTarget] = useState<number | 'root' | null>(null)
+  const [context, setContext] = useState<{ node: FolderNode; position: MenuPosition }>()
   const folders = useFolders()
   const tags = useTags()
   const qc = useQueryClient()
@@ -107,6 +110,8 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
       key={node.id}
       {...dropProps(node.id)}
       label={node.name}
+      onContextMenu={(event) => setContext({ node, position: contextPosition(event) })}
+      onKeyDown={keyboardContext}
       leftSection={<IconFolder size={16} />}
       active={folder === String(node.id)}
       onClick={() => go({ folder: String(node.id) })}
@@ -145,6 +150,13 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
 
   return (
     <ScrollArea style={{ flex: 1 }}>
+      {context && <ContextMenu key={`${context.node.id}:${context.position.x}:${context.position.y}`} position={context.position}
+        label={`${context.node.name}的文件夹菜单`} close={() => setContext(undefined)}>
+        <Menu.Label>{context.node.name}</Menu.Label>
+        <Menu.Item onClick={() => createFolder(context.node.id)}>新建子文件夹</Menu.Item>
+        <Menu.Item onClick={() => renameFolder(context.node)}>重命名</Menu.Item>
+        <Menu.Item color="red" onClick={() => deleteFolder(context.node)}>删除</Menu.Item>
+      </ContextMenu>}
       <NavLink
         label="全部视频"
         leftSection={<IconVideo size={16} />}

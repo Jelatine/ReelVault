@@ -5,6 +5,7 @@ import type { Modifiers } from '../lib/selection'
 import { formatBytes, formatDuration } from '../lib/format'
 import VideoRating from './VideoRating'
 import type { Video } from '../lib/types'
+import { keyboardContext } from '../lib/context-menu'
 
 interface Props {
   video: Video
@@ -14,6 +15,7 @@ interface Props {
   onToggle?: (event?: Modifiers) => void
   onSelect?: (event: MouseEvent) => void
   onDragStart?: (event: DragEvent) => void
+  onContextMenu?: (event: MouseEvent) => void
   onOpen: () => void
 }
 
@@ -35,7 +37,7 @@ export function Thumb({ video, hover }: { video: Video; hover: boolean }) {
   )
 }
 
-export default function VideoCard({ video, highlight, selected, selectable, onToggle, onSelect, onDragStart, onOpen }: Props) {
+export default function VideoCard({ video, highlight, selected, selectable, onToggle, onSelect, onDragStart, onContextMenu, onOpen }: Props) {
   const [hover, setHover] = useState(false)
   return (
     <Card
@@ -43,6 +45,10 @@ export default function VideoCard({ video, highlight, selected, selectable, onTo
       padding={0}
       className="video-card"
       data-video-id={video.id}
+      tabIndex={onContextMenu ? 0 : undefined}
+      aria-label={video.title}
+      onContextMenu={onContextMenu}
+      onKeyDown={onContextMenu ? keyboardContext : undefined}
       draggable={!!onDragStart}
       onDragStart={onDragStart}
       onMouseEnter={() => setHover(true)}

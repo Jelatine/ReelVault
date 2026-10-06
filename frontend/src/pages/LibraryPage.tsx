@@ -16,6 +16,7 @@ import {
   Text,
   Title,
   Tooltip,
+  VisuallyHidden,
 } from '@mantine/core'
 import { useLocalStorage } from '@mantine/hooks'
 import { modals } from '@mantine/modals'
@@ -42,6 +43,9 @@ import { FILTER_KEYS } from '../lib/filters'
 import CollectionAddForm from '../components/CollectionAddForm'
 import FolderSelect from '../components/FolderSelect'
 import VideoCard from '../components/VideoCard'
+import VideoContextMenu from '../components/VideoContextMenu'
+import { contextPosition, keyboardContext, type MenuPosition } from '../lib/context-menu'
+import type { Video } from '../lib/types'
 import VideoRating from '../components/VideoRating'
 import SelectionArea from '../components/SelectionArea'
 import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE, selectRange, type Modifiers } from '../lib/selection'
@@ -99,6 +103,7 @@ export default function LibraryPage() {
   const [sort, setSort] = useLocalStorage({ key: 'rv-sort', defaultValue: 'created' })
   const [order, setOrder] = useLocalStorage<'asc' | 'desc'>({ key: 'rv-order', defaultValue: 'desc' })
   const [selected, setSelected] = useState<string[]>([])
+  const [context, setContext] = useState<{ video: Video; position: MenuPosition }>()
   const anchor = useRef<string | null>(null)
   useEffect(() => {
     const clear = () => { setSelected([]); anchor.current = null }
@@ -233,8 +238,8 @@ export default function LibraryPage() {
             value={view}
             onChange={(v) => setView(v as 'grid' | 'list')}
             data={[
-              { value: 'grid', label: <IconLayoutGrid size={14} /> },
-              { value: 'list', label: <IconList size={14} /> },
+              { value: 'grid', label: <><IconLayoutGrid size={14} /><VisuallyHidden>网格</VisuallyHidden></> },
+              { value: 'list', label: <><IconList size={14} /><VisuallyHidden>列表</VisuallyHidden></> },
             ]}
           />
           <Tooltip label="全选本页">
@@ -321,6 +326,7 @@ export default function LibraryPage() {
               onToggle={(event) => toggle(v.id, event)}
               onSelect={(event) => clickVideo(v.id, event)}
               onDragStart={(event) => dragVideo(v.id, event)}
+              onContextMenu={(event) => setContext({ video: v, position: contextPosition(event) })}
               onOpen={() => navigate(`/videos/${v.id}`)}
             />
           ))}
@@ -341,7 +347,9 @@ export default function LibraryPage() {
             </Table.Thead>
             <Table.Tbody>
               {items.map((v) => (
-                <Table.Tr key={v.id} data-video-id={v.id} draggable onDragStart={(event) => dragVideo(v.id, event)}
+                <Table.Tr key={v.id} data-video-id={v.id} tabIndex={0} draggable onDragStart={(event) => dragVideo(v.id, event)}
+                  onContextMenu={(event) => setContext({ video: v, position: contextPosition(event) })}
+                  onKeyDown={keyboardContext}
                   style={{ cursor: 'pointer', background: selected.includes(v.id) ? 'var(--mantine-color-violet-light)' : undefined }}
                   onClick={(event) => clickVideo(v.id, event)}>
                   <Table.Td onClick={(e) => e.stopPropagation()}>
@@ -371,6 +379,7 @@ export default function LibraryPage() {
       )}
 
       </SelectionArea>
+      {context && <VideoContextMenu key={`${context.video.id}:${context.position.x}:${context.position.y}`} {...context} close={() => setContext(undefined)} />}
 
       {totalPages > 1 && (
         <Center>
