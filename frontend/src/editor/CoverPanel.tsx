@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { Button, FileButton, Group, Image, Stack, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQueryClient } from '@tanstack/react-query'
@@ -10,6 +12,8 @@ import { useSubmitEdit, type EditorContext } from './edit'
 import TimeInput from './TimeInput'
 
 export default function CoverPanel({ video, currentTime, seek }: EditorContext) {
+  useTranslation()
+
   const qc = useQueryClient()
   const [time, setTime] = useState(video.cover_time ?? currentTime)
   const [busy, setBusy] = useState(false)
@@ -18,7 +22,7 @@ export default function CoverPanel({ video, currentTime, seek }: EditorContext) 
   const done = (v: Video) => {
     qc.setQueryData(['video', video.id], v)
     qc.invalidateQueries({ queryKey: ['videos'] })
-    notifications.show({ color: 'green', message: '封面已更新' })
+    notifications.show({ color: 'green', message: tr("封面已更新") })
   }
 
   const fromTime = async (t: number) => {
@@ -52,38 +56,30 @@ export default function CoverPanel({ video, currentTime, seek }: EditorContext) 
     <Stack>
       {video.poster_url && <Image src={video.poster_url} radius="md" mah={220} fit="contain" bg="black" />}
       <Text size="sm" c="dimmed">
-        {video.cover_time != null ? `当前封面取自 ${formatDuration(video.cover_time, true)}` : '当前为默认/自定义封面'}
+        {video.cover_time != null ? tr("当前封面取自 {{v0}}", { v0: formatDuration(video.cover_time, true) }) : tr("当前为默认/自定义封面")}
       </Text>
       <Button
         leftSection={<IconCamera size={16} />}
         loading={busy}
         onClick={() => fromTime(currentTime)}
-      >
-        使用当前画面（{formatDuration(currentTime, true)}）作为封面
-      </Button>
+      >{tr("使用当前画面（")}{formatDuration(currentTime, true)}{tr("）作为封面")}</Button>
       <Group align="flex-end" grow>
-        <TimeInput label="或指定时间点" value={time} max={video.duration} onChange={(t) => { setTime(t); seek(t) }} />
-        <Button variant="light" loading={busy} onClick={() => fromTime(time)}>
-          设为封面
-        </Button>
+        <TimeInput label={tr("或指定时间点")} value={time} max={video.duration} onChange={(t) => { setTime(t); seek(t) }} />
+        <Button variant="light" loading={busy} onClick={() => fromTime(time)}>{tr("设为封面")}</Button>
       </Group>
       <FileButton onChange={fromFile} accept="image/*">
         {(props) => (
-          <Button {...props} variant="default" leftSection={<IconPhotoUp size={16} />} loading={busy}>
-            上传图片作为封面
-          </Button>
+          <Button {...props} variant="default" leftSection={<IconPhotoUp size={16} />} loading={busy}>{tr("上传图片作为封面")}</Button>
         )}
       </FileButton>
-      <Text size="xs" c="dimmed">
-        封面会在视频库和播放器中显示。也可以把封面写入视频文件本身，这样下载后在其他播放器中也能看到（无损，不重新编码）。
-      </Text>
+      <Text size="xs" c="dimmed">{tr("封面会在视频库和播放器中显示。也可以把封面写入视频文件本身，这样下载后在其他播放器中也能看到（无损，不重新编码）。")}</Text>
       <Button
         variant="light"
         disabled={!canEmbed || !video.poster_url}
         loading={embed.busy}
         onClick={() => embed.submit({ op: 'embed_cover' })}
       >
-        {canEmbed ? '将封面写入视频文件' : '仅 MP4/MOV 支持写入封面'}
+        {canEmbed ? tr("将封面写入视频文件") : tr("仅 MP4/MOV 支持写入封面")}
       </Button>
     </Stack>
   )

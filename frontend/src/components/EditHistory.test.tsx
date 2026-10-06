@@ -6,7 +6,7 @@ import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import { api } from '../lib/api'
 import EditHistory from './EditHistory'
 
-vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn(), post: vi.fn() } }))
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })

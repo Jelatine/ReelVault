@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import {
   ActionIcon,
   AppShell,
@@ -40,9 +42,12 @@ import ShortcutHelp from './ShortcutHelp'
 import UploadReview from './UploadReview'
 import MobileNavigation from './MobileNavigation'
 import { OfflineNotice } from './PwaPanel'
+import LanguageSelect from './LanguageSelect'
 import { shortcutBlocked } from '../lib/shortcuts'
 
 export default function AppLayout() {
+  useTranslation()
+
   const [opened, { toggle, close }] = useDisclosure()
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -67,7 +72,7 @@ export default function AppLayout() {
     return f && f !== 'all' && f !== 'root' ? Number(f) : null
   }
 
-  const showShortcuts = () => modals.open({ title: '快捷键说明', size: 'lg', children: <ShortcutHelp /> })
+  const showShortcuts = () => modals.open({ title: tr("快捷键说明"), size: 'lg', children: <ShortcutHelp /> })
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
       if (shortcutBlocked(event)) return
@@ -86,17 +91,17 @@ export default function AppLayout() {
       qc.invalidateQueries({ queryKey: ['jobs'] })
       qc.invalidateQueries({ queryKey: ['tags'] })
       qc.invalidateQueries({ queryKey: ['dashboard'] })
-      notifications.show({ color: 'green', title: '上传完成', message: video.title })
+      notifications.show({ color: 'green', title: tr("上传完成"), message: video.title })
     }
   }, [qc])
 
   const addFiles = (files: File[]) => {
     const supported = files.filter((f) => VIDEO_EXTENSIONS.some((ext) => f.name.toLowerCase().endsWith(ext)))
     if (!supported.length) {
-      if (files.length) notifications.show({ color: 'orange', message: '未找到支持的视频文件' })
+      if (files.length) notifications.show({ color: 'orange', message: tr("未找到支持的视频文件") })
       return
     }
-    const id = modals.open({ title: '上传设置', children: <UploadReview files={supported} folderId={currentFolder()}
+    const id = modals.open({ title: tr("上传设置"), children: <UploadReview files={supported} folderId={currentFolder()}
       onCancel={() => modals.close(id)} onStart={(folderId, tags) => {
         uploads.add(supported, { folderId, tags, username: user?.username ?? '' }); modals.close(id)
       }} /> })
@@ -147,16 +152,16 @@ export default function AppLayout() {
           <form onSubmit={submitSearch} style={{ flex: 1, maxWidth: 480 }}>
             <TextInput
               ref={searchInput}
-              aria-label="搜索视频"
-              placeholder="搜索视频"
+              aria-label={tr("搜索视频")}
+              placeholder={tr("搜索视频")}
               leftSection={<IconSearch size={16} />}
               value={search}
               onChange={(e) => setSearch(e.currentTarget.value)}
             />
           </form>
           <Group gap="xs" wrap="nowrap">
-            <Tooltip label="上传文件夹（保留目录结构）">
-              <ActionIcon variant="default" size="lg" visibleFrom="sm" aria-label="上传文件夹" onClick={() => folderInput.current?.click()}>
+            <Tooltip label={tr("上传文件夹（保留目录结构）")}>
+              <ActionIcon variant="default" size="lg" visibleFrom="sm" aria-label={tr("上传文件夹")} onClick={() => folderInput.current?.click()}>
                 <IconFolderUp size={16} />
               </ActionIcon>
             </Tooltip>
@@ -164,14 +169,12 @@ export default function AppLayout() {
               leftSection={<IconUpload size={16} />}
               onClick={() => fileInput.current?.click()}
               visibleFrom="sm"
-            >
-              上传
-            </Button>
-            <ActionIcon size="lg" hiddenFrom="sm" aria-label="上传视频" onClick={() => fileInput.current?.click()}>
+            >{tr("上传")}</Button>
+            <ActionIcon size="lg" hiddenFrom="sm" aria-label={tr("上传视频")} onClick={() => fileInput.current?.click()}>
               <IconUpload size={18} />
             </ActionIcon>
             {update.data?.update_available && (
-              <Tooltip label="查看新版本">
+              <Tooltip label={tr("查看新版本")}>
                 <Badge
                   component={Link}
                   to="/settings#update"
@@ -179,48 +182,43 @@ export default function AppLayout() {
                   variant="light"
                   style={{ cursor: 'pointer', textTransform: 'none' }}
                   visibleFrom="xs"
-                >
-                  新版本 v{update.data.latest_version}
+                >{tr("新版本 v")}{update.data.latest_version}
                 </Badge>
               </Tooltip>
             )}
             {activeJobs.length > 0 && (
-              <Tooltip label="正在进行的任务">
+              <Tooltip label={tr("正在进行的任务")}>
                 <Badge component={Link} to="/jobs" variant="light" style={{ cursor: 'pointer' }}>
-                  {activeJobs.length} 个任务
-                </Badge>
+                  {activeJobs.length}{tr(" 个任务")}</Badge>
               </Tooltip>
             )}
             <Menu position="bottom-end" width={200}>
               <Menu.Target>
-                <ActionIcon variant="default" size="lg" aria-label="用户菜单">
+                <ActionIcon variant="default" size="lg" aria-label={tr("用户菜单")}>
                   <IconUser size={18} />
                 </ActionIcon>
               </Menu.Target>
               <Menu.Dropdown>
                 <Menu.Label>{user?.username}</Menu.Label>
-                <Menu.Item leftSection={<IconFolderUp size={14} />} onClick={() => folderInput.current?.click()}>上传文件夹</Menu.Item>
-                <Menu.Item onClick={showShortcuts}>快捷键说明</Menu.Item>
+                <Menu.Label><LanguageSelect /></Menu.Label>
+                <Menu.Item leftSection={<IconFolderUp size={14} />} onClick={() => folderInput.current?.click()}>{tr("上传文件夹")}</Menu.Item>
+                <Menu.Item onClick={showShortcuts}>{tr("快捷键说明")}</Menu.Item>
                 <Menu.Item
                   leftSection={scheme === 'dark' ? <IconSun size={14} /> : <IconMoon size={14} />}
                   onClick={() => setColorScheme(scheme === 'dark' ? 'light' : 'dark')}
                 >
-                  {scheme === 'dark' ? '浅色模式' : '深色模式'}
+                  {scheme === 'dark' ? tr("浅色模式") : tr("深色模式")}
                 </Menu.Item>
-                <Menu.Item leftSection={<IconSettings size={14} />} component={Link} to="/settings">
-                  设置与设备
-                </Menu.Item>
+                <Menu.Item leftSection={<IconSettings size={14} />} component={Link} to="/settings">{tr("设置与设备")}</Menu.Item>
                 <Menu.Divider />
-                <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={logout}>
-                  退出登录
-                </Menu.Item>
+                <Menu.Item color="red" leftSection={<IconLogout size={14} />} onClick={logout}>{tr("退出登录")}</Menu.Item>
               </Menu.Dropdown>
             </Menu>
           </Group>
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="xs" aria-label="侧栏导航">
+      <AppShell.Navbar p="xs" aria-label={tr("侧栏导航")}>
         <FolderNav onNavigate={close} />
       </AppShell.Navbar>
 
@@ -231,7 +229,7 @@ export default function AppLayout() {
       <MobileNavigation onNavigate={close} />
 
       <input
-        ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} aria-label="选择上传文件夹"
+        ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '' }} aria-label={tr("选择上传文件夹")}
         onChange={(e) => { addFiles(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value = '' }}
       />
       <input
@@ -248,7 +246,7 @@ export default function AppLayout() {
       <Dropzone.FullScreen onDrop={addFiles} accept={VIDEO_ACCEPT} activateOnClick={false}>
         <Group justify="center" mih={200} style={{ pointerEvents: 'none' }}>
           <IconUpload size={48} />
-          <Text size="xl">松开鼠标上传视频</Text>
+          <Text size="xl">{tr("松开鼠标上传视频")}</Text>
         </Group>
       </Dropzone.FullScreen>
       <UploadPanel />

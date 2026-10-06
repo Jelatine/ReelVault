@@ -7,7 +7,7 @@ import { api } from '../lib/api'
 import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE } from '../lib/selection'
 import FolderNav from './FolderNav'
 
-vi.mock('../lib/api', () => ({ api: { post: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { post: vi.fn() } }))
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 vi.mock('./CollectionNav', () => ({ default: () => null }))
 vi.mock('../lib/queries', async (original) => ({ ...(await original<typeof import('../lib/queries')>()),

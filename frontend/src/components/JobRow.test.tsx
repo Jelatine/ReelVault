@@ -8,7 +8,7 @@ import { api } from '../lib/api'
 import type { Job } from '../lib/types'
 import JobRow from './JobRow'
 
-vi.mock('../lib/api', () => ({ api: { post: vi.fn(), put: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { post: vi.fn(), put: vi.fn() } }))
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 beforeAll(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))

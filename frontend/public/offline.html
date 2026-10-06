@@ -21,12 +21,28 @@
 </head>
 <body><main>
   <header><img src="/favicon.svg" alt="" /><strong>ReelVault</strong></header>
-  <h1>离线浏览</h1>
+  <h1 id="heading">离线浏览</h1>
   <p id="status" role="status">暂时无法连接服务器。这里显示此设备已缓存的海报；视频播放、编辑与同步需要联网。</p>
-  <a href="/">重新连接</a><button id="clear" type="button">清除离线海报</button>
-  <h2>已缓存的海报</h2><p id="empty">暂无离线海报。联网登录后，浏览视频库即可缓存已查看的海报。</p>
+  <a id="reconnect" href="/">重新连接</a><button id="clear" type="button">清除离线海报</button>
+  <h2 id="cached">已缓存的海报</h2><p id="empty">暂无离线海报。联网登录后，浏览视频库即可缓存已查看的海报。</p>
   <div id="gallery" aria-label="离线海报"></div>
   <script>
+    const messages = {
+      zh: { heading: '离线浏览', status: '暂时无法连接服务器。这里显示此设备已缓存的海报；视频播放、编辑与同步需要联网。', reconnect: '重新连接', clear: '清除离线海报', cached: '已缓存的海报', empty: '暂无离线海报。联网登录后，浏览视频库即可缓存已查看的海报。', gallery: '离线海报', poster: '已缓存海报', failed: '此浏览器无法读取离线缓存，请联网后重试。', online: '网络已恢复，点击「重新连接」返回视频库。' },
+      en: { heading: 'Offline browsing', status: 'Cannot connect to the server. This page shows posters cached on this device. Playback, editing and synchronization require a connection.', reconnect: 'Reconnect', clear: 'Clear offline posters', cached: 'Cached posters', empty: 'No offline posters yet. Sign in online and browse the library to cache viewed posters.', gallery: 'Offline posters', poster: 'Cached poster', failed: 'This browser cannot read the offline cache. Reconnect and try again.', online: 'Connection restored. Click Reconnect to return to the library.' },
+    };
+    let language = 'zh';
+    try { if (localStorage.getItem('reelvault:language') === 'en') language = 'en'; } catch {}
+    let text = messages[language];
+    function localize() {
+      text = messages[language]; document.documentElement.lang = language === 'en' ? 'en' : 'zh-CN'; document.title = text.heading + ' · ReelVault';
+      for (const id of ['heading', 'status', 'reconnect', 'clear', 'cached', 'empty']) document.getElementById(id).textContent = text[id];
+      document.getElementById('gallery').setAttribute('aria-label', text.gallery);
+    }
+    localize();
+    window.addEventListener('storage', event => {
+      if (event.key === 'reelvault:language') { language = event.newValue === 'en' ? 'en' : 'zh'; localize(); showGallery(); }
+    });
     async function showGallery() {
       const gallery = document.querySelector('#gallery'); gallery.replaceChildren();
       try {
@@ -37,12 +53,12 @@
           const titles = new Map((state.items || []).map(item => [item.url, item.title]));
           for (const key of await cache.keys()) {
             const response = await cache.match(key); if (!response) continue;
-            const image = document.createElement('img'); image.src = URL.createObjectURL(await response.blob()); image.alt = titles.get(key.url) || '已缓存海报'; image.onload = () => URL.revokeObjectURL(image.src);
-            const figure = document.createElement('figure'); const caption = document.createElement('figcaption'); caption.textContent = titles.get(key.url) || '已缓存海报'; figure.append(image, caption); gallery.append(figure);
+            const image = document.createElement('img'); image.src = URL.createObjectURL(await response.blob()); image.alt = titles.get(key.url) || text.poster; image.onload = () => URL.revokeObjectURL(image.src);
+            const figure = document.createElement('figure'); const caption = document.createElement('figcaption'); caption.textContent = titles.get(key.url) || text.poster; figure.append(image, caption); gallery.append(figure);
           }
         }
         document.querySelector('#empty').hidden = gallery.childElementCount > 0;
-      } catch { document.querySelector('#status').textContent = '此浏览器无法读取离线缓存，请联网后重试。'; }
+      } catch { document.querySelector('#status').textContent = text.failed; }
     }
     document.querySelector('#clear').onclick = async () => {
       const worker = navigator.serviceWorker?.controller;
@@ -50,7 +66,7 @@
       const channel = new MessageChannel(); channel.port1.onmessage = () => showGallery();
       worker.postMessage({ type: 'CLEAR_POSTERS' }, [channel.port2]);
     };
-    window.addEventListener('online', () => { document.querySelector('#status').textContent = '网络已恢复，点击「重新连接」返回视频库。'; });
+    window.addEventListener('online', () => { document.querySelector('#status').textContent = text.online; });
     showGallery();
   </script>
 </main></body></html>

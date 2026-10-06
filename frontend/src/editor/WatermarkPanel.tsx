@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { Alert, Button, Checkbox, Group, NativeSelect, NumberInput, Stack, Text, Textarea } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -9,12 +11,14 @@ import { OutputFields } from './OutputFields'
 import PresetControls from './PresetControls'
 
 interface Asset { id: string; name: string; size: number; url: string }
-const positions = [
-  { value: 'top-left', label: '左上' }, { value: 'top-right', label: '右上' },
-  { value: 'bottom-left', label: '左下' }, { value: 'bottom-right', label: '右下' },
-  { value: 'center', label: '居中' }, { value: 'custom', label: '自定义' },
+const positions = () => [
+  { value: 'top-left', label: tr("左上") }, { value: 'top-right', label: tr("右上") },
+  { value: 'bottom-left', label: tr("左下") }, { value: 'bottom-right', label: tr("右下") },
+  { value: 'center', label: tr("居中") }, { value: 'custom', label: tr("自定义") },
 ]
 export default function WatermarkPanel({ video }: { video: Video }) {
+  useTranslation()
+
   const qc = useQueryClient()
   const assets = useQuery({ queryKey: ['image-assets'], queryFn: () => api.get<Asset[]>('/api/image-assets') })
   const [mode, setMode] = useState('text')
@@ -55,11 +59,11 @@ export default function WatermarkPanel({ video }: { video: Video }) {
       position.startsWith('top') ? { top: inset } : { bottom: inset })
   }
   return <Stack gap="xs">
-    <Text size="sm">上传图片或输入文字，水印将永久叠加到生成的视频。</Text>
-    <NativeSelect label="水印类型" value={mode} onChange={(e) => setMode(e.currentTarget.value)}
-      data={[{ value: 'text', label: '文字叠加' }, { value: 'image', label: '图片水印' }]} />
+    <Text size="sm">{tr("上传图片或输入文字，水印将永久叠加到生成的视频。")}</Text>
+    <NativeSelect label={tr("水印类型")} value={mode} onChange={(e) => setMode(e.currentTarget.value)}
+      data={[{ value: 'text', label: tr("文字叠加") }, { value: 'image', label: tr("图片水印") }]} />
     {mode === 'image' ? <>
-      <input type="file" aria-label="上传水印图片" accept=".png,.jpg,.jpeg,.webp" disabled={working || busy}
+      <input type="file" aria-label={tr("上传水印图片")} accept=".png,.jpg,.jpeg,.webp" disabled={working || busy}
         onChange={(event) => {
           const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''
           if (file) void run(async () => {
@@ -70,37 +74,37 @@ export default function WatermarkPanel({ video }: { video: Video }) {
             setImage(result.id)
           })
         }} />
-      <NativeSelect label="水印图片素材" value={image} onChange={(e) => setImage(e.currentTarget.value)}
-        data={[{ value: '', label: '选择图片' }, ...(assets.data ?? []).map((a) => ({ value: a.id, label: a.name }))]} />
+      <NativeSelect label={tr("水印图片素材")} value={image} onChange={(e) => setImage(e.currentTarget.value)}
+        data={[{ value: '', label: tr("选择图片") }, ...(assets.data ?? []).map((a) => ({ value: a.id, label: a.name }))]} />
       {asset && <Button size="xs" color="red" variant="subtle" disabled={working || busy} onClick={() => void run(async () => {
         await api.del(`/api/image-assets/${image}`); setImage('')
-      })}>删除水印素材</Button>}
-      <NumberInput label="图片宽度（画面百分比）" value={width} min={1} max={100} onChange={(v) => setWidth(Number(v))} />
-      <Text size="xs" c="dimmed">静态 PNG/JPEG/WebP，最大 10 MiB、4096×4096；透明通道保留。图片保持比例并限制在画面内。</Text>
+      })}>{tr("删除水印素材")}</Button>}
+      <NumberInput label={tr("图片宽度（画面百分比）")} value={width} min={1} max={100} onChange={(v) => setWidth(Number(v))} />
+      <Text size="xs" c="dimmed">{tr("静态 PNG/JPEG/WebP，最大 10 MiB、4096×4096；透明通道保留。图片保持比例并限制在画面内。")}</Text>
     </> : <>
-      <Textarea label="叠加文字" value={text} maxLength={2000} autosize minRows={2} onChange={(e) => setText(e.currentTarget.value)} />
+      <Textarea label={tr("叠加文字")} value={text} maxLength={2000} autosize minRows={2} onChange={(e) => setText(e.currentTarget.value)} />
       <Group grow>
-        <NumberInput label="文字字号（像素）" value={fontSize} min={8} max={512} onChange={(v) => setFontSize(Number(v))} />
-        <NumberInput label="文字描边（像素）" value={border} min={0} max={20} onChange={(v) => setBorder(Number(v))} />
+        <NumberInput label={tr("文字字号（像素）")} value={fontSize} min={8} max={512} onChange={(v) => setFontSize(Number(v))} />
+        <NumberInput label={tr("文字描边（像素）")} value={border} min={0} max={20} onChange={(v) => setBorder(Number(v))} />
       </Group>
-      <label>文字颜色 <input aria-label="文字颜色" type="color" value={color} onChange={(e) => setColor(e.currentTarget.value)} /></label>
-      <Checkbox label="文字背景底框" checked={box} onChange={(e) => setBox(e.currentTarget.checked)} />
-      <Text size="xs" c="dimmed">使用内置 Noto CJK 中文字体；可换行，文字过长或字号过大时请检查预览并调整。</Text>
+      <label>{tr("文字颜色 ")}<input aria-label={tr("文字颜色")} type="color" value={color} onChange={(e) => setColor(e.currentTarget.value)} /></label>
+      <Checkbox label={tr("文字背景底框")} checked={box} onChange={(e) => setBox(e.currentTarget.checked)} />
+      <Text size="xs" c="dimmed">{tr("使用内置 Noto CJK 中文字体；可换行，文字过长或字号过大时请检查预览并调整。")}</Text>
     </>}
-    <NativeSelect label="水印位置" value={position} onChange={(e) => setPosition(e.currentTarget.value)} data={positions} />
+    <NativeSelect label={tr("水印位置")} value={position} onChange={(e) => setPosition(e.currentTarget.value)} data={positions()} />
     {position === 'custom' && <Group grow>
-      <NumberInput label="水平位置（%）" value={x} min={0} max={100} onChange={(v) => setX(Number(v))} />
-      <NumberInput label="垂直位置（%）" value={y} min={0} max={100} onChange={(v) => setY(Number(v))} />
+      <NumberInput label={tr("水平位置（%）")} value={x} min={0} max={100} onChange={(v) => setX(Number(v))} />
+      <NumberInput label={tr("垂直位置（%）")} value={y} min={0} max={100} onChange={(v) => setY(Number(v))} />
     </Group>}
     <Group grow>
-      <NumberInput label="不透明度（%）" value={opacity} min={0} max={100} onChange={(v) => setOpacity(Number(v))} />
-      <NumberInput label="边距（短边百分比）" value={margin} min={0} max={25} onChange={(v) => setMargin(Number(v))} />
+      <NumberInput label={tr("不透明度（%）")} value={opacity} min={0} max={100} onChange={(v) => setOpacity(Number(v))} />
+      <NumberInput label={tr("边距（短边百分比）")} value={margin} min={0} max={25} onChange={(v) => setMargin(Number(v))} />
     </Group>
     <style>{'@font-face{font-family:"ReelVault Noto";src:url("/api/image-assets/font") format("opentype");font-display:swap}'}</style>
-    <div aria-label="水印位置预览" style={{ position: 'relative', aspectRatio: `${video.width || 16}/${video.height || 9}`,
+    <div aria-label={tr("水印位置预览")} style={{ position: 'relative', aspectRatio: `${video.width || 16}/${video.height || 9}`,
       containerType: 'inline-size', overflow: 'hidden', background: '#222' }}>
-      {video.poster_url && <img src={video.poster_url} alt="视频预览背景" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
-      {mode === 'image' ? asset && <img src={asset.url} alt="水印预览"
+      {video.poster_url && <img src={video.poster_url} alt={tr("视频预览背景")} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />}
+      {mode === 'image' ? asset && <img src={asset.url} alt={tr("水印预览")}
         onLoad={(event) => { const img = event.currentTarget; if (img.naturalHeight) setImageRatio(img.naturalWidth / img.naturalHeight) }}
         style={{ ...preview, width: `${Math.min(width, 100 * (video.height || 240) * imageRatio / (video.width || 320))}%`, maxHeight: '100%', objectFit: 'contain' }} /> :
         <span style={{ ...preview, fontFamily: '"ReelVault Noto", sans-serif', color, whiteSpace: 'pre',
@@ -108,7 +112,7 @@ export default function WatermarkPanel({ video }: { video: Video }) {
           WebkitTextStroke: `${border / (video.width || 320) * 100}cqw black`, paintOrder: 'stroke fill',
           background: box ? '#0006' : undefined }}>{text}</span>}
     </div>
-    <Text size="xs" c="dimmed">封面预览用于确认位置与比例；最终文字排版以 FFmpeg 输出为准。自定义位置 0% 到 100% 对应可用空间的两端。</Text>
+    <Text size="xs" c="dimmed">{tr("封面预览用于确认位置与比例；最终文字排版以 FFmpeg 输出为准。自定义位置 0% 到 100% 对应可用空间的两端。")}</Text>
     {assets.error && <Alert color="red">{assets.error.message}</Alert>}
     <PresetControls edit={edit} onApply={(p) => {
       setMode(String(p.mode ?? 'text')); setImage(String(p.image_asset_id ?? '')); setText(String(p.text ?? ''))
@@ -117,9 +121,9 @@ export default function WatermarkPanel({ video }: { video: Video }) {
       setBorder(Number(p.border_width ?? 2)); setBox(Boolean(p.box)); setMargin(Number(p.margin_percent ?? 2))
       setX(Number(p.x ?? 50)); setY(Number(p.y ?? 50)); setCrf(Number(p.crf ?? 20))
     }} />
-    <NumberInput label="水印输出画质 CRF" value={crf} min={0} max={51} onChange={(v) => setCrf(Number(v))} />
+    <NumberInput label={tr("水印输出画质 CRF")} value={crf} min={0} max={51} onChange={(v) => setCrf(Number(v))} />
     <OutputFields value={output} onChange={setOutput} />
     <Button loading={busy || working} disabled={mode === 'image' ? !asset : !text.trim()}
-      onClick={() => void submit(edit, output)}>生成水印视频</Button>
+      onClick={() => void submit(edit, output)}>{tr("生成水印视频")}</Button>
   </Stack>
 }

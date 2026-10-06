@@ -5,7 +5,7 @@ import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import { api } from '../lib/api'
 import EncodingPanel, { type EncodingStatus } from './EncodingPanel'
 
-vi.mock('../lib/api', () => ({ api: { get: vi.fn(), put: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn(), put: vi.fn() } }))
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn()

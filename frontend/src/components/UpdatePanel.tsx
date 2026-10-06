@@ -1,3 +1,6 @@
+import { serverText, updateInstructions } from '../lib/server-text'
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import {
   Alert,
   Anchor,
@@ -22,19 +25,19 @@ import { useUpdateStatus } from '../lib/queries'
 import type { UpdateStatus } from '../lib/types'
 import { confirmAction } from './prompt'
 
-const MODE_LABEL: Record<UpdateStatus['install_mode'], string> = {
-  package: 'Ubuntu 安装包',
+const modeLabels = (): Record<UpdateStatus['install_mode'], string> => ({
+  package: tr("Ubuntu 安装包"),
   docker: 'Docker',
-  source: '源码运行',
-  none: '未知',
-}
+  source: tr("源码运行"),
+  none: tr("未知"),
+})
 
-const PHASE_LABEL: Record<string, string> = {
-  downloading: '下载中',
-  verifying: '校验中',
-  installing: '安装中',
-  restarting: '重启中',
-}
+const phaseLabels = (): Record<string, string> => ({
+  downloading: tr("下载中"),
+  verifying: tr("校验中"),
+  installing: tr("安装中"),
+  restarting: tr("重启中"),
+})
 
 /** After an upgrade the server restarts; wait until it answers with a new version. */
 function useReloadAfterRestart(active: boolean, fromVersion: string | undefined) {
@@ -54,6 +57,8 @@ function useReloadAfterRestart(active: boolean, fromVersion: string | undefined)
 }
 
 export default function UpdatePanel() {
+  useTranslation()
+
   const qc = useQueryClient()
   const { data, isLoading } = useUpdateStatus()
   const [checking, setChecking] = useState(false)
@@ -73,16 +78,16 @@ export default function UpdatePanel() {
   const upgrade = async () => {
     if (!data?.latest_version) return
     const ok = await confirmAction({
-      title: `升级到 v${data.latest_version}`,
-      message: '将下载并安装新版本，完成后服务会自动重启（约几十秒），期间页面暂时无法访问。升级失败会自动恢复到当前版本。',
-      confirm: '开始升级',
+      title: tr("升级到 v{{v0}}", { v0: data.latest_version }),
+      message: tr("将下载并安装新版本，完成后服务会自动重启（约几十秒），期间页面暂时无法访问。升级失败会自动恢复到当前版本。"),
+      confirm: tr("开始升级"),
     })
     if (!ok) return
     setStarting(true)
     try {
       qc.setQueryData(['update'], await api.post<UpdateStatus>('/api/system/update/apply'))
     } catch (e) {
-      notifications.show({ color: 'red', title: '无法升级', message: e instanceof Error ? e.message : String(e) })
+      notifications.show({ color: 'red', title: tr("无法升级"), message: e instanceof Error ? e.message : String(e) })
     } finally {
       setStarting(false)
     }
@@ -93,7 +98,7 @@ export default function UpdatePanel() {
   return (
     <Stack id="update">
       <Group justify="space-between">
-        <Title order={4}>版本与更新</Title>
+        <Title order={4}>{tr("版本与更新")}</Title>
         <Button
           size="xs"
           variant="default"
@@ -101,65 +106,52 @@ export default function UpdatePanel() {
           loading={checking}
           disabled={upgrading}
           onClick={check}
-        >
-          检查更新
-        </Button>
+        >{tr("检查更新")}</Button>
       </Group>
 
       <Group gap="xl">
         <div>
-          <Text size="xs" c="dimmed">
-            当前版本
-          </Text>
+          <Text size="xs" c="dimmed">{tr("当前版本")}</Text>
           <Text fw={600}>v{data.current_version}</Text>
         </div>
         <div>
-          <Text size="xs" c="dimmed">
-            最新版本
-          </Text>
+          <Text size="xs" c="dimmed">{tr("最新版本")}</Text>
           <Group gap={6}>
             <Text fw={600}>{data.latest_version ? `v${data.latest_version}` : '—'}</Text>
             {data.update_available ? (
-              <Badge color="orange" variant="light">
-                有新版本
-              </Badge>
+              <Badge color="orange" variant="light">{tr("有新版本")}</Badge>
             ) : (
               data.latest_version && (
-                <Badge color="green" variant="light">
-                  已是最新
-                </Badge>
+                <Badge color="green" variant="light">{tr("已是最新")}</Badge>
               )
             )}
-            {data.release?.prerelease && <Badge variant="light">预发布</Badge>}
+            {data.release?.prerelease && <Badge variant="light">{tr("预发布")}</Badge>}
           </Group>
         </div>
         <div>
-          <Text size="xs" c="dimmed">
-            部署方式
-          </Text>
-          <Text>{MODE_LABEL[data.install_mode]}</Text>
+          <Text size="xs" c="dimmed">{tr("部署方式")}</Text>
+          <Text>{modeLabels()[data.install_mode]}</Text>
         </div>
       </Group>
       <Text size="xs" c="dimmed">
-        {data.checked_at ? `上次检查：${formatDate(data.checked_at)}` : '尚未检查'}
-        {!data.check_enabled && '（已关闭自动检查）'} · 来源：
-        <Anchor size="xs" href={`https://github.com/${data.repo}/releases`} target="_blank">
+        {data.checked_at ? tr("上次检查：{{v0}}", { v0: formatDate(data.checked_at) }) : tr("尚未检查")}
+        {!data.check_enabled && tr("（已关闭自动检查）")}{tr(" · 来源：")}<Anchor size="xs" href={`https://github.com/${data.repo}/releases`} target="_blank">
           github.com/{data.repo}
         </Anchor>
       </Text>
 
-      {data.check_error && <Alert color="yellow">{data.check_error}</Alert>}
+      {data.check_error && <Alert color="yellow">{serverText(data.check_error)}</Alert>}
 
       {upgrading && (
-        <Alert color="blue" icon={<Loader size={16} />} title={PHASE_LABEL[data.phase]}>
-          {data.message}
-          {data.phase === 'restarting' && '，完成后页面会自动刷新'}
+        <Alert color="blue" icon={<Loader size={16} />} title={phaseLabels()[data.phase]}>
+          {serverText(data.message)}
+          {data.phase === 'restarting' && tr("，完成后页面会自动刷新")}
         </Alert>
       )}
       {data.phase === 'failed' && (
-        <Alert color="red" title={data.message || '升级失败'}>
+        <Alert color="red" title={serverText(data.message) || tr("升级失败")}>
           <Text size="sm" style={{ whiteSpace: 'pre-wrap' }} lineClamp={8}>
-            {data.error}
+            {serverText(data.error)}
           </Text>
         </Alert>
       )}
@@ -170,13 +162,11 @@ export default function UpdatePanel() {
             <Text fw={500}>
               {data.release.name}
               {data.release.published_at && (
-                <Text span size="xs" c="dimmed" ml="xs">
-                  发布于 {formatDate(data.release.published_at)}
+                <Text span size="xs" c="dimmed" ml="xs">{tr("发布于 ")}{formatDate(data.release.published_at)}
                 </Text>
               )}
             </Text>
-            <Anchor href={data.release.url} target="_blank" size="sm">
-              查看发布说明 <IconExternalLink size={12} />
+            <Anchor href={data.release.url} target="_blank" size="sm">{tr("查看发布说明 ")}<IconExternalLink size={12} />
             </Anchor>
           </Group>
           {data.release.notes && (
@@ -187,20 +177,19 @@ export default function UpdatePanel() {
             </ScrollArea.Autosize>
           )}
           {data.can_auto_upgrade ? (
-            <Button leftSection={<IconDownload size={16} />} loading={starting} disabled={upgrading} onClick={upgrade}>
-              一键升级到 v{data.latest_version}
+            <Button leftSection={<IconDownload size={16} />} loading={starting} disabled={upgrading} onClick={upgrade}>{tr("一键升级到 v")}{data.latest_version}
             </Button>
           ) : (
             <Stack gap={6}>
-              <Text size="sm">{data.auto_upgrade_blocker}，升级方法：</Text>
+              <Text size="sm">{serverText(data.auto_upgrade_blocker)}{tr("，升级方法：")}</Text>
               <Group align="flex-start" wrap="nowrap" gap="xs">
                 <Code block style={{ flex: 1 }}>
-                  {data.instructions}
+                  {updateInstructions(data.instructions)}
                 </Code>
-                <CopyButton value={data.instructions}>
+                <CopyButton value={updateInstructions(data.instructions)}>
                   {({ copied, copy }) => (
                     <Button size="xs" variant="default" onClick={copy} leftSection={copied ? <IconCheck size={14} /> : <IconCopy size={14} />}>
-                      {copied ? '已复制' : '复制'}
+                      {copied ? tr("已复制") : tr("复制")}
                     </Button>
                   )}
                 </CopyButton>

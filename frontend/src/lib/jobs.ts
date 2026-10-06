@@ -1,34 +1,37 @@
+import { tr } from './i18n'
+import { serverText } from './server-text'
 import { useQueryClient } from '@tanstack/react-query'
 import { notifications } from '@mantine/notifications'
 import { useEffect } from 'react'
 import type { Job } from './types'
 
-export const OP_LABELS: Record<string, string> = {
-  ingest: '处理新视频',
-  scenes: '场景检测',
-  hls: '生成 HLS 清晰度',
-  adjust: '画面调整',
-  effect: '片段效果',
-  composite: '画中画与分屏',
-  rotate: '旋转',
-  trim: '剪辑',
-  merge: '合并',
-  compress: '压缩',
-  crop: '裁切画面',
-  speed: '变速',
-  mute: '静音',
-  convert: '转换格式',
-  extract_audio: '提取音频',
-  embed_cover: '写入封面',
-  audio: '音频处理',
-  subtitle: '烧录字幕',
-  watermark: '水印与文字',
-  animation: '导出动图',
-}
+const operationLabels = (): Record<string, string> => ({
+  ingest: tr("处理新视频"),
+  scenes: tr("场景检测"),
+  hls: tr("生成 HLS 清晰度"),
+  adjust: tr("画面调整"),
+  effect: tr("片段效果"),
+  composite: tr("画中画与分屏"),
+  rotate: tr("旋转"),
+  trim: tr("剪辑"),
+  merge: tr("合并"),
+  compress: tr("压缩"),
+  crop: tr("裁切画面"),
+  speed: tr("变速"),
+  mute: tr("静音"),
+  convert: tr("转换格式"),
+  extract_audio: tr("提取音频"),
+  embed_cover: tr("写入封面"),
+  audio: tr("音频处理"),
+  subtitle: tr("烧录字幕"),
+  watermark: tr("水印与文字"),
+  animation: tr("导出动图"),
+})
 
 export function jobLabel(job: Job): string {
-  if (job.kind !== 'edit') return OP_LABELS[job.kind] ?? job.kind
-  return OP_LABELS[job.params.edit?.op ?? ''] ?? job.kind
+  const labels = operationLabels()
+  if (job.kind !== 'edit') return labels[job.kind] ?? job.kind
+  return labels[job.params.edit?.op ?? ''] ?? job.kind
 }
 
 const FINAL = new Set(['succeeded', 'failed', 'canceled'])
@@ -64,12 +67,12 @@ export function useJobEvents(enabled: boolean) {
         if (job.kind === 'edit') {
           const label = jobLabel(job)
           if (job.status === 'succeeded') {
-            notifications.show({ color: 'green', title: `${label}完成`, message: '已生成新文件' })
+            notifications.show({ color: 'green', title: tr("{{v0}}完成", { v0: label }), message: tr("已生成新文件") })
           } else if (job.status === 'failed') {
             notifications.show({
               color: 'red',
-              title: `${label}失败`,
-              message: (job.error ?? '').slice(0, 300),
+              title: tr("{{v0}}失败", { v0: label }),
+              message: serverText(job.error).slice(0, 300),
             })
           }
         }

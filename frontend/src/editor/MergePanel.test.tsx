@@ -9,7 +9,7 @@ import MergePanel from './MergePanel'
 
 const mocks = vi.hoisted(() => ({ submit: vi.fn() }))
 vi.mock('./edit', () => ({ defaultOutput: { mode: 'new', title: '' }, useSubmitEdit: () => ({ submit: mocks.submit, busy: false }) }))
-vi.mock('../lib/api', () => ({ api: { get: vi.fn() }, qs: () => '' }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn() }, qs: () => '' }))
 vi.mock('./SequencePreview', () => ({ default: ({ note }: { note: string }) => <span>{note}</span> }))
 beforeAll(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))

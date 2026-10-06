@@ -1,24 +1,44 @@
+import i18n, { currentLanguage, tr, translateStoredText } from './i18n'
+
 export class ApiError extends Error {
   status: number
   data: unknown
+  code: string | null
+  params: Record<string, unknown>
 
   constructor(status: number, message: string, data?: unknown) {
     super(message)
     this.status = status
     this.data = data
+    const record = data && typeof data === 'object' ? data as Record<string, unknown> : {}
+    this.code = typeof record.code === 'string' ? record.code : null
+    this.params = record.params && typeof record.params === 'object' ? record.params as Record<string, unknown> : {}
+    Object.defineProperty(this, 'message', { configurable: true, get: () => errorMessage(this.data, this.status, message) })
   }
 }
 
-function errorMessage(data: unknown, status: number): string {
+function errorMessage(data: unknown, status: number, fallback?: string): string {
+  if (data && typeof data === 'object' && 'code' in data) {
+    const record = data as { code: unknown; params?: Record<string, unknown> }
+    if ((currentLanguage() === 'en' || record.code === 'validation_error') && typeof record.code === 'string' && i18n.exists(record.code, { ns: 'errors' })) {
+      return String(i18n.t(record.code, { ...record.params, ns: 'errors' }))
+    }
+  }
   if (data && typeof data === 'object' && 'detail' in data) {
     const detail = (data as { detail: unknown }).detail
-    if (typeof detail === 'string') return detail
+    if (typeof detail === 'string') return translateStoredText(detail)
     if (Array.isArray(detail) && detail[0]?.msg) return String(detail[0].msg)
     if (detail && typeof detail === 'object' && 'message' in detail) {
       return String((detail as { message: unknown }).message)
     }
   }
-  return `请求失败 (${status})`
+  return fallback ?? tr('请求失败 ({{status}})', { status })
+}
+
+/** Keep Error instances in state so API messages follow subsequent language changes. */
+export function errorText(error: Error | string | null): string {
+  const text = error instanceof Error ? error.message : error ?? ''
+  return translateStoredText(text)
 }
 
 export const UNAUTHORIZED_EVENT = 'reelvault:unauthorized'

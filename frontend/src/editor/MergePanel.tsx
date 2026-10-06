@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { ActionIcon, Alert, Button, Group, NativeSelect, NumberInput, Paper, Select, Stack, Text } from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
 import { useQueries, useQuery } from '@tanstack/react-query'
@@ -11,6 +13,8 @@ import { OutputFields } from './OutputFields'
 import SequencePreview from './SequencePreview'
 
 export default function MergePanel({ video, initialIds, pause }: EditorContext & { initialIds?: string[] }) {
+  useTranslation()
+
   const [ids, setIds] = useState<string[]>(initialIds?.length ? initialIds : [video.id])
   const [mode, setMode] = useState('auto')
   const [transition, setTransition] = useState('none')
@@ -58,9 +62,7 @@ export default function MergePanel({ video, initialIds, pause }: EditorContext &
 
   return (
     <Stack>
-      <Text size="sm" c="dimmed">
-        按顺序合并多个视频。编码与分辨率一致时可无损合并，否则自动重新编码并统一画面尺寸。
-      </Text>
+      <Text size="sm" c="dimmed">{tr("按顺序合并多个视频。编码与分辨率一致时可无损合并，否则自动重新编码并统一画面尺寸。")}</Text>
       <Stack gap={6}>
         {ids.map((id, i) => {
           const v = videos[i]?.data
@@ -100,7 +102,7 @@ export default function MergePanel({ video, initialIds, pause }: EditorContext &
         })}
       </Stack>
       <Select
-        placeholder="搜索并添加视频…"
+        placeholder={tr("搜索并添加视频…")}
         searchable
         searchValue={search}
         onSearchChange={setSearch}
@@ -112,57 +114,56 @@ export default function MergePanel({ video, initialIds, pause }: EditorContext &
           if (v) setIds((l) => [...l, v])
           setSearch('')
         }}
-        nothingFoundMessage="没有匹配的视频"
+        nothingFoundMessage={tr("没有匹配的视频")}
       />
       <Group grow>
         <Select
-          label="合并方式"
+          label={tr("合并方式")}
           value={mode}
           onChange={(v) => v && setMode(v)}
           allowDeselect={false}
           disabled={transition !== 'none'}
           data={[
-            { value: 'auto', label: '自动' },
-            { value: 'lossless', label: '无损（需格式一致）' },
-            { value: 'reencode', label: '重新编码' },
+            { value: 'auto', label: tr("自动") },
+            { value: 'lossless', label: tr("无损（需格式一致）") },
+            { value: 'reencode', label: tr("重新编码") },
           ]}
         />
         <Select
-          label="输出分辨率"
+          label={tr("输出分辨率")}
           value={resolution}
           onChange={(v) => v && setResolution(v)}
           allowDeselect={false}
           data={[
-            { value: 'first', label: '与第一个视频相同' },
+            { value: 'first', label: tr("与第一个视频相同") },
             ...sizes.map((s) => ({ value: s, label: s.replace('x', '×') })),
             { value: '1920x1080', label: '1920×1080' },
             { value: '1280x720', label: '1280×720' },
-            { value: '1080x1920', label: '1080×1920（竖屏）' },
+            { value: '1080x1920', label: tr("1080×1920（竖屏）") },
           ].filter((o, i, arr) => arr.findIndex((x) => x.value === o.value) === i)}
         />
       </Group>
-      <NativeSelect label="合并转场" value={transition} onChange={(event) => {
+      <NativeSelect label={tr("合并转场")} value={transition} onChange={(event) => {
         const value = event.currentTarget.value; setTransition(value)
         if (value !== 'none') setMode('reencode')
       }} data={[
-        { value: 'none', label: '无转场' }, { value: 'fade', label: '交叉淡化' },
-        { value: 'fadeblack', label: '淡至黑色' }, { value: 'fadewhite', label: '淡至白色' },
-        { value: 'wipeleft', label: '向左擦除' }, { value: 'wiperight', label: '向右擦除' },
-        { value: 'slideleft', label: '向左滑动' }, { value: 'slideright', label: '向右滑动' },
-        { value: 'dissolve', label: '溶解' }, { value: 'circleopen', label: '圆形展开' },
+        { value: 'none', label: tr("无转场") }, { value: 'fade', label: tr("交叉淡化") },
+        { value: 'fadeblack', label: tr("淡至黑色") }, { value: 'fadewhite', label: tr("淡至白色") },
+        { value: 'wipeleft', label: tr("向左擦除") }, { value: 'wiperight', label: tr("向右擦除") },
+        { value: 'slideleft', label: tr("向左滑动") }, { value: 'slideright', label: tr("向右滑动") },
+        { value: 'dissolve', label: tr("溶解") }, { value: 'circleopen', label: tr("圆形展开") },
       ]} />
       {transition !== 'none' && <>
-        <NumberInput label="每处转场时长（秒）" min={0.05} max={10} step={0.1} decimalScale={3}
+        <NumberInput label={tr("每处转场时长（秒）")} min={0.05} max={10} step={0.1} decimalScale={3}
           value={transitionDuration} onChange={(value) => setTransitionDuration(Number(value))} />
-        <Text size="xs" c="dimmed">转场重新编码，音轨同时交叉淡化；没有音轨的片段补静音。每处衔接重叠 {transitionDuration} 秒，预计输出 {Math.max(0, total).toFixed(2)} 秒。</Text>
-        {!transitionValid && <Alert color="red">转场必须短于每段视频，中间片段至少为转场时长的两倍。</Alert>}
+        <Text size="xs" c="dimmed">{tr("转场重新编码，音轨同时交叉淡化；没有音轨的片段补静音。每处衔接重叠 ")}{transitionDuration}{tr(" 秒，预计输出 ")}{Math.max(0, total).toFixed(2)}{tr(" 秒。")}</Text>
+        {!transitionValid && <Alert color="red">{tr("转场必须短于每段视频，中间片段至少为转场时长的两倍。")}</Alert>}
       </>}
       <OutputFields value={output} onChange={setOutput} allowReplace={false} />
       <SequencePreview pause={pause} disabled={loaded.length !== ids.length || videos.some((query) => !!query.error)}
         clips={loaded.map((item) => ({ video: item, start: 0, end: item.duration }))}
-        note={transition === 'none' ? '预览保持源视频尺寸，输出会按选定的分辨率统一画面。' : '原始片段顺序预览不模拟转场；生成时统一画面尺寸，并将相邻片段重叠衔接。'} />
-      <Button loading={busy} disabled={ids.length < 2 || loaded.length !== ids.length || !transitionValid || videos.some((q) => !!q.error || q.data?.status !== 'ready')} onClick={run}>
-        合并 {ids.length} 个视频（共 {formatDuration(total)}）
+        note={transition === 'none' ? tr("预览保持源视频尺寸，输出会按选定的分辨率统一画面。") : tr("原始片段顺序预览不模拟转场；生成时统一画面尺寸，并将相邻片段重叠衔接。")} />
+      <Button loading={busy} disabled={ids.length < 2 || loaded.length !== ids.length || !transitionValid || videos.some((q) => !!q.error || q.data?.status !== 'ready')} onClick={run}>{tr("合并 ")}{ids.length}{tr(" 个视频（共 ")}{formatDuration(total)}{tr('）')}
       </Button>
     </Stack>
   )

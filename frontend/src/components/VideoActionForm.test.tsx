@@ -6,7 +6,7 @@ import { api } from '../lib/api'
 import type { Video } from '../lib/types'
 import VideoActionForm from './VideoActionForm'
 
-vi.mock('../lib/api', () => ({ api: { patch: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { patch: vi.fn() } }))
 vi.mock('./FolderSelect', () => ({ default: ({ value, onChange }: { value: number | null; onChange: (value: number) => void }) =>
   <select aria-label="目标文件夹" value={value ?? 'root'} onChange={(event) => onChange(Number(event.target.value))}>
     <option value="root">未分类</option><option value="3">目录三</option><option value="7">目录七</option>

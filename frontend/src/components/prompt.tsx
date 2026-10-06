@@ -1,3 +1,4 @@
+import { tr } from '../lib/i18n'
 import { modals } from '@mantine/modals'
 import PromptBody from './PromptBody'
 
@@ -35,7 +36,7 @@ export function confirmAction(opts: {
     modals.openConfirmModal({
       title: opts.title,
       children: opts.message,
-      labels: { confirm: opts.confirm ?? '确定', cancel: '取消' },
+      labels: { confirm: opts.confirm ?? tr("确定"), cancel: tr("取消") },
       confirmProps: opts.danger ? { color: 'red' } : undefined,
       onConfirm: () => resolve(true),
       onCancel: () => resolve(false),

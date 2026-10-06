@@ -1,3 +1,4 @@
+import { tr } from './i18n'
 export interface InstallEvent extends Event {
   prompt(): Promise<void>
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
@@ -43,10 +44,10 @@ export function posterTitle(url: string, title: string) {
 
 export async function clearOfflinePosters() {
   const worker = navigator.serviceWorker?.controller
-  if (!worker) throw new Error('离线缓存尚未启用，请刷新后重试。')
+  if (!worker) throw new Error(tr("离线缓存尚未启用，请刷新后重试。"))
   await new Promise<void>((resolve, reject) => {
     const channel = new MessageChannel()
-    const timer = window.setTimeout(() => { channel.port1.close(); reject(new Error('清理超时，请重试。')) }, 5000)
+    const timer = window.setTimeout(() => { channel.port1.close(); reject(new Error(tr("清理超时，请重试。"))) }, 5000)
     channel.port1.onmessage = () => { window.clearTimeout(timer); channel.port1.close(); resolve() }
     worker.postMessage({ type: 'CLEAR_POSTERS' }, [channel.port2])
   })

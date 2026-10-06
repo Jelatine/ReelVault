@@ -1,9 +1,13 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { Accordion, Button, Checkbox, Group, NumberInput, Select, SimpleGrid, TextInput } from '@mantine/core'
 import { useSearchParams } from 'react-router-dom'
 import { useFolders, useTags } from '../lib/queries'
 import { FILTER_KEYS } from '../lib/filters'
 
 export default function AdvancedFilters() {
+  useTranslation()
+
   const [params, setParams] = useSearchParams()
   const folders = useFolders()
   const tags = useTags()
@@ -33,44 +37,44 @@ export default function AdvancedFilters() {
   return (
     <Accordion variant="contained" defaultValue={count ? 'filters' : null}>
       <Accordion.Item value="filters">
-        <Accordion.Control>高级筛选{count ? `（${count}）` : ''}</Accordion.Control>
+        <Accordion.Control>{tr("高级筛选")}{count ? tr('（{{count}}）', { count }) : ''}</Accordion.Control>
         <Accordion.Panel>
           <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }}>
-            {number('duration_min', '最短时长（秒）')}
-            {number('duration_max', '最长时长（秒）')}
-            {number('size_min', '最小文件（MiB）', 1024 * 1024)}
-            {number('size_max', '最大文件（MiB）', 1024 * 1024)}
-            <Select label="分辨率 / 方向" clearable value={params.get('resolution')}
+            {number('duration_min', tr("最短时长（秒）"))}
+            {number('duration_max', tr("最长时长（秒）"))}
+            {number('size_min', tr("最小文件（MiB）"), 1024 * 1024)}
+            {number('size_max', tr("最大文件（MiB）"), 1024 * 1024)}
+            <Select label={tr("分辨率 / 方向")} clearable value={params.get('resolution')}
               data={[
-                { value: '4k', label: '4K 及以上' }, { value: '1080p', label: '1080p 及以上' },
-                { value: '720p', label: '720p 及以上' }, { value: 'portrait', label: '竖屏' },
-                { value: 'landscape', label: '横屏' },
+                { value: '4k', label: tr("4K 及以上") }, { value: '1080p', label: tr("1080p 及以上") },
+                { value: '720p', label: tr("720p 及以上") }, { value: 'portrait', label: tr("竖屏") },
+                { value: 'landscape', label: tr("横屏") },
               ]} onChange={(value) => set('resolution', value)} />
-            <TextInput label="视频编码" placeholder="h264 / hevc / av1" value={params.get('codec') ?? ''}
+            <TextInput label={tr("视频编码")} placeholder="h264 / hevc / av1" value={params.get('codec') ?? ''}
               onChange={(event) => set('codec', event.currentTarget.value || null)} />
-            <Select label="格式" clearable value={params.get('format')}
+            <Select label={tr("格式")} clearable value={params.get('format')}
               data={['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v', 'mpegts']}
               onChange={(value) => set('format', value)} />
-            <Select label="标签" searchable clearable value={params.get('tag')}
+            <Select label={tr("标签")} searchable clearable value={params.get('tag')}
               data={(tags.data ?? []).map((tag) => tag.name)} onChange={(value) => set('tag', value)} />
-            {date('created_after', '上传日期起（UTC）')}
-            {date('created_before', '上传日期止（UTC）')}
-            {date('captured_after', '拍摄日期起（UTC）')}
-            {date('captured_before', '拍摄日期止（UTC）')}
-            <Select label="所在文件夹" value={params.get('folder') ?? 'all'} searchable allowDeselect={false}
+            {date('created_after', tr("上传日期起（UTC）"))}
+            {date('created_before', tr("上传日期止（UTC）"))}
+            {date('captured_after', tr("拍摄日期起（UTC）"))}
+            {date('captured_before', tr("拍摄日期止（UTC）"))}
+            <Select label={tr("所在文件夹")} value={params.get('folder') ?? 'all'} searchable allowDeselect={false}
               data={[
-                { value: 'all', label: '全部视频' }, { value: 'root', label: '未分类' },
+                { value: 'all', label: tr("全部视频") }, { value: 'root', label: tr("未分类") },
                 ...(folders.data ?? []).map((folder) => ({ value: String(folder.id), label: folder.name })),
               ]} onChange={(value) => set('folder', value)} />
           </SimpleGrid>
           <Group mt="sm" justify="space-between">
-            <Checkbox label="包含子文件夹" checked={params.get('include_children') === 'true'}
+            <Checkbox label={tr("包含子文件夹")} checked={params.get('include_children') === 'true'}
               onChange={(event) => set('include_children', event.currentTarget.checked ? 'true' : null)} />
             <Button variant="subtle" onClick={() => {
               const next = new URLSearchParams(params)
               for (const key of [...FILTER_KEYS, 'rating_min', 'favorite', 'folder', 'tag', 'page']) next.delete(key)
               setParams(next)
-            }}>清除筛选</Button>
+            }}>{tr("清除筛选")}</Button>
           </Group>
         </Accordion.Panel>
       </Accordion.Item>

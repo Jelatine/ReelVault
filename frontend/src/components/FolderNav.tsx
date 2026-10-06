@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { ActionIcon, Badge, Divider, Group, Menu, NavLink, ScrollArea, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQueryClient } from '@tanstack/react-query'
@@ -24,6 +26,8 @@ import ContextMenu from './ContextMenu'
 import { contextPosition, keyboardContext, type MenuPosition } from '../lib/context-menu'
 
 export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
+  useTranslation()
+
   const [dropTarget, setDropTarget] = useState<number | 'root' | null>(null)
   const [context, setContext] = useState<{ node: FolderNode; position: MenuPosition }>()
   const folders = useFolders()
@@ -56,19 +60,19 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
   }
 
   const createFolder = async (parent: number | null) => {
-    const name = await promptText('新建文件夹', '名称')
+    const name = await promptText(tr("新建文件夹"), tr("名称"))
     if (name) run(() => api.post('/api/folders', { name, parent_id: parent }))
   }
 
   const renameFolder = async (f: FolderNode) => {
-    const name = await promptText('重命名文件夹', '名称', f.name)
+    const name = await promptText(tr("重命名文件夹"), tr("名称"), f.name)
     if (name && name !== f.name) run(() => api.patch(`/api/folders/${f.id}`, { name }))
   }
 
   const deleteFolder = async (f: FolderNode) => {
     const ok = await confirmAction({
-      title: '删除文件夹',
-      message: `删除「${f.name}」？其中的视频和子文件夹会移动到上一级，不会被删除。`,
+      title: tr("删除文件夹"),
+      message: tr("删除「{{v0}}」？其中的视频和子文件夹会移动到上一级，不会被删除。", { v0: f.name }),
       danger: true,
     })
     if (ok) {
@@ -100,7 +104,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         const result = await api.post<{ updated: number }>('/api/videos/batch', { ids, action: 'move', folder_id: folderId })
         refresh()
         window.dispatchEvent(new Event(CLEAR_SELECTION_EVENT))
-        notifications.show({ message: `已移动 ${result.updated} 个视频` })
+        notifications.show({ message: tr("已移动 {{v0}} 个视频", { v0: result.updated }) })
       } catch (error) { notifications.show({ color: 'red', message: error instanceof Error ? error.message : String(error) }) }
     },
     style: dropTarget === (folderId ?? 'root') ? { outline: '2px solid var(--mantine-color-violet-6)' } : undefined,
@@ -133,11 +137,9 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
               </ActionIcon>
             </Menu.Target>
             <Menu.Dropdown>
-              <Menu.Item onClick={() => createFolder(node.id)}>新建子文件夹</Menu.Item>
-              <Menu.Item onClick={() => renameFolder(node)}>重命名</Menu.Item>
-              <Menu.Item color="red" onClick={() => deleteFolder(node)}>
-                删除
-              </Menu.Item>
+              <Menu.Item onClick={() => createFolder(node.id)}>{tr("新建子文件夹")}</Menu.Item>
+              <Menu.Item onClick={() => renameFolder(node)}>{tr("重命名")}</Menu.Item>
+              <Menu.Item color="red" onClick={() => deleteFolder(node)}>{tr("删除")}</Menu.Item>
             </Menu.Dropdown>
           </Menu>
         </Group>
@@ -151,42 +153,38 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
 
   return (
     <ScrollArea style={{ flex: 1 }}>
-      <NavLink component={Link} to="/" label="首页" leftSection={<IconHome size={16} />}
+      <NavLink component={Link} to="/" label={tr("首页")} leftSection={<IconHome size={16} />}
         active={location.pathname === '/'} onClick={onNavigate} />
       {context && <ContextMenu key={`${context.node.id}:${context.position.x}:${context.position.y}`} position={context.position}
-        label={`${context.node.name}的文件夹菜单`} close={() => setContext(undefined)}>
+        label={tr("{{v0}}的文件夹菜单", { v0: context.node.name })} close={() => setContext(undefined)}>
         <Menu.Label>{context.node.name}</Menu.Label>
-        <Menu.Item onClick={() => createFolder(context.node.id)}>新建子文件夹</Menu.Item>
-        <Menu.Item onClick={() => renameFolder(context.node)}>重命名</Menu.Item>
-        <Menu.Item color="red" onClick={() => deleteFolder(context.node)}>删除</Menu.Item>
+        <Menu.Item onClick={() => createFolder(context.node.id)}>{tr("新建子文件夹")}</Menu.Item>
+        <Menu.Item onClick={() => renameFolder(context.node)}>{tr("重命名")}</Menu.Item>
+        <Menu.Item color="red" onClick={() => deleteFolder(context.node)}>{tr("删除")}</Menu.Item>
       </ContextMenu>}
       <NavLink
-        label="全部视频"
+        label={tr("全部视频")}
         leftSection={<IconVideo size={16} />}
         active={folder === 'all' && !tag}
         onClick={() => go({ folder: 'all' })}
       />
       <NavLink
         {...dropProps(null)}
-        label="未分类"
+        label={tr("未分类")}
         leftSection={<IconInbox size={16} />}
         active={folder === 'root'}
         onClick={() => go({ folder: 'root' })}
       />
       <Group justify="space-between" mt="sm" px="sm">
-        <Text size="xs" c="dimmed" fw={600}>
-          文件夹
-        </Text>
-        <ActionIcon size="sm" variant="subtle" onClick={() => createFolder(null)} aria-label="新建文件夹">
+        <Text size="xs" c="dimmed" fw={600}>{tr("文件夹")}</Text>
+        <ActionIcon size="sm" variant="subtle" onClick={() => createFolder(null)} aria-label={tr("新建文件夹")}>
           <IconFolderPlus size={14} />
         </ActionIcon>
       </Group>
       {tree.map(renderNode)}
       {(tags.data?.length ?? 0) > 0 && (
         <>
-          <Text size="xs" c="dimmed" fw={600} mt="sm" px="sm">
-            标签
-          </Text>
+          <Text size="xs" c="dimmed" fw={600} mt="sm" px="sm">{tr("标签")}</Text>
           <Group gap={6} p="sm">
             {tags.data!.map((t) => (
               <Badge
@@ -207,7 +205,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
       <NavLink
         component={Link}
         to="/jobs"
-        label="任务中心"
+        label={tr("任务中心")}
         leftSection={<IconListCheck size={16} />}
         active={location.pathname === '/jobs'}
         onClick={onNavigate}
@@ -215,7 +213,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
       <NavLink
         component={Link}
         to="/trash"
-        label="回收站"
+        label={tr("回收站")}
         leftSection={<IconTrash size={16} />}
         active={location.pathname === '/trash'}
         onClick={onNavigate}
@@ -223,7 +221,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
       <NavLink
         component={Link}
         to="/settings"
-        label="设置"
+        label={tr("设置")}
         leftSection={<IconSettings size={16} />}
         active={location.pathname === '/settings'}
         onClick={onNavigate}

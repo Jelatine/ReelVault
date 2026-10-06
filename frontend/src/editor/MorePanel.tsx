@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { Button, Divider, Group, NativeSelect, NumberInput, Select, SegmentedControl, Stack, Text, Title } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
 import { useEffect, useState } from 'react'
@@ -13,12 +15,12 @@ import EffectPanel from './EffectPanel'
 import CompositePanel from './CompositePanel'
 
 const RATIOS: Record<string, number | null> = { free: null, '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4 }
-const TOOLS = [
-  { value: 'crop', label: '裁切画面' }, { value: 'speed', label: '变速' },
-  { value: 'audio', label: '音频' }, { value: 'subtitle', label: '字幕' },
-  { value: 'watermark', label: '水印' }, { value: 'animation', label: '动图' },
-  { value: 'adjust', label: '画面调整' }, { value: 'effect', label: '片段效果' },
-  { value: 'composite', label: '拼接' }, { value: 'convert', label: '格式' },
+const tools = () => [
+  { value: 'crop', label: tr("裁切画面") }, { value: 'speed', label: tr("变速") },
+  { value: 'audio', label: tr("音频") }, { value: 'subtitle', label: tr("字幕") },
+  { value: 'watermark', label: tr("水印") }, { value: 'animation', label: tr("动图") },
+  { value: 'adjust', label: tr("画面调整") }, { value: 'effect', label: tr("片段效果") },
+  { value: 'composite', label: tr("拼接") }, { value: 'convert', label: tr("格式") },
 ]
 
 function centered(w: number, h: number, ratio: number) {
@@ -32,6 +34,8 @@ function centered(w: number, h: number, ratio: number) {
 }
 
 export default function MorePanel({ video, setOverlay, currentTime, pause }: EditorContext) {
+  useTranslation()
+
   const mobile = useMediaQuery('(max-width: 47.99em), (pointer: coarse)')
   const [crf, setCrf] = useState(20)
   const [tool, setTool] = useState('crop')
@@ -64,13 +68,12 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
       }} />}
       {tool === 'speed' && <PresetControls key="speed" edit={{ op: 'speed', factor: Number(speed), crf }} onApply={(params) => { setCrf(Number(params.crf ?? 20)); setSpeed(String(params.factor)) }} />}
       {tool === 'convert' && <PresetControls key="convert" edit={{ op: 'convert', format }} onApply={(params) => setFormat(String(params.format))} />}
-      {(tool === 'crop' || tool === 'speed') && <NumberInput label="画质 CRF（越小越清晰）" min={0} max={51} value={crf} onChange={(value) => setCrf(Number(value))} />}
-      {mobile ? <NativeSelect label="更多编辑工具" value={tool} onChange={(e) => setTool(e.currentTarget.value)} data={TOOLS} />
-        : <SegmentedControl fullWidth value={tool} onChange={setTool} data={TOOLS} />}
+      {(tool === 'crop' || tool === 'speed') && <NumberInput label={tr("画质 CRF（越小越清晰）")} min={0} max={51} value={crf} onChange={(value) => setCrf(Number(value))} />}
+      {mobile ? <NativeSelect label={tr("更多编辑工具")} value={tool} onChange={(e) => setTool(e.currentTarget.value)} data={tools()} />
+        : <SegmentedControl fullWidth value={tool} onChange={setTool} data={tools()} />}
       {tool === 'crop' && (
         <Stack gap="xs">
-          <Text size="sm" c="dimmed">
-            播放器中的虚线框为裁切区域（像素坐标基于 {video.width}×{video.height}）。
+          <Text size="sm" c="dimmed">{tr("播放器中的虚线框为裁切区域（像素坐标基于 ")}{video.width}×{video.height}{tr('）。')}
           </Text>
           <SegmentedControl
             size="xs"
@@ -80,58 +83,48 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
               const value = RATIOS[r]
               if (value) setCrop(centered(video.width, video.height, value))
             }}
-            data={Object.keys(RATIOS).map((k) => ({ value: k, label: k === 'free' ? '自由' : k }))}
+            data={Object.keys(RATIOS).map((k) => ({ value: k, label: k === 'free' ? tr("自由") : k }))}
           />
           <Group grow>
             <NumberInput size="xs" label="X" value={crop.x} min={0} max={video.width} onChange={(v) => setCropField('x', Number(v))} />
             <NumberInput size="xs" label="Y" value={crop.y} min={0} max={video.height} onChange={(v) => setCropField('y', Number(v))} />
-            <NumberInput size="xs" label="宽" value={crop.width} min={16} max={video.width} onChange={(v) => setCropField('width', Number(v))} />
-            <NumberInput size="xs" label="高" value={crop.height} min={16} max={video.height} onChange={(v) => setCropField('height', Number(v))} />
+            <NumberInput size="xs" label={tr("宽")} value={crop.width} min={16} max={video.width} onChange={(v) => setCropField('width', Number(v))} />
+            <NumberInput size="xs" label={tr("高")} value={crop.height} min={16} max={video.height} onChange={(v) => setCropField('height', Number(v))} />
           </Group>
           {!cropValid && (
-            <Text size="xs" c="red">
-              裁切区域超出画面
-            </Text>
+            <Text size="xs" c="red">{tr("裁切区域超出画面")}</Text>
           )}
           <OutputFields value={output} onChange={setOutput} />
-          <Button loading={busy} disabled={!cropValid} onClick={() => submit({ op: 'crop', ...crop, crf }, output)}>
-            裁切
-          </Button>
+          <Button loading={busy} disabled={!cropValid} onClick={() => submit({ op: 'crop', ...crop, crf }, output)}>{tr("裁切")}</Button>
         </Stack>
       )}
       {tool === 'speed' && (
         <Stack gap="xs">
-          <Text size="sm" c="dimmed">播放器实时以 {speed}× 预览，提交后生成变速视频。</Text>
+          <Text size="sm" c="dimmed">{tr("播放器实时以 ")}{speed}{tr("× 预览，提交后生成变速视频。")}</Text>
           <Select
-            label="播放速度"
+            label={tr("播放速度")}
             value={speed}
             onChange={(v) => v && setSpeed(v)}
             allowDeselect={false}
             data={[...new Set(['0.25', '0.5', '0.75', '1.25', '1.5', '2', '3', '4', speed])].map((v) => ({ value: v, label: `${v}×` }))}
           />
           <OutputFields value={output} onChange={setOutput} />
-          <Button loading={busy} onClick={() => submit({ op: 'speed', factor: Number(speed), crf }, output)}>
-            生成变速视频
-          </Button>
+          <Button loading={busy} onClick={() => submit({ op: 'speed', factor: Number(speed), crf }, output)}>{tr("生成变速视频")}</Button>
         </Stack>
       )}
       {tool === 'audio' && (
         <Stack gap="xs">
           <PresetControls key="mute" edit={{ op: 'mute' }} onApply={() => {}} />
-          <Title order={6}>去除声音</Title>
-          <Text size="xs" c="dimmed">
-            移除全部音轨，画面无损保留。
-          </Text>
+          <Title order={6}>{tr("去除声音")}</Title>
+          <Text size="xs" c="dimmed">{tr("移除全部音轨，画面无损保留。")}</Text>
           <OutputFields value={output} onChange={setOutput} />
-          <Button loading={busy} disabled={!video.audio_codec} onClick={() => submit({ op: 'mute' }, output)}>
-            静音
-          </Button>
+          <Button loading={busy} disabled={!video.audio_codec} onClick={() => submit({ op: 'mute' }, output)}>{tr("静音")}</Button>
           <Divider my="xs" />
           <PresetControls key="extract_audio" edit={{ op: 'extract_audio', format: audioFormat }} onApply={(params) => setAudioFormat(String(params.format))} />
-          <Title order={6}>提取音频</Title>
+          <Title order={6}>{tr("提取音频")}</Title>
           <Group align="flex-end" grow>
             <Select
-              label="格式"
+              label={tr("格式")}
               value={audioFormat}
               onChange={(v) => v && setAudioFormat(v)}
               allowDeselect={false}
@@ -145,9 +138,7 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
               loading={busy}
               disabled={!video.audio_codec}
               onClick={() => submit({ op: 'extract_audio', format: audioFormat })}
-            >
-              提取（在任务中心下载）
-            </Button>
+            >{tr("提取（在任务中心下载）")}</Button>
           </Group>
           <Divider my="xs" />
           <AudioPanel videoId={video.id} duration={video.duration} hasAudio={!!video.audio_codec} />
@@ -156,20 +147,18 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
       {tool === 'convert' && (
         <Stack gap="xs">
           <Select
-            label="目标格式"
+            label={tr("目标格式")}
             value={format}
             onChange={(v) => v && setFormat(v)}
             allowDeselect={false}
             data={[
-              { value: 'mp4', label: 'MP4 (H.264/AAC)，可直接封装时无损' },
+              { value: 'mp4', label: tr("MP4 (H.264/AAC)，可直接封装时无损") },
               { value: 'webm', label: 'WebM (VP9/Opus)' },
-              { value: 'mkv', label: 'MKV（无损封装）' },
+              { value: 'mkv', label: tr("MKV（无损封装）") },
             ]}
           />
           <OutputFields value={output} onChange={setOutput} />
-          <Button loading={busy} onClick={() => submit({ op: 'convert', format }, output)}>
-            转换
-          </Button>
+          <Button loading={busy} onClick={() => submit({ op: 'convert', format }, output)}>{tr("转换")}</Button>
         </Stack>
       )}
       {tool === 'composite' && <CompositePanel video={video} />}

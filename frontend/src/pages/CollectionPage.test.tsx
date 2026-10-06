@@ -8,7 +8,7 @@ import type { CollectionDetail } from '../lib/collections'
 import type { Video } from '../lib/types'
 import CollectionPage from './CollectionPage'
 
-vi.mock('../lib/api', () => ({ api: { get: vi.fn(), put: vi.fn(), del: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn(), put: vi.fn(), del: vi.fn() } }))
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 vi.mock('../components/VideoCard', () => ({ default: ({ video }: { video: Video }) => <div>{video.id}</div> }))
 beforeAll(() => {

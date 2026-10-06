@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { Button, Group, NumberInput, Select, SegmentedControl, Stack, Switch, Text } from '@mantine/core'
 import { useState } from 'react'
 import { formatBytes } from '../lib/format'
@@ -9,6 +11,8 @@ import { OutputFields } from './OutputFields'
 const BPP: Record<string, number> = { high: 0.09, medium: 0.055, low: 0.03 }
 
 export default function CompressPanel({ video }: EditorContext) {
+  useTranslation()
+
   const [codec, setCodec] = useState('h264')
   const [quality, setQuality] = useState('medium')
   const [resolution, setResolution] = useState<string>('original')
@@ -54,81 +58,76 @@ export default function CompressPanel({ video }: EditorContext) {
         setMaxFps(params.max_fps ? String(params.max_fps) : 'original')
         setPreset(String(params.preset ?? 'medium'))
       }} />
-      <Text size="sm">
-        原始大小 <b>{formatBytes(video.size)}</b>，预计压缩后约 <b>{formatBytes(estimate)}</b>
-        {!useTarget && <Text span c="dimmed" size="xs">（估算）</Text>}
+      <Text size="sm">{tr("原始大小 ")}<b>{formatBytes(video.size)}</b>{tr("，预计压缩后约 ")}<b>{formatBytes(estimate)}</b>
+        {!useTarget && <Text span c="dimmed" size="xs">{tr("（估算）")}</Text>}
       </Text>
       <Group grow>
         <Select
-          label="编码"
+          label={tr("编码")}
           value={codec}
           onChange={(v) => v && setCodec(v)}
           allowDeselect={false}
           data={[
-            { value: 'h264', label: 'H.264（兼容性最好）' },
-            { value: 'h265', label: 'H.265（体积更小）' },
+            { value: 'h264', label: tr("H.264（兼容性最好）") },
+            { value: 'h265', label: tr("H.265（体积更小）") },
           ]}
         />
         <Select
-          label="分辨率"
+          label={tr("分辨率")}
           value={resolution}
           onChange={(v) => v && setResolution(v)}
           allowDeselect={false}
-          data={[{ value: 'original', label: `原始（${video.width}×${video.height}）` }, ...resOptions.map((r) => ({ value: String(r), label: `${r}p 上限` }))]}
+          data={[{ value: 'original', label: tr("原始（{{v0}}×{{v1}}）", { v0: video.width, v1: video.height }) }, ...resOptions.map((r) => ({ value: String(r), label: tr("{{v0}}p 上限", { v0: r }) }))]}
         />
       </Group>
-      <Switch label="按目标文件大小压缩（两遍编码）" checked={useTarget} onChange={(e) => setUseTarget(e.currentTarget.checked)} />
+      <Switch label={tr("按目标文件大小压缩（两遍编码）")} checked={useTarget} onChange={(e) => setUseTarget(e.currentTarget.checked)} />
       {useTarget ? (
-        <NumberInput label="目标大小 (MB)" min={1} value={targetMb} onChange={(v) => setTargetMb(Number(v) || 1)} />
+        <NumberInput label={tr("目标大小 (MB)")} min={1} value={targetMb} onChange={(v) => setTargetMb(Number(v) || 1)} />
       ) : (
         <div>
-          <Text size="sm" mb={4}>
-            画质
-          </Text>
+          <Text size="sm" mb={4}>{tr("画质")}</Text>
           <SegmentedControl
             fullWidth
             value={quality}
             onChange={setQuality}
             data={[
-              { value: 'high', label: '高' },
-              { value: 'medium', label: '中' },
-              { value: 'low', label: '低（最小）' },
+              { value: 'high', label: tr("高") },
+              { value: 'medium', label: tr("中") },
+              { value: 'low', label: tr("低（最小）") },
             ]}
           />
         </div>
       )}
       <Group grow>
         <Select
-          label="帧率上限"
+          label={tr("帧率上限")}
           value={maxFps}
           onChange={(v) => v && setMaxFps(v)}
           allowDeselect={false}
-          data={[{ value: 'original', label: `原始（${Math.round(video.fps)}）` }, ...[...new Set(['60', '30', '24', maxFps])].filter((value) => value !== 'original')]}
+          data={[{ value: 'original', label: tr("原始（{{v0}}）", { v0: Math.round(video.fps) }) }, ...[...new Set(['60', '30', '24', maxFps])].filter((value) => value !== 'original')]}
         />
         <Select
-          label="音频码率"
+          label={tr("音频码率")}
           value={audio}
           onChange={(v) => v && setAudio(v)}
           allowDeselect={false}
           data={['64', '96', '128', '160', '192', '256'].map((v) => ({ value: v, label: `${v} kbps` }))}
         />
         <Select
-          label="编码速度"
+          label={tr("编码速度")}
           value={preset}
           onChange={(v) => v && setPreset(v)}
           allowDeselect={false}
           data={[
-            { value: 'veryfast', label: '很快' },
-            { value: 'fast', label: '较快' },
-            { value: 'medium', label: '均衡' },
-            { value: 'slow', label: '慢（更小）' },
+            { value: 'veryfast', label: tr("很快") },
+            { value: 'fast', label: tr("较快") },
+            { value: 'medium', label: tr("均衡") },
+            { value: 'slow', label: tr("慢（更小）") },
           ]}
         />
       </Group>
       <OutputFields value={output} onChange={setOutput} />
-      <Button loading={busy} onClick={run}>
-        开始压缩
-      </Button>
+      <Button loading={busy} onClick={run}>{tr("开始压缩")}</Button>
     </Stack>
   )
 }

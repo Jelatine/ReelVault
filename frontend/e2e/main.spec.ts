@@ -563,7 +563,7 @@ test('个人书签备注、进度条跳转、手动章节与删除', async ({ pa
   await page.locator('[data-media-player]').hover()
   await page.getByRole('button',{name:'进度条章节 第二章 00:00:02.000',exact:true}).click()
   await expect.poll(() => page.locator('video').evaluate((v:HTMLVideoElement) => v.currentTime)).toBeCloseTo(2,2)
-  await page.getByRole('button',{name:'Chapters',exact:true}).click()
+  await page.getByRole('button',{name:'章节',exact:true}).click()
   await expect(page.getByRole('menuitemradio',{name:/第二章/})).toBeVisible()
   await page.getByRole('menuitemradio',{name:/第二章/}).click()
   await page.screenshot({path:testInfo.outputPath('bookmark-player.png'),fullPage:true})
@@ -616,6 +616,9 @@ test('登录失败提示、登录后刷新保留会话', async ({ page }) => {
 
 test('真实上传、解码播放、精确剪辑与结果播放', async ({ page }) => {
   await login(page)
+  await page.request.put('/api/system/encoding', {
+    headers: { 'X-Requested-With': 'ReelVault' }, data: { encoder: 'auto' },
+  })
   const sample = execFileSync('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i',
     'testsrc=size=320x240:rate=25:duration=5', '-f', 'lavfi', '-i',
@@ -756,9 +759,9 @@ test('真实上传、解码播放、精确剪辑与结果播放', async ({ page 
   await expect(page.getByLabel('要烧录的字幕')).toHaveValue(subtitleAsset.id)
   await page.locator('video').evaluate((v: HTMLVideoElement) => { v.currentTime = 1 })
   await page.locator('video').hover()
-  await page.getByRole('button', { name: /closed captions|captions/i }).click()
+  await page.locator('[data-media-player]').getByRole('button', { name: '字幕', exact: true }).click({ timeout: 15_000 })
   await expect(page.locator('.vds-captions').getByText('Browser subtitle', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: /closed captions|captions/i }).click()
+  await page.locator('[data-media-player]').getByRole('button', { name: '字幕', exact: true }).click({ timeout: 15_000 })
   await expect(page.locator('.vds-captions').getByText('Browser subtitle', { exact: true })).toBeHidden()
   const subtitleSubmitted = page.waitForResponse((r) => r.url().endsWith('/edit') && r.request().method() === 'POST')
   await page.getByRole('button', { name: '生成烧录字幕视频', exact: true }).click()
@@ -996,9 +999,9 @@ test('按需 HLS 生成、弱网自适应、本地解码、手动清晰度、切
   await native.evaluate((v: HTMLVideoElement) => v.pause())
   const player = page.locator('[data-media-player]')
   await player.hover()
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Quality', exact: true }).click({ timeout: 15_000 })
-  await expect(page.getByRole('menuitemradio', { name: /Auto/ })).toHaveAttribute('aria-checked', 'true')
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('menuitem', { name: '画质', exact: true }).click({ timeout: 15_000 })
+  await expect(page.getByRole('menuitemradio', { name: /自动/ })).toHaveAttribute('aria-checked', 'true')
   await expect(page.getByRole('menuitemradio', { name: /720p/ })).toBeVisible()
   await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 })
   await page.getByRole('menuitemradio', { name: /1080p/ }).click()
@@ -1008,11 +1011,11 @@ test('按需 HLS 生成、弱网自适应、本地解码、手动清晰度、切
   await page.keyboard.press('Escape')
   await page.keyboard.press('Escape')
   await player.hover()
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Quality', exact: true }).click({ timeout: 15_000 })
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  await page.getByRole('menuitem', { name: '画质', exact: true }).click({ timeout: 15_000 })
   await expect(page.getByRole('menuitemradio', { name: /1080p/ })).toHaveAttribute('aria-checked', 'true')
   await page.screenshot({ path: testInfo.outputPath('hls-quality.png'), fullPage: true })
-  await page.getByRole('menuitemradio', { name: /Auto/ }).click()
+  await page.getByRole('menuitemradio', { name: /自动/ }).click()
   await native.evaluate((v: HTMLVideoElement) => { v.currentTime = 2; return v.play() })
   await page.getByRole('button', { name: '改用原始播放', exact: true }).click()
   await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.currentSrc.includes('/stream'))).toBe(true)

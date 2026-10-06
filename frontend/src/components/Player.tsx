@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr, playerTranslations } from '../lib/i18n'
 import '@vidstack/react/player/styles/default/theme.css'
 import '@vidstack/react/player/styles/default/layouts/video.css'
 
@@ -34,6 +36,8 @@ interface Props {
 }
 
 const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, resumePlayback, onEnded, playbackRate, loopRange, hlsUrl, resumeSource, bookmarks = [], chapters = [] }, ref) {
+  useTranslation()
+
   const player = useRef<MediaPlayerInstance>(null)
   const touchRoot = useRef<HTMLDivElement>(null)
   const touchHold = useRef(false)
@@ -96,8 +100,8 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
   const type = video.container === 'webm' ? 'video/webm' : 'video/mp4'
   return (
     <>
-    {sourceError && sourceError.url === hlsUrl && hlsUrl && <Text role="alert" size="sm" c="red">自适应播放失败：{sourceError.message}。可在下方改用原始播放。</Text>}
-    {subtitles.error && <Text size="xs" c="red">字幕载入失败：{subtitles.error.message}</Text>}
+    {sourceError && sourceError.url === hlsUrl && hlsUrl && <Text role="alert" size="sm" c="red">{tr("自适应播放失败：")}{sourceError.message}{tr("。可在下方改用原始播放。")}</Text>}
+    {subtitles.error && <Text size="xs" c="red">{tr("字幕载入失败：")}{subtitles.error.message}</Text>}
     {history.data && !video.deleted_at && (
       <Group mb="xs">
         {!hasPlayed && history.data.position > 1 && history.data.position < video.duration - 1 && (
@@ -106,9 +110,9 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
               player.current.currentTime = history.data.position
               void player.current.play()
             }
-          }}>从 {formatDuration(history.data.position)} 继续</Button>
+          }}>{tr("从 ")}{formatDuration(history.data.position)}{tr(" 继续")}</Button>
         )}
-        <Text size="xs" c="dimmed">播放 {history.data.play_count} 次{history.data.last_played_at ? ` · 最近播放 ${formatDate(history.data.last_played_at)}` : ""}</Text>
+        <Text size="xs" c="dimmed">{tr("播放 ")}{history.data.play_count}{tr(" 次")}{history.data.last_played_at ? tr(" · 最近播放 {{v0}}", { v0: formatDate(history.data.last_played_at) }) : ""}</Text>
       </Group>
     )}
     <div ref={touchRoot} className={touch ? 'touch-player' : undefined}>
@@ -189,13 +193,14 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
       style={{ aspectRatio: video.width && video.height ? `${video.width} / ${video.height}` : '16 / 9', maxHeight: '70vh' }}
     >
       <MediaProvider mediaProps={nativeProps}>
-        {!!chapters.length && <Track key={chapterVtt(chapters)} kind="chapters" type="vtt" content={chapterVtt(chapters)} label="章节" default />}
+        {!!chapters.length && <Track key={chapterVtt(chapters)} kind="chapters" type="vtt" content={chapterVtt(chapters)} label={tr("章节")} default />}
         {subtitles.data?.filter((track) => track.playable && track.url).map((track) => <Track
           key={track.id} src={track.url!} kind="subtitles" type="vtt" label={track.label} language={track.language}
         />)}
         {video.poster_url && <Poster className="vds-poster" src={video.poster_url} alt="" />}
       </MediaProvider>
       <DefaultVideoLayout
+        translations={playerTranslations()}
         noGestures={touch}
         noScrubGesture={touch}
         icons={defaultLayoutIcons}
@@ -207,7 +212,7 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
     </MediaPlayer>
     {gestureMessage && <div className="touch-feedback" role="status" aria-live="polite">{gestureMessage}</div>}
     </div>
-    {touch && <Text size="xs" c="dimmed">左右滑动快进/后退 · 双击暂停/播放 · 播放时长按临时倍速</Text>}
+    {touch && <Text size="xs" c="dimmed">{tr("左右滑动快进/后退 · 双击暂停/播放 · 播放时长按临时倍速")}</Text>}
     </>
   )
 })

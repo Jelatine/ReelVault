@@ -1,3 +1,4 @@
+import { tr } from './i18n'
 export interface TouchMedia {
   currentTime: number
   playbackRate: number
@@ -39,7 +40,7 @@ export function installTouchPlayer(root: HTMLElement, getMedia: () => TouchMedia
       heldRate = media.playbackRate
       holding(true)
       media.playbackRate = Math.min(4, heldRate * 2)
-      message(`长按 ${media.playbackRate}×`)
+      message(tr("长按 {{v0}}×", { v0: media.playbackRate }))
       lastTap = 0
     }, 500)
   }
@@ -56,7 +57,7 @@ export function installTouchPlayer(root: HTMLElement, getMedia: () => TouchMedia
     const delta = dx / active.width * 60
     const target = Math.max(0, Math.min(media.state.duration, active.position + delta))
     media.currentTime = target
-    message(`${delta >= 0 ? '快进' : '后退'} ${Math.abs(target - active.position).toFixed(1)} 秒`)
+    message(tr("{{v0}} {{v1}} 秒", { v0: delta >= 0 ? tr("快进") : tr("后退"), v1: Math.abs(target - active.position).toFixed(1) }))
     lastTap = 0
   }
   const up = (event: PointerEvent) => {
@@ -67,7 +68,7 @@ export function installTouchPlayer(root: HTMLElement, getMedia: () => TouchMedia
     const dx = event.clientX - active.x, dy = event.clientY - active.y
     reset()
     const media = getMedia()
-    if (wasHeld && media) message(`恢复 ${media.playbackRate}×`)
+    if (wasHeld && media) message(tr("恢复 {{v0}}×", { v0: media.playbackRate }))
     if (consumed) {
       event.preventDefault(); event.stopPropagation(); suppressUntil = Date.now() + 500
       return
@@ -76,8 +77,8 @@ export function installTouchPlayer(root: HTMLElement, getMedia: () => TouchMedia
     event.preventDefault(); event.stopPropagation(); suppressUntil = Date.now() + 500
     const now = Date.now()
     if (lastTap && now - lastTap < 300) {
-      if (media.state.paused) { void media.play().catch(() => {}); message('播放') }
-      else { media.pause(); message('暂停') }
+      if (media.state.paused) { void media.play().catch(() => {}); message(tr("播放")) }
+      else { media.pause(); message(tr("暂停")) }
       lastTap = 0
     } else {
       lastTap = now

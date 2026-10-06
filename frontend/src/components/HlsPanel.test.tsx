@@ -7,7 +7,7 @@ import { api } from '../lib/api'
 import type { HlsStatus } from '../lib/hls'
 import type { Video } from '../lib/types'
 
-vi.mock('../lib/api', () => ({ api: { post: vi.fn(), del: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { post: vi.fn(), del: vi.fn() } }))
 beforeAll(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })))
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 const video = { id: 'one', size: 300 * 1024 ** 2 } as Video

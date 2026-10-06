@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { Button, Group, Select, TextInput } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -13,6 +15,8 @@ function message(error: unknown) {
 export default function PresetControls({ edit, onApply }: {
   edit: Record<string, unknown>; onApply: (edit: Record<string, unknown>) => void;
 }) {
+  useTranslation()
+
   const qc = useQueryClient()
   const presets = useQuery({ queryKey: ['edit-presets'], queryFn: () => api.get<EditPreset[]>('/api/edit-presets') })
   const [selected, setSelected] = useState<string | null>(null)
@@ -33,24 +37,24 @@ export default function PresetControls({ edit, onApply }: {
         setSelected(String(preset.id))
       }
       await qc.invalidateQueries({ queryKey: ['edit-presets'] })
-      notifications.show({ message: action === 'delete' ? '预设已删除' : '预设已保存' })
+      notifications.show({ message: action === 'delete' ? tr("预设已删除") : tr("预设已保存") })
     } catch (error) { message(error) }
     finally { setBusy(false) }
   }
   return (
     <Group align="flex-end" gap="xs">
-      <Select label="编辑预设" placeholder="选择以应用" clearable searchable value={selected}
+      <Select label={tr("编辑预设")} placeholder={tr("选择以应用")} clearable searchable value={selected}
         data={available.map((preset) => ({ value: String(preset.id), label: preset.name }))}
         onChange={(value) => {
           setSelected(value)
           const preset = available.find((item) => String(item.id) === value)
           if (preset) { setName(preset.name); onApply(preset.edit) }
         }} />
-      <TextInput label="预设名称" value={name} maxLength={128} onChange={(event) => setName(event.currentTarget.value)} />
-      <Button variant="light" size="xs" loading={busy} disabled={!name.trim()} onClick={() => void run('create')}>另存预设</Button>
+      <TextInput label={tr("预设名称")} value={name} maxLength={128} onChange={(event) => setName(event.currentTarget.value)} />
+      <Button variant="light" size="xs" loading={busy} disabled={!name.trim()} onClick={() => void run('create')}>{tr("另存预设")}</Button>
       {selected && <>
-        <Button variant="subtle" size="xs" disabled={busy || !name.trim()} onClick={() => void run('update')}>更新预设</Button>
-        <Button variant="subtle" color="red" size="xs" disabled={busy} onClick={() => void run('delete')}>删除预设</Button>
+        <Button variant="subtle" size="xs" disabled={busy || !name.trim()} onClick={() => void run('update')}>{tr("更新预设")}</Button>
+        <Button variant="subtle" color="red" size="xs" disabled={busy} onClick={() => void run('delete')}>{tr("删除预设")}</Button>
       </>}
     </Group>
   )

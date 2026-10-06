@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { Badge, Card, Checkbox, Group, Highlight, Loader, Text } from '@mantine/core'
 import { IconAlertTriangle, IconMovie } from '@tabler/icons-react'
 import { useState, type DragEvent, type MouseEvent } from 'react'
@@ -39,6 +41,8 @@ export function Thumb({ video, hover }: { video: Video; hover: boolean }) {
 }
 
 export default function VideoCard({ video, highlight, selected, selectable, onToggle, onSelect, onDragStart, onContextMenu, onOpen }: Props) {
+  useTranslation()
+
   const [hover, setHover] = useState(false)
   return (
     <Card
@@ -69,7 +73,7 @@ export default function VideoCard({ video, highlight, selected, selectable, onTo
             checked={!!selected}
             onChange={(event) => onToggle(event.nativeEvent as unknown as Modifiers)}
             onClick={(e) => e.stopPropagation()}
-            aria-label="选择"
+            aria-label={tr("选择")}
           />
         )}
         <Thumb video={video} hover={hover} />
@@ -84,14 +88,10 @@ export default function VideoCard({ video, highlight, selected, selectable, onTo
         <VideoRating video={video} />
         <Group gap={6} mt={4} wrap="nowrap">
           {video.status === 'processing' && (
-            <Badge size="xs" variant="light" color="blue">
-              处理中
-            </Badge>
+            <Badge size="xs" variant="light" color="blue">{tr("处理中")}</Badge>
           )}
           {video.status === 'error' && (
-            <Badge size="xs" variant="light" color="red" leftSection={<IconAlertTriangle size={10} />}>
-              出错
-            </Badge>
+            <Badge size="xs" variant="light" color="red" leftSection={<IconAlertTriangle size={10} />}>{tr("出错")}</Badge>
           )}
           <Text size="xs" c="dimmed" truncate>
             {video.width ? `${video.width}×${video.height} · ` : ''}

@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Center, Loader } from '@mantine/core'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
@@ -52,5 +53,6 @@ function AppRoutes() {
 }
 
 export default function App() {
+  useTranslation()
   return <Suspense fallback={<Center mih="100vh"><Loader /></Center>}><AppRoutes /></Suspense>
 }

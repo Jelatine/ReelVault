@@ -5,7 +5,7 @@ import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import { api } from '../lib/api'
 import CollectionAddForm from './CollectionAddForm'
 
-vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn(), post: vi.fn() } }))
 beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))

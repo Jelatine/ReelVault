@@ -1,3 +1,4 @@
+import { currentLanguage, tr } from './i18n'
 export function formatBytes(bytes: number): string {
   if (!bytes) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -25,7 +26,7 @@ export function parseTime(text: string): number | null {
 
 export function formatDate(iso: string | null): string {
   if (!iso) return '-'
-  return new Date(iso).toLocaleString('zh-CN', { hour12: false })
+  return new Date(iso).toLocaleString(currentLanguage() === 'en' ? 'en-US' : 'zh-CN', { hour12: false })
 }
 
 export function guessDeviceName(ua: string = navigator.userAgent): string {
@@ -41,7 +42,7 @@ export function guessDeviceName(ua: string = navigator.userAgent): string {
             ? 'Windows'
             : /Linux/.test(ua)
               ? 'Linux'
-              : '设备'
+              : tr("设备")
   const browser = /Edg\//.test(ua)
     ? 'Edge'
     : /Firefox\//.test(ua)
@@ -50,6 +51,6 @@ export function guessDeviceName(ua: string = navigator.userAgent): string {
         ? 'Chrome'
         : /Safari\//.test(ua)
           ? 'Safari'
-          : '浏览器'
+          : tr("浏览器")
   return `${os} · ${browser}`
 }

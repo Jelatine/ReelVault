@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { Alert, Button, Center, Group, Loader, Paper, Stack, Text, Textarea, TextInput, Title } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQueryClient } from '@tanstack/react-query'
@@ -9,6 +11,8 @@ import { api } from '../lib/api'
 import { playlistUrl, useCollection, type CollectionDetail } from '../lib/collections'
 
 function CollectionView({ collection }: { collection: CollectionDetail }) {
+  useTranslation()
+
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [name, setName] = useState(collection.name)
@@ -34,33 +38,33 @@ function CollectionView({ collection }: { collection: CollectionDetail }) {
     <Group justify="space-between">
       <Title order={3}>{collection.name}</Title>
       <Group>
-        <Button disabled={!playable.length} onClick={() => navigate(playlistUrl(playable[0].id, collection.id))}>播放整个合集</Button>
-        <Button variant="default" component={Link} to="/library">从视频库添加</Button>
+        <Button disabled={!playable.length} onClick={() => navigate(playlistUrl(playable[0].id, collection.id))}>{tr("播放整个合集")}</Button>
+        <Button variant="default" component={Link} to="/library">{tr("从视频库添加")}</Button>
       </Group>
     </Group>
     <Paper withBorder p="md"><Stack>
-      <TextInput label="合集名称" maxLength={128} value={name} onChange={(event) => setName(event.currentTarget.value)} />
-      <Textarea label="合集描述" autosize maxLength={10000} value={description} onChange={(event) => setDescription(event.currentTarget.value)} />
-      <Group><Button loading={busy} disabled={!name.trim()} onClick={() => void run(() => api.put(`/api/collections/${collection.id}`, { name, description }))}>保存</Button>
+      <TextInput label={tr("合集名称")} maxLength={128} value={name} onChange={(event) => setName(event.currentTarget.value)} />
+      <Textarea label={tr("合集描述")} autosize maxLength={10000} value={description} onChange={(event) => setDescription(event.currentTarget.value)} />
+      <Group><Button loading={busy} disabled={!name.trim()} onClick={() => void run(() => api.put(`/api/collections/${collection.id}`, { name, description }))}>{tr("保存")}</Button>
         <Button variant="subtle" color="red" disabled={busy} onClick={async () => {
-          if (!await confirmAction({ title: '删除合集', message: `删除「${collection.name}」？视频文件会保留。`, danger: true })) return
+          if (!await confirmAction({ title: tr("删除合集"), message: tr("删除「{{v0}}」？视频文件会保留。", { v0: collection.name }), danger: true })) return
           try {
             await api.del(`/api/collections/${collection.id}`)
             await qc.invalidateQueries({ queryKey: ['collections'] })
             navigate('/library')
           } catch (error) { notifications.show({ color: 'red', message: error instanceof Error ? error.message : String(error) }) }
-        }}>删除合集</Button>
+        }}>{tr("删除合集")}</Button>
       </Group>
     </Stack></Paper>
-    <Text size="sm" c="dimmed">{collection.count} 个视频 · 使用上移/下移调整播放顺序。播放时跳过尚未就绪的视频。</Text>
-    {collection.items.length === 0 && <Text c="dimmed">合集是空的。到视频库选择视频，再点击「加入合集」。</Text>}
+    <Text size="sm" c="dimmed">{collection.count}{tr(" 个视频 · 使用上移/下移调整播放顺序。播放时跳过尚未就绪的视频。")}</Text>
+    {collection.items.length === 0 && <Text c="dimmed">{tr("合集是空的。到视频库选择视频，再点击「加入合集」。")}</Text>}
     {collection.items.map((video, index) => <Paper key={video.id} withBorder p="xs">
       <Group align="flex-start" wrap="wrap">
         <div style={{ width: 240 }}><VideoCard video={video} onOpen={() => navigate(playlistUrl(video.id, collection.id))} /></div>
         <Stack gap="xs"><Text>{index + 1}. {video.title}</Text><Group>
-          <Button size="xs" variant="light" disabled={busy || index === 0} onClick={() => move(index, -1)} aria-label={`上移 ${video.title}`}>上移</Button>
-          <Button size="xs" variant="light" disabled={busy || index === collection.items.length - 1} onClick={() => move(index, 1)} aria-label={`下移 ${video.title}`}>下移</Button>
-          <Button size="xs" variant="subtle" color="red" disabled={busy} onClick={() => void run(() => api.del(`/api/collections/${collection.id}/items/${video.id}`))}>移出合集</Button>
+          <Button size="xs" variant="light" disabled={busy || index === 0} onClick={() => move(index, -1)} aria-label={tr("上移 {{v0}}", { v0: video.title })}>{tr("上移")}</Button>
+          <Button size="xs" variant="light" disabled={busy || index === collection.items.length - 1} onClick={() => move(index, 1)} aria-label={tr("下移 {{v0}}", { v0: video.title })}>{tr("下移")}</Button>
+          <Button size="xs" variant="subtle" color="red" disabled={busy} onClick={() => void run(() => api.del(`/api/collections/${collection.id}/items/${video.id}`))}>{tr("移出合集")}</Button>
         </Group></Stack>
       </Group>
     </Paper>)}
@@ -68,9 +72,11 @@ function CollectionView({ collection }: { collection: CollectionDetail }) {
 }
 
 export default function CollectionPage() {
+  useTranslation()
+
   const { id } = useParams()
   const collection = useCollection(id)
   if (collection.isLoading) return <Center mih={300}><Loader /></Center>
-  if (collection.error || !collection.data) return <Alert color="red">{collection.error?.message ?? '合集不存在'}</Alert>
+  if (collection.error || !collection.data) return <Alert color="red">{collection.error?.message ?? tr("合集不存在")}</Alert>
   return <CollectionView key={`${id}:${collection.data.name}:${collection.data.description}`} collection={collection.data} />
 }

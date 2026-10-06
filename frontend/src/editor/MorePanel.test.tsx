@@ -7,7 +7,7 @@ import MorePanel from './MorePanel'
 
 vi.mock('./edit', () => ({ defaultOutput: { mode: 'new', title: '' }, useSubmitEdit: () => ({ submit: vi.fn(), busy: false }) }))
 vi.mock('./PresetControls', () => ({ default: () => null }))
-vi.mock('../lib/api', () => ({ api: { get: vi.fn(async () => []) } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn(async () => []) } }))
 beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))

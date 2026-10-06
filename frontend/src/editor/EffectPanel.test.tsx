@@ -7,7 +7,7 @@ import EffectPanel from './EffectPanel'
 
 const mocks = vi.hoisted(() => ({ submit: vi.fn() }))
 vi.mock('./edit', () => ({ defaultOutput: { mode: 'new', title: '' }, useSubmitEdit: () => ({ submit: mocks.submit, busy: false }) }))
-vi.mock('../lib/api', () => ({ api: { get: vi.fn().mockResolvedValue([]) } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn().mockResolvedValue([]) } }))
 beforeAll(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })

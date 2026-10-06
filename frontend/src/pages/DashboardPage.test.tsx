@@ -7,7 +7,7 @@ import { api } from '../lib/api'
 import DashboardPage, { type Dashboard } from './DashboardPage'
 
 vi.mock('../lib/auth', () => ({ useAuth: () => ({ user: { username: 'admin' } }) }))
-vi.mock('../lib/api', () => ({ api: { get: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn() } }))
 vi.mock('../components/VideoCard', () => ({ default: ({ video, onOpen }: { video: { title: string }; onOpen: () => void }) => <button onClick={onOpen}>{video.title}</button> }))
 beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })

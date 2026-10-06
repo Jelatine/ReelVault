@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import { Alert, ActionIcon, Button, Group, NumberInput, RangeSlider, SegmentedControl, Stack, Text } from '@mantine/core'
 import { IconPlayerPlay, IconPlus, IconTrash } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
@@ -17,6 +19,8 @@ interface Seg {
 }
 
 export default function TrimPanel({ video, currentTime, seek, play, pause, setOverlay }: EditorContext) {
+  useTranslation()
+
   const timing = useTiming(video)
   const duration = video.duration
   const [crf, setCrf] = useState(20)
@@ -66,9 +70,7 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
         setMode(params.mode === 'fast' && applied.length <= 1 ? 'fast' : 'precise')
         setActive(0)
       }} />
-      <Text size="sm" c="dimmed">
-        选择要保留的片段。可添加多个片段，将按顺序拼接。
-      </Text>
+      <Text size="sm" c="dimmed">{tr("选择要保留的片段。可添加多个片段，将按顺序拼接。")}</Text>
       {segments.map((s, i) => (
         <Stack
           key={i}
@@ -81,8 +83,7 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
           onClick={() => setActive(i)}
         >
           <Group justify="space-between">
-            <Text size="sm" fw={500}>
-              片段 {i + 1} · {formatDuration(s.end - s.start, true)}
+            <Text size="sm" fw={500}>{tr("片段 ")}{i + 1} · {formatDuration(s.end - s.start, true)}
             </Text>
             <Group gap={4}>
               <ActionIcon
@@ -92,7 +93,7 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
                   previewEnd.current = s.end
                   play()
                 }}
-                aria-label="预览"
+                aria-label={tr("预览")}
               >
                 <IconPlayerPlay size={14} />
               </ActionIcon>
@@ -105,7 +106,7 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
                     setSegments((segs) => segs.filter((_, idx) => idx !== i))
                     setActive(0)
                   }}
-                  aria-label="删除片段"
+                  aria-label={tr("删除片段")}
                 >
                   <IconTrash size={14} />
                 </ActionIcon>
@@ -125,18 +126,14 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
             onChangeEnd={([start]) => seek(start)}
           />
           <Group grow>
-            <TimeInput size="xs" label="开始" value={s.start} max={duration} onChange={(v) => update(i, { start: v })} />
-            <TimeInput size="xs" label="结束" value={s.end} max={duration} onChange={(v) => update(i, { end: v })} />
+            <TimeInput size="xs" label={tr("开始")} value={s.start} max={duration} onChange={(v) => update(i, { start: v })} />
+            <TimeInput size="xs" label={tr("结束")} value={s.end} max={duration} onChange={(v) => update(i, { end: v })} />
           </Group>
         </Stack>
       ))}
       <Group gap="xs">
-        <Button size="xs" variant="light" onClick={() => update(active, { start: currentTime })}>
-          当前时间设为起点
-        </Button>
-        <Button size="xs" variant="light" onClick={() => update(active, { end: currentTime })}>
-          当前时间设为终点
-        </Button>
+        <Button size="xs" variant="light" onClick={() => update(active, { start: currentTime })}>{tr("当前时间设为起点")}</Button>
+        <Button size="xs" variant="light" onClick={() => update(active, { end: currentTime })}>{tr("当前时间设为终点")}</Button>
         <Button
           size="xs"
           variant="default"
@@ -147,42 +144,35 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
             setSegments((segs) => [...segs, { start, end: Math.min(duration, start + 5) }])
             setActive(segments.length)
           }}
-        >
-          添加片段
-        </Button>
+        >{tr("添加片段")}</Button>
       </Group>
       <div>
-        <Text size="sm" mb={4}>
-          剪辑模式
-        </Text>
+        <Text size="sm" mb={4}>{tr("剪辑模式")}</Text>
         <SegmentedControl
           value={mode}
           onChange={(v) => setMode(v as 'precise' | 'fast')}
           data={[
-            { value: 'precise', label: '精确（重新编码）' },
-            { value: 'fast', label: '快速（无损，按关键帧）', disabled: segments.length > 1 },
+            { value: 'precise', label: tr("精确（重新编码）") },
+            { value: 'fast', label: tr("快速（无损，按关键帧）"), disabled: segments.length > 1 },
           ]}
         />
       </div>
       {fast && (
-        <Alert color={actual ? 'blue' : 'orange'} title="快速模式按关键帧吸附">
-          {actual ? <>
-            实际起点 {timecode(actual.start)}，实际终点 {timecode(actual.end)}。音视频流时间基可能使文件时长略有差异。
-            <Button size="xs" variant="subtle" onClick={() => setSegments([actual])}>使用这些切点</Button>
-          </> : '正在读取关键帧，载入后显示实际切点。'}
+        <Alert color={actual ? 'blue' : 'orange'} title={tr("快速模式按关键帧吸附")}>
+          {actual ? <>{tr("实际起点 ")}{timecode(actual.start)}{tr("，实际终点 ")}{timecode(actual.end)}{tr("。音视频流时间基可能使文件时长略有差异。")}<Button size="xs" variant="subtle" onClick={() => setSegments([actual])}>{tr("使用这些切点")}</Button>
+          </> : tr("正在读取关键帧，载入后显示实际切点。")}
         </Alert>
       )}
-      {!fast && <NumberInput label="画质 CRF（越小越清晰）" min={0} max={51} value={crf} onChange={(value) => setCrf(Number(value))} />}
+      {!fast && <NumberInput label={tr("画质 CRF（越小越清晰）")} min={0} max={51} value={crf} onChange={(value) => setCrf(Number(value))} />}
       <OutputFields value={output} onChange={setOutput} />
       <SequencePreview pause={pause} disabled={fast && !actual}
         clips={(actual ? [actual] : segments).map((segment) => ({ video, ...segment }))}
-        note={fast ? '快速模式预览使用吸附后的关键帧切点。' : undefined} />
+        note={fast ? tr("快速模式预览使用吸附后的关键帧切点。") : undefined} />
       <Button
         loading={busy}
         disabled={!seg || (fast && !actual)}
         onClick={() => submit({ op: 'trim', mode: segments.length > 1 ? 'precise' : mode, segments, crf }, output)}
-      >
-        剪辑（输出时长 {formatDuration(total, true)}）
+      >{tr("剪辑（输出时长 ")}{formatDuration(total, true)}{tr('）')}
       </Button>
     </Stack>
   )

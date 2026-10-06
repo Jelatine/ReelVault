@@ -9,7 +9,7 @@ import type { Video } from '../lib/types'
 import BookmarkPanel from './BookmarkPanel'
 import PlayerMarkers from './PlayerMarkers'
 
-vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), del: vi.fn() } }))
 beforeAll(() => {
   Object.defineProperty(document, 'fonts', { configurable:true, value:{ addEventListener() {},removeEventListener() {} } })
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))

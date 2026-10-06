@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
 import {
   Alert,
   Anchor,
@@ -65,6 +67,8 @@ import { useJobs, useVideo } from '../lib/queries'
 import type { Video } from '../lib/types'
 
 function InfoPanel({ video }: { video: Video }) {
+  useTranslation()
+
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [title, setTitle] = useState(video.title)
@@ -85,10 +89,10 @@ function InfoPanel({ video }: { video: Video }) {
   const remove = async () => {
     if (video.deleted_at) {
       const ok = await confirmAction({
-        title: '彻底删除',
-        message: '文件将被永久删除，无法恢复。',
+        title: tr("彻底删除"),
+        message: tr("文件将被永久删除，无法恢复。"),
         danger: true,
-        confirm: '彻底删除',
+        confirm: tr("彻底删除"),
       })
       if (!ok) return
       await api.del(`/api/videos/${video.id}?permanent=true`)
@@ -99,7 +103,7 @@ function InfoPanel({ video }: { video: Video }) {
     await api.del(`/api/videos/${video.id}`)
     qc.invalidateQueries({ queryKey: ['videos'] })
     qc.invalidateQueries({ queryKey: ['folders'] })
-    notifications.show({ message: '已移到回收站' })
+    notifications.show({ message: tr("已移到回收站") })
     navigate(-1)
   }
 
@@ -110,35 +114,35 @@ function InfoPanel({ video }: { video: Video }) {
   }
 
   const rows: [string, string][] = [
-    ['时长', formatDuration(video.duration, true)],
-    ['分辨率', video.width ? `${video.width}×${video.height}` : '-'],
-    ['帧率', video.fps ? `${video.fps} fps` : '-'],
-    ['大小', formatBytes(video.size)],
-    ['码率', video.bitrate ? `${Math.round(video.bitrate / 1000)} kbps` : '-'],
-    ['格式', `${video.container || '-'} · ${video.video_codec || '-'} / ${video.audio_codec ?? '无音频'}`],
-    ['原文件名', video.original_name || '-'],
-    ['上传时间', formatDate(video.created_at)],
+    [tr("时长"), formatDuration(video.duration, true)],
+    [tr("分辨率"), video.width ? `${video.width}×${video.height}` : '-'],
+    [tr("帧率"), video.fps ? `${video.fps} fps` : '-'],
+    [tr("大小"), formatBytes(video.size)],
+    [tr("码率"), video.bitrate ? `${Math.round(video.bitrate / 1000)} kbps` : '-'],
+    [tr("格式"), tr("{{v0}} · {{v1}} / {{v2}}", { v0: video.container || '-', v1: video.video_codec || '-', v2: video.audio_codec ?? tr("无音频") })],
+    [tr("原文件名"), video.original_name || '-'],
+    [tr("上传时间"), formatDate(video.created_at)],
   ]
 
   return (
     <Stack>
       <VideoRating video={video} />
       <TextInput
-        label="标题"
+        label={tr("标题")}
         value={title}
         onChange={(e) => setTitle(e.currentTarget.value)}
         onBlur={() => title.trim() && title !== video.title && save({ title })}
       />
       <Textarea
-        label="描述"
+        label={tr("描述")}
         autosize
         minRows={2}
         value={description}
         onChange={(e) => setDescription(e.currentTarget.value)}
         onBlur={() => description !== video.description && save({ description })}
       />
-      <TagsInput label="标签" value={video.tags} onChange={(tags) => save({ tags })} placeholder="输入后回车" clearable />
-      <FolderSelect label="文件夹" value={video.folder_id} onChange={(folder_id) => save({ folder_id, move: true })} />
+      <TagsInput label={tr("标签")} value={video.tags} onChange={(tags) => save({ tags })} placeholder={tr("输入后回车")} clearable />
+      <FolderSelect label={tr("文件夹")} value={video.folder_id} onChange={(folder_id) => save({ folder_id, move: true })} />
       <Table withRowBorders={false} verticalSpacing={4} fz="sm">
         <Table.Tbody>
           {rows.map(([k, v]) => (
@@ -152,16 +156,12 @@ function InfoPanel({ video }: { video: Video }) {
         </Table.Tbody>
       </Table>
       <Group gap="xs">
-        <Button component="a" href={video.download_url} variant="light" leftSection={<IconDownload size={16} />}>
-          下载原文件
-        </Button>
+        <Button component="a" href={video.download_url} variant="light" leftSection={<IconDownload size={16} />}>{tr("下载原文件")}</Button>
         {video.deleted_at ? (
-          <Button variant="light" leftSection={<IconRestore size={16} />} onClick={restore}>
-            恢复
-          </Button>
+          <Button variant="light" leftSection={<IconRestore size={16} />} onClick={restore}>{tr("恢复")}</Button>
         ) : null}
         <Button variant="light" color="red" leftSection={<IconTrash size={16} />} onClick={remove}>
-          {video.deleted_at ? '彻底删除' : '删除'}
+          {video.deleted_at ? tr("彻底删除") : tr("删除")}
         </Button>
       </Group>
     </Stack>
@@ -169,6 +169,8 @@ function InfoPanel({ video }: { video: Video }) {
 }
 
 export default function VideoPage() {
+  useTranslation()
+
   const { id } = useParams()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
@@ -234,7 +236,7 @@ export default function VideoPage() {
       </Center>
     )
   }
-  if (error || !video) return <Alert color="red">{error instanceof Error ? error.message : '视频不存在'}</Alert>
+  if (error || !video) return <Alert color="red">{error instanceof Error ? error.message : tr("视频不存在")}</Alert>
 
   const videoJobs = (jobs.data ?? []).filter((j) => j.video_ids.includes(video.id)).slice(0, 5)
   const ingest = videoJobs.find((j) => j.kind === 'ingest' && ['running', 'queued', 'paused'].includes(j.status))
@@ -250,17 +252,15 @@ export default function VideoPage() {
   return (
     <Stack>
       <Breadcrumbs>
-        <Anchor component={Link} to="/library">
-          视频库
-        </Anchor>
+        <Anchor component={Link} to="/library">{tr("视频库")}</Anchor>
         <Text truncate maw={400}>
           {video.title}
         </Text>
       </Breadcrumbs>
       {folderMode && folderPlaylist.data && <PlaylistPanel folder={folderPlaylist.data} videoId={video.id} />}
-      {folderMode && folderPlaylist.error && <Alert color="orange">文件夹列表载入失败，自动续播已停止：{folderPlaylist.error.message}</Alert>}
+      {folderMode && folderPlaylist.error && <Alert color="orange">{tr("文件夹列表载入失败，自动续播已停止：")}{folderPlaylist.error.message}</Alert>}
       {!folderMode && collection.data && <PlaylistPanel collection={collection.data} videoId={video.id} />}
-      {!folderMode && collection.error && <Alert color="orange">合集载入失败，自动续播已停止：{collection.error.message}</Alert>}
+      {!folderMode && collection.error && <Alert color="orange">{tr("合集载入失败，自动续播已停止：")}{collection.error.message}</Alert>}
       <Grid gap="lg">
         <Grid.Col span={{ base: 12, lg: 8 }}>
           <Stack>
@@ -309,9 +309,7 @@ export default function VideoPage() {
                 component="a"
                 target="_blank"
                 href={`/api/videos/${video.id}/frame?t=${time.toFixed(2)}`}
-              >
-                截图
-              </Button>
+              >{tr("截图")}</Button>
             </Group>
 
             {ready && <HlsPanel key={`hls:${video.stream_url}`} video={video} data={hls.data}
@@ -331,18 +329,16 @@ export default function VideoPage() {
             {ready && tool === 'trim' && <FrameControls video={video} currentTime={time} seek={seek} pause={pause} />}
 
             {video.status === 'processing' && (
-              <Alert color="blue" title="正在处理">
-                {ingest ? `${ingest.message} ${Math.round(ingest.progress * 100)}%` : '正在生成预览与缩略图…'}
+              <Alert color="blue" title={tr("正在处理")}>
+                {ingest ? `${ingest.message} ${Math.round(ingest.progress * 100)}%` : tr("正在生成预览与缩略图…")}
               </Alert>
             )}
             {video.status === 'error' && (
-              <Alert color="red" title="处理失败">
+              <Alert color="red" title={tr("处理失败")}>
                 <Text size="sm" style={{ whiteSpace: 'pre-wrap' }} lineClamp={6}>
                   {video.error}
                 </Text>
-                <Button size="xs" mt="xs" leftSection={<IconRefresh size={14} />} onClick={reprocess}>
-                  重新处理
-                </Button>
+                <Button size="xs" mt="xs" leftSection={<IconRefresh size={14} />} onClick={reprocess}>{tr("重新处理")}</Button>
               </Alert>
             )}
 
@@ -358,24 +354,12 @@ export default function VideoPage() {
                   keepMounted={false}
                 >
                   <Tabs.List mb="md">
-                    <Tabs.Tab value="trim" leftSection={<IconCut size={14} />}>
-                      剪辑
-                    </Tabs.Tab>
-                    <Tabs.Tab value="rotate" leftSection={<IconRotateClockwise size={14} />}>
-                      旋转
-                    </Tabs.Tab>
-                    <Tabs.Tab value="merge" leftSection={<IconArrowsJoin size={14} />}>
-                      合并
-                    </Tabs.Tab>
-                    <Tabs.Tab value="compress" leftSection={<IconZoomOut size={14} />}>
-                      压缩
-                    </Tabs.Tab>
-                    <Tabs.Tab value="cover" leftSection={<IconPhoto size={14} />}>
-                      封面
-                    </Tabs.Tab>
-                    <Tabs.Tab value="more" leftSection={<IconTool size={14} />}>
-                      更多
-                    </Tabs.Tab>
+                    <Tabs.Tab value="trim" leftSection={<IconCut size={14} />}>{tr("剪辑")}</Tabs.Tab>
+                    <Tabs.Tab value="rotate" leftSection={<IconRotateClockwise size={14} />}>{tr("旋转")}</Tabs.Tab>
+                    <Tabs.Tab value="merge" leftSection={<IconArrowsJoin size={14} />}>{tr("合并")}</Tabs.Tab>
+                    <Tabs.Tab value="compress" leftSection={<IconZoomOut size={14} />}>{tr("压缩")}</Tabs.Tab>
+                    <Tabs.Tab value="cover" leftSection={<IconPhoto size={14} />}>{tr("封面")}</Tabs.Tab>
+                    <Tabs.Tab value="more" leftSection={<IconTool size={14} />}>{tr("更多")}</Tabs.Tab>
                   </Tabs.List>
                   <Tabs.Panel value="trim">
                     <TrimPanel {...ctx} />
@@ -410,9 +394,7 @@ export default function VideoPage() {
             </Paper>
             {videoJobs.length > 0 && (
               <Paper withBorder p="md">
-                <Text fw={600} mb="xs">
-                  相关任务
-                </Text>
+                <Text fw={600} mb="xs">{tr("相关任务")}</Text>
                 <Stack gap="sm">
                   {videoJobs.map((j) => (
                     <JobRow key={j.id} job={j} compact />

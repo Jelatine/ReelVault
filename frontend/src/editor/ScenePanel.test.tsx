@@ -6,7 +6,7 @@ import { api } from '../lib/api'
 import type { Video } from '../lib/types'
 import ScenePanel from './ScenePanel'
 
-vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn(), post: vi.fn() } }))
 beforeAll(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
