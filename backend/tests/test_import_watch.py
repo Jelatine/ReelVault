@@ -20,27 +20,31 @@ def test_watch_real_file_stability_restart_and_source_independence(settings, sam
     with TestClient(create_app(settings), headers=HEADERS) as client:
         login(client)
         importer = client.app.state.importer
-        importer.interval = .1
+        importer.interval = 0.1
         assert client.get("/api/system/import-watch").json()["enabled"] is False
         shutil.copy2(samples["a"], path)
         assert client.get("/api/videos").json()["total"] == 0
-        assert client.put("/api/system/import-watch", json={"enabled": True,
-            "stable_seconds": 2}).status_code == 200
+        assert (
+            client.put(
+                "/api/system/import-watch", json={"enabled": True, "stable_seconds": 2}
+            ).status_code
+            == 200
+        )
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline and str(path) not in importer._seen:
-            time.sleep(.05)
+            time.sleep(0.05)
         assert str(path) in importer._seen
         # A changing file starts the stability timer again.
-        time.sleep(.3)
+        time.sleep(0.3)
         path.touch()
-        time.sleep(.4)
+        time.sleep(0.4)
         assert client.get("/api/videos").json()["total"] == 0
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
             videos = client.get("/api/videos").json()["items"]
             if videos:
                 break
-            time.sleep(.1)
+            time.sleep(0.1)
         assert len(videos) == 1
         video = wait_ready(client, videos[0]["id"])
         with client.app.state.sessionmaker() as db:
@@ -95,8 +99,12 @@ def test_watch_auth_invalid_config_and_range(anon, settings):
     login(anon)
     assert anon.put("/api/system/import-watch", json={"enabled": True}).status_code == 400
     assert anon.post("/api/system/import").status_code == 400
-    assert anon.put("/api/system/import-watch", json={"enabled": False,
-        "stable_seconds": 1}).status_code == 422
+    assert (
+        anon.put(
+            "/api/system/import-watch", json={"enabled": False, "stable_seconds": 1}
+        ).status_code
+        == 422
+    )
     settings.import_dir = settings.data_dir
     assert anon.put("/api/system/import-watch", json={"enabled": True}).status_code == 400
     assert anon.post("/api/system/import").status_code == 400
@@ -111,8 +119,15 @@ def test_upload_and_import_migrations_preserve_legacy_rows(tmp_path):
     upgrade(engine)
     with Session(engine) as db:
         db.add(Upload(id="u" * 32, filename="a.mp4", size=10, received=4))
-        db.add(Video(id="v" * 32, title="legacy", original_name="old.mp4",
-            file_path="library/old.mp4", source_path="/incoming/old.mp4"))
+        db.add(
+            Video(
+                id="v" * 32,
+                title="legacy",
+                original_name="old.mp4",
+                file_path="library/old.mp4",
+                source_path="/incoming/old.mp4",
+            )
+        )
         db.commit()
     command.downgrade(cfg, "0016")
     upgrade(engine)

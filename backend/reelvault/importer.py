@@ -46,10 +46,17 @@ class Importer:
 
     def status(self) -> dict[str, Any]:
         root = self.settings.import_dir
-        return {"directory": str(root) if root else None, "available": bool(root and root.is_dir()),
-                "enabled": self.enabled, "stable_seconds": self.stable_seconds,
-                "interval_seconds": self.interval, "last_scan": self.last_scan,
-                "imported": self.imported, "error": self.error, "scanning": self._lock.locked()}
+        return {
+            "directory": str(root) if root else None,
+            "available": bool(root and root.is_dir()),
+            "enabled": self.enabled,
+            "stable_seconds": self.stable_seconds,
+            "interval_seconds": self.interval,
+            "last_scan": self.last_scan,
+            "imported": self.imported,
+            "error": self.error,
+            "scanning": self._lock.locked(),
+        }
 
     def configure(self, enabled: bool, stable_seconds: int) -> None:
         self.enabled, self.stable_seconds = enabled, stable_seconds
@@ -94,21 +101,33 @@ class Importer:
             present: set[str] = set()
             with self.sessions() as db:
                 known = {str(Path(p).resolve()) for p in db.scalars(select(ImportSource.path))}
-                known.update(str(Path(p).resolve()) for p in db.scalars(
-                    select(Video.source_path).where(Video.source_path.is_not(None))) if p is not None)
+                known.update(
+                    str(Path(p).resolve())
+                    for p in db.scalars(
+                        select(Video.source_path).where(Video.source_path.is_not(None))
+                    )
+                    if p is not None
+                )
                 for directory, dirs, files in os.walk(root, followlinks=False):
                     dirs[:] = sorted(
-                        d for d in dirs if not (Path(directory) / d).is_symlink()
-                        and not (Path(directory) / d).resolve().is_relative_to(
-                            self.settings.data_dir.resolve())
+                        d
+                        for d in dirs
+                        if not (Path(directory) / d).is_symlink()
+                        and not (Path(directory) / d)
+                        .resolve()
+                        .is_relative_to(self.settings.data_dir.resolve())
                     )
                     for name in sorted(files):
                         if watch and (not self.enabled or self._stopped):
                             break
                         path = Path(directory) / name
                         key = str(path)
-                        if (key in known or path.suffix.lower() not in VIDEO_EXTENSIONS
-                                or path.is_symlink() or not path.resolve().is_relative_to(root)):
+                        if (
+                            key in known
+                            or path.suffix.lower() not in VIDEO_EXTENSIONS
+                            or path.is_symlink()
+                            or not path.resolve().is_relative_to(root)
+                        ):
                             continue
                         try:
                             stat = path.stat()
@@ -127,22 +146,31 @@ class Importer:
                             if stat.st_size > shutil.disk_usage(self.settings.data_dir).free:
                                 raise OSError("磁盘空间不足，无法导入视频")
                             snapshot = self.settings.tmp_dir / (
-                                f"import-{new_id()}{path.suffix.lower()}")
+                                f"import-{new_id()}{path.suffix.lower()}"
+                            )
                             video = None
                             try:
                                 # Later source edits cannot mutate this independent copy.
                                 shutil.copy2(path, snapshot, follow_symlinks=False)
                                 after = path.stat()
-                                if (path.is_symlink()
-                                        or (after.st_size, after.st_mtime_ns) != signature):
+                                if (
+                                    path.is_symlink()
+                                    or (after.st_size, after.st_mtime_ns) != signature
+                                ):
                                     self._seen.pop(key, None)
                                     continue
                                 if snapshot.is_symlink() or snapshot.stat().st_size != stat.st_size:
                                     continue
                                 video = store_file(
-                                    db, self.settings, snapshot, title=stem_of(name),
-                                    original_name=name, folder_id=None,
-                                    source_path=key, commit=False)
+                                    db,
+                                    self.settings,
+                                    snapshot,
+                                    title=stem_of(name),
+                                    original_name=name,
+                                    folder_id=None,
+                                    source_path=key,
+                                    commit=False,
+                                )
                                 db.add(ImportSource(path=key))
                                 self.jobs.submit(db, "ingest", {}, [video.id])
                             except Exception:

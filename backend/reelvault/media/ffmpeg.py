@@ -80,7 +80,7 @@ async def run_command(
     if handle:
         await handle.checkpoint()
     track = on_progress is not None and duration > 0
-    if cwd is not None and '/' in args[0] and not Path(args[0]).is_absolute():
+    if cwd is not None and "/" in args[0] and not Path(args[0]).is_absolute():
         args = [str(Path(args[0]).resolve()), *args[1:]]
     proc = await asyncio.create_subprocess_exec(
         *args,

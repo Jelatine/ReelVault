@@ -137,14 +137,18 @@ class ImportWatchPreference(BaseModel):
 
 
 @router.put("/api/system/import-watch", dependencies=[Depends(require_auth)])
-def configure_import_watch(body: ImportWatchPreference, request: Request,
-                           db: Session = Depends(get_db)) -> dict[str, Any]:
+def configure_import_watch(
+    body: ImportWatchPreference, request: Request, db: Session = Depends(get_db)
+) -> dict[str, Any]:
     importer: Importer = request.app.state.importer
     if body.enabled and not importer.status()["available"]:
         raise HTTPException(400, "未配置可用的导入目录 REELVAULT_IMPORT_DIR")
     root = importer.settings.import_dir
-    if (body.enabled and root
-            and root.resolve().is_relative_to(importer.settings.data_dir.resolve())):
+    if (
+        body.enabled
+        and root
+        and root.resolve().is_relative_to(importer.settings.data_dir.resolve())
+    ):
         raise HTTPException(400, "导入目录不能位于 ReelVault 数据目录内")
     value = body.model_dump()
     saved = db.get(RuntimeSetting, "import_watch")

@@ -86,8 +86,13 @@ class UploadInit(BaseModel):
         parts = (self.relative_path or self.filename).split("/")
         if (
             len(parts) > 33
-            or any(not p.strip() or p in (".", "..") or len(p) > 255
-                   or any(c in p for c in ("\\", "\x00", ":")) for p in parts)
+            or any(
+                not p.strip()
+                or p in (".", "..")
+                or len(p) > 255
+                or any(c in p for c in ("\\", "\x00", ":"))
+                for p in parts
+            )
             or parts[-1] != self.filename
             or "/" in self.filename
         ):
@@ -126,8 +131,13 @@ def init_upload(
     free = shutil.disk_usage(settings.data_dir).free
     if body.size > free:
         raise HTTPException(status.HTTP_507_INSUFFICIENT_STORAGE, "磁盘空间不足")
-    upload = Upload(filename=body.filename, size=body.size, folder_id=body.folder_id,
-                    relative_path=body.relative_path, tags=body.tags)
+    upload = Upload(
+        filename=body.filename,
+        size=body.size,
+        folder_id=body.folder_id,
+        relative_path=body.relative_path,
+        tags=body.tags,
+    )
     db.add(upload)
     db.commit()
     _upload_path(settings, upload.id).touch()

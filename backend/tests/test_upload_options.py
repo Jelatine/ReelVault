@@ -11,10 +11,16 @@ def test_folder_upload_options_persist_and_share_hierarchy(client, samples):
     data = samples["a"].read_bytes()
     ids = []
     for relative in ("Trip/day1/clip.mp4", "Trip/day1/other.mp4", "Trip/day2/clip.mp4"):
-        result = client.post("/api/uploads", json={
-            "filename": relative.split("/")[-1], "size": len(data), "folder_id": target,
-            "relative_path": relative, "tags": [" travel ", "travel", "family"],
-        })
+        result = client.post(
+            "/api/uploads",
+            json={
+                "filename": relative.split("/")[-1],
+                "size": len(data),
+                "folder_id": target,
+                "relative_path": relative,
+                "tags": [" travel ", "travel", "family"],
+            },
+        )
         assert result.status_code == 200, result.text
         upload = result.json()
         assert client.get(f"/api/uploads/{upload['id']}").json()["relative_path"] == relative
@@ -36,19 +42,40 @@ def test_folder_upload_options_persist_and_share_hierarchy(client, samples):
     assert all(f["parent_id"] == trip["id"] for f in folders if f["name"].startswith("day"))
 
 
-@pytest.mark.parametrize("relative", ["/a.mp4", "../a.mp4", "Trip/../a.mp4", "Trip//a.mp4",
-    "Trip/./a.mp4", "C:\\Trip\\a.mp4", "Trip/other.mp4", "Trip/\x00/a.mp4", "x/" * 33 + "a.mp4"])
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "/a.mp4",
+        "../a.mp4",
+        "Trip/../a.mp4",
+        "Trip//a.mp4",
+        "Trip/./a.mp4",
+        "C:\\Trip\\a.mp4",
+        "Trip/other.mp4",
+        "Trip/\x00/a.mp4",
+        "x/" * 33 + "a.mp4",
+    ],
+)
 def test_upload_rejects_unsafe_paths(client, relative):
-    assert client.post("/api/uploads", json={"filename": "a.mp4", "size": 8,
-        "relative_path": relative}).status_code == 422
+    assert (
+        client.post(
+            "/api/uploads", json={"filename": "a.mp4", "size": 8, "relative_path": relative}
+        ).status_code
+        == 422
+    )
     assert client.get("/api/folders").json() == []
 
 
 def test_cancel_and_deleted_destination(client, samples):
     folder = client.post("/api/folders", json={"name": "destination"}).json()["id"]
     data = samples["a"].read_bytes()
-    body = {"filename": "a.mp4", "size": len(data), "folder_id": folder,
-            "relative_path": "Trip/a.mp4", "tags": ["family"]}
+    body = {
+        "filename": "a.mp4",
+        "size": len(data),
+        "folder_id": folder,
+        "relative_path": "Trip/a.mp4",
+        "tags": ["family"],
+    }
     up = client.post("/api/uploads", json=body).json()["id"]
     assert client.delete(f"/api/uploads/{up}").status_code == 200
     assert client.get(f"/api/uploads/{up}").status_code == 404
@@ -61,14 +88,31 @@ def test_cancel_and_deleted_destination(client, samples):
 
 
 def test_upload_options_require_login(anon: TestClient):
-    assert anon.post("/api/uploads", json={"filename": "a.mp4", "size": 8,
-        "relative_path": "Trip/a.mp4", "tags": ["private"]}).status_code == 401
+    assert (
+        anon.post(
+            "/api/uploads",
+            json={
+                "filename": "a.mp4",
+                "size": 8,
+                "relative_path": "Trip/a.mp4",
+                "tags": ["private"],
+            },
+        ).status_code
+        == 401
+    )
 
 
 def test_failed_completion_restores_part_and_rolls_back_folders(client, samples, monkeypatch):
     data = samples["a"].read_bytes()
-    upload = client.post("/api/uploads", json={"filename": "a.mp4", "size": len(data),
-        "relative_path": "Trip/day1/a.mp4", "tags": ["family"]}).json()["id"]
+    upload = client.post(
+        "/api/uploads",
+        json={
+            "filename": "a.mp4",
+            "size": len(data),
+            "relative_path": "Trip/day1/a.mp4",
+            "tags": ["family"],
+        },
+    ).json()["id"]
     client.put(f"/api/uploads/{upload}?offset=0", content=data)
 
     def fail(*args, **kwargs):
