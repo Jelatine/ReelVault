@@ -14,6 +14,7 @@ import PlayerMarkers from './PlayerMarkers'
 import { chapterVtt } from '../lib/bookmarks'
 import './player-markers.css'
 import type { Bookmark, Chapter } from '../lib/bookmarks'
+import { usePlaybackPreferences, validLoop, type LoopRange } from '../lib/playback'
 import { useSubtitles } from '../lib/subtitles'
 
 interface Props {
@@ -24,15 +25,18 @@ interface Props {
   bookmarks?: Bookmark[]
   chapters?: Chapter[]
   playbackRate?: number
+  loopRange?: LoopRange
 }
 
-const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, onEnded, playbackRate, bookmarks = [], chapters = [] }, ref) {
+const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, onEnded, playbackRate, loopRange, bookmarks = [], chapters = [] }, ref) {
   const player = useRef<MediaPlayerInstance>(null)
   const mergedRef = useMergedRef(player, ref)
   const played = useRef(false)
   const [hasPlayed, setHasPlayed] = useState(false)
   const lastReport = useRef(0)
   const qc = useQueryClient()
+  const { preferences, save } = usePlaybackPreferences()
+  const looping = validLoop(loopRange, video.duration)
   const subtitles = useSubtitles(video.id)
   const endpoint = `/api/videos/${video.id}/playback`
   const history = useQuery({
@@ -85,7 +89,11 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
       src={{ src: video.stream_url, type }}
       playsInline
       autoPlay={autoPlay}
-      playbackRate={playbackRate}
+      playbackRate={playbackRate ?? preferences.rate}
+      volume={preferences.volume}
+      muted={preferences.muted}
+      onRateChange={(rate) => { if (playbackRate == null) save({ rate }) }}
+      onVolumeChange={({ volume, muted }) => save({ volume, muted })}
       crossOrigin
       keyShortcuts={{
         togglePaused: 'k Space',
@@ -107,8 +115,21 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
         }
       }}
       onPause={() => report(player.current?.currentTime ?? 0)}
-      onEnded={() => { report(0); onEnded?.() }}
+      onEnded={() => {
+        if (looping && player.current) {
+          player.current.currentTime = loopRange.start
+          void player.current.play().catch(() => {})
+          return
+        }
+        report(0); onEnded?.()
+      }}
       onTimeUpdate={(detail) => {
+        if (looping && player.current && !player.current.state.paused
+          && (detail.currentTime >= loopRange.end || detail.currentTime < loopRange.start)) {
+          player.current.currentTime = loopRange.start
+          onTimeUpdate?.(loopRange.start)
+          return
+        }
         onTimeUpdate?.(detail.currentTime)
         if (Date.now() - lastReport.current >= 10_000) report(detail.currentTime)
       }}

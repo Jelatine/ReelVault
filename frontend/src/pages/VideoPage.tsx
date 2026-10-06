@@ -18,7 +18,7 @@ import {
   TextInput,
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MediaPlayerInstance } from '@vidstack/react'
 import {
   IconArrowsJoin,
@@ -41,6 +41,8 @@ import Player from '../components/Player'
 import BookmarkPanel from '../components/BookmarkPanel'
 import { useBookmarks } from '../lib/bookmarks'
 import EditHistory from '../components/EditHistory'
+import PlaybackPanel from '../components/PlaybackPanel'
+import { usePlaybackPreferences, type LoopRange } from '../lib/playback'
 import PlaylistPanel from '../components/PlaylistPanel'
 import { playlistNeighbors, playlistUrl, useCollection } from '../lib/collections'
 import VideoRating from '../components/VideoRating'
@@ -170,6 +172,17 @@ export default function VideoPage() {
   const collectionId = params.get('collection')
   const collection = useCollection(collectionId)
   const { data: video, isLoading, error } = useVideo(id)
+  const folderMode = params.get('playlist') === 'folder'
+  const folderPlaylist = useQuery({
+    queryKey: ['folder-playlist', id, video?.folder_id],
+    queryFn: () => api.get<{ name: string; items: Video[] }>(`/api/videos/${id}/playlist`),
+    enabled: folderMode && !!video && !video.deleted_at,
+    refetchInterval: 3000,
+  })
+  const { preferences, save: savePreferences } = usePlaybackPreferences()
+  const [loopRange, setLoopRange] = useState<LoopRange>()
+  const [loopKey, setLoopKey] = useState(video?.stream_url)
+  if (loopKey !== video?.stream_url) { setLoopKey(video?.stream_url); setLoopRange(undefined) }
   const markers = useBookmarks(video)
   const jobs = useJobs()
   const player = useRef<MediaPlayerInstance>(null)
@@ -223,21 +236,29 @@ export default function VideoPage() {
           {video.title}
         </Text>
       </Breadcrumbs>
-      {collection.data && <PlaylistPanel collection={collection.data} videoId={video.id} />}
-      {collection.error && <Alert color="orange">合集载入失败，自动续播已停止：{collection.error.message}</Alert>}
+      {folderMode && folderPlaylist.data && <PlaylistPanel folder={folderPlaylist.data} videoId={video.id} />}
+      {folderMode && folderPlaylist.error && <Alert color="orange">文件夹列表载入失败，自动续播已停止：{folderPlaylist.error.message}</Alert>}
+      {!folderMode && collection.data && <PlaylistPanel collection={collection.data} videoId={video.id} />}
+      {!folderMode && collection.error && <Alert color="orange">合集载入失败，自动续播已停止：{collection.error.message}</Alert>}
       <Grid gap="lg">
         <Grid.Col span={{ base: 12, lg: 8 }}>
           <Stack>
             <Box className="player-wrap" pos="relative" mx="auto" w="100%" maw={maxW}
               style={{ '--rv-transform': overlay.transform ?? 'none' } as React.CSSProperties}>
-              <Player key={video.stream_url} ref={player} video={video} onTimeUpdate={setTime}
+              <Player key={`player:${video.stream_url}`} ref={player} video={video} onTimeUpdate={setTime}
                 bookmarks={markers.data?.bookmarks} chapters={markers.data?.chapters}
-                playbackRate={overlay.playbackRate ?? 1}
+                playbackRate={overlay.playbackRate} loopRange={loopRange}
                 autoPlay={params.get('autoplay') === '1' && ready}
                 onEnded={() => {
-                  if (!collection.data || collection.error || !ready) return
-                  const next = playlistNeighbors(collection.data.items, video.id).next
-                  if (next) navigate(playlistUrl(next.id, collection.data.id))
+                  if (!preferences.autoNext || !ready) return
+                  if (folderMode) {
+                    if (!folderPlaylist.data || folderPlaylist.error) return
+                    const next = playlistNeighbors(folderPlaylist.data.items, video.id).next
+                    if (next) navigate(`/videos/${next.id}?playlist=folder&autoplay=1`)
+                  } else if (collection.data && !collection.error) {
+                    const next = playlistNeighbors(collection.data.items, video.id).next
+                    if (next) navigate(playlistUrl(next.id, collection.data.id))
+                  }
                 }} />
               {overlay.crop && video.width > 0 && (
                 <div
@@ -270,7 +291,17 @@ export default function VideoPage() {
               </Button>
             </Group>
 
-            {ready && <BookmarkPanel key={video.stream_url} video={video} currentTime={time} seek={seek} />}
+            {ready && <PlaybackPanel key={`playback:${video.stream_url}`} duration={video.duration} currentTime={time}
+              loop={loopRange} onLoop={setLoopRange} autoNext={preferences.autoNext}
+              onAutoNext={(autoNext) => savePreferences({ autoNext })} folderMode={folderMode}
+              onFolderMode={() => {
+                const next = new URLSearchParams(params)
+                if (folderMode) next.delete('playlist')
+                else { next.set('playlist', 'folder'); next.delete('collection') }
+                setParams(next)
+              }} />}
+
+            {ready && <BookmarkPanel key={`bookmarks:${video.stream_url}`} video={video} currentTime={time} seek={seek} />}
 
             {ready && tool === 'trim' && <FrameControls video={video} currentTime={time} seek={seek} pause={pause} />}
 

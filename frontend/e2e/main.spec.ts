@@ -622,3 +622,78 @@ test('GIF 与 WebP 片段导出、下载和浏览器解码', async ({ page }) =>
     expect(size).toEqual({ width: 160, height: 120 })
   }
 })
+
+test('A-B 真实循环、播放偏好记忆、原生画中画与文件夹和合集续播', async ({ page }, testInfo) => {
+  await login(page)
+  const headers = { 'X-Requested-With': 'ReelVault' }
+  const folder = await (await page.request.post('/api/folders', { headers, data: { name: '连续播放测试' } })).json()
+  const sample = execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=25:duration=4',
+    '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+    '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1'])
+  const videos: { id: string }[] = []
+  for (const filename of ['playlist-first.mp4', 'playlist-last.mp4']) {
+    const upload = await (await page.request.post('/api/uploads', { headers, data: { filename, size: sample.length, folder_id: folder.id } })).json()
+    const chunk = await page.request.put(`/api/uploads/${upload.id}?offset=0`, { headers, data: sample })
+    expect(chunk.ok()).toBeTruthy()
+    const video = await (await page.request.post(`/api/uploads/${upload.id}/complete`, { headers })).json()
+    await expect.poll(async () => (await (await page.request.get(`/api/videos/${video.id}`)).json()).status, { timeout: 60_000 }).toBe('ready')
+    videos.push(video)
+  }
+  await page.goto(`/videos/${videos[0].id}`)
+  const player = page.locator('[data-media-player]')
+  const native = page.locator('video')
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThan(1)
+  await native.evaluate((v: HTMLVideoElement) => { v.playbackRate = 1.5; v.volume = 0.35; v.muted = true })
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('reelvault:playback:e2e-admin') ?? '{}').rate)).toBe(1.5)
+  await page.reload()
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.playbackRate)).toBe(1.5)
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.volume)).toBeCloseTo(0.35, 2)
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.muted)).toBe(true)
+  await page.getByLabel('循环 A 点', { exact: true }).fill('0.6')
+  await page.getByLabel('循环 A 点', { exact: true }).blur()
+  await page.getByLabel('循环 B 点', { exact: true }).fill('1.4')
+  await page.getByLabel('循环 B 点', { exact: true }).blur()
+  await page.getByRole('switch', { name: 'A-B 循环', exact: true }).check()
+  await native.evaluate((v: HTMLVideoElement) => {
+    v.dataset.loops = '0'
+    let previous = 0
+    v.addEventListener('timeupdate', () => {
+      if (previous > 1.3 && v.currentTime < 0.9) v.dataset.loops = String(Number(v.dataset.loops) + 1)
+      previous = v.currentTime
+    })
+    return v.play()
+  })
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => Number(v.dataset.loops))).toBeGreaterThanOrEqual(2)
+  await native.evaluate((v: HTMLVideoElement) => v.pause())
+  await player.hover()
+  const pip = player.locator('.vds-pip-button')
+  await expect(pip).toBeVisible()
+  await pip.click()
+  await expect.poll(() => page.evaluate(() => document.pictureInPictureElement?.tagName)).toBe('VIDEO')
+  await pip.click()
+  await expect.poll(() => page.evaluate(() => document.pictureInPictureElement === null)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('playback-enhancement.png'), fullPage: true })
+  await page.getByRole('switch', { name: 'A-B 循环', exact: true }).uncheck()
+  await page.getByRole('button', { name: '同文件夹播放列表', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: '文件夹播放列表', exact: true })).toBeVisible()
+  await page.getByRole('switch', { name: '自动播放下一项', exact: true }).uncheck()
+  await native.evaluate((v: HTMLVideoElement) => { v.currentTime = 3.7; return v.play() })
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.ended)).toBe(true)
+  await expect(page).toHaveURL(new RegExp(`/videos/${videos[0].id}\\?playlist=folder`))
+  await page.getByRole('switch', { name: '自动播放下一项', exact: true }).check()
+  await native.evaluate((v: HTMLVideoElement) => { v.currentTime = 3.7; return v.play() })
+  await expect(page).toHaveURL(new RegExp(`/videos/${videos[1].id}\\?playlist=folder&autoplay=1`))
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.paused)).toBe(false)
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.playbackRate)).toBe(1.5)
+  await native.evaluate((v: HTMLVideoElement) => { v.currentTime = 3.7 })
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.ended)).toBe(true)
+  await expect(page.getByRole('button', { name: '下一项', exact: true })).toBeDisabled()
+  const collection = await (await page.request.post('/api/collections', { headers,
+    data: { name: '合集续播测试', video_ids: [videos[1].id, videos[0].id] } })).json()
+  await page.goto(`/videos/${videos[1].id}?collection=${collection.id}`)
+  await expect(page.getByRole('combobox', { name: '合集播放列表', exact: true })).toBeVisible()
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThan(1)
+  await native.evaluate((v: HTMLVideoElement) => { v.currentTime = 3.7; return v.play() })
+  await expect(page).toHaveURL(new RegExp(`/videos/${videos[0].id}\\?collection=${collection.id}&autoplay=1`))
+  await expect.poll(() => native.evaluate((v: HTMLVideoElement) => v.paused)).toBe(false)
+})

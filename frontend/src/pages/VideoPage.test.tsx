@@ -34,7 +34,7 @@ beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
 })
-afterEach(cleanup)
+afterEach(() => { cleanup(); localStorage.clear() })
 
 test('finishing a collection video automatically opens the next ready member and stops at the last', () => {
   function Location() { const location = useLocation(); return <output data-testid="location">{location.pathname + location.search}</output> }
@@ -43,6 +43,10 @@ test('finishing a collection video automatically opens the next ready member and
     <Routes><Route path="videos/:id" element={<VideoPage />} /></Routes><Location />
   </MemoryRouter></QueryClientProvider></MantineProvider>)
   expect(screen.getByTestId('autoplay').textContent).toBe('true')
+  fireEvent.click(screen.getByRole('switch', { name: '自动播放下一项' }))
+  fireEvent.click(screen.getByText('结束播放'))
+  expect(screen.getByTestId('location').textContent).toBe('/videos/a?collection=7&autoplay=1')
+  fireEvent.click(screen.getByRole('switch', { name: '自动播放下一项' }))
   fireEvent.click(screen.getByText('结束播放'))
   expect(screen.getByTestId('location').textContent).toBe('/videos/b?collection=7&autoplay=1')
   fireEvent.click(screen.getByText('结束播放'))

@@ -6,7 +6,7 @@ import { api } from '../lib/api'
 import type { Video } from '../lib/types'
 import Player from './Player'
 
-const media = vi.hoisted(() => ({ currentTime: 0, state: { ended: false }, play: vi.fn() }))
+const media = vi.hoisted(() => ({ currentTime: 0, state: { ended: false, paused: false }, play: vi.fn(async () => {}) }))
 vi.mock('../lib/api', () => ({ api: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }))
 vi.mock('@mantine/core', () => ({
   Button: ({ children, onClick }: { children: ReactNode; onClick: () => void }) => <button onClick={onClick}>{children}</button>,
@@ -16,10 +16,17 @@ vi.mock('@mantine/core', () => ({
 vi.mock('@vidstack/react', () => ({
   MediaPlayer: forwardRef(function MockPlayer(props: {
     children: ReactNode; onPlaying: () => void; onPause: () => void;
+    onRateChange: (rate: number) => void; onVolumeChange: (detail: {volume: number; muted: boolean}) => void;
+    playbackRate: number; volume: number; muted: boolean;
     onEnded: () => void; onTimeUpdate: (detail: { currentTime: number }) => void;
   }, ref) {
     useImperativeHandle(ref, () => media)
     return <div>
+      <output data-testid="rate">{props.playbackRate}</output>
+      <output data-testid="volume">{props.volume}</output>
+      <output data-testid="muted">{String(props.muted)}</output>
+      <button onClick={() => props.onRateChange(1.5)}>rate event</button>
+      <button onClick={() => props.onVolumeChange({ volume: 0.35, muted: true })}>volume event</button>
       <button onClick={props.onPlaying}>play event</button>
       <button onClick={props.onPause}>pause event</button>
       <button onClick={props.onEnded}>end event</button>
@@ -37,6 +44,7 @@ vi.mock('@vidstack/react/player/layouts/default', () => ({
 
 afterEach(() => {
   cleanup()
+  localStorage.clear()
   vi.restoreAllMocks()
   vi.clearAllMocks()
 })
@@ -82,5 +90,66 @@ test('resume, count once per opening, report every ten seconds and flush on exit
   expect(ended).toHaveBeenCalledOnce()
   mounted.unmount()
   expect(fetchMock).toHaveBeenLastCalledWith('/api/videos/one/playback', expect.objectContaining({ body: '{"position":0}' }))
+  client.clear()
+})
+
+
+test('A-B repeats while playing, allows paused seeking and suppresses playlist advancement at EOF', () => {
+  vi.mocked(api.get).mockResolvedValue([])
+  const client = new QueryClient()
+  const video = { id: 'loop', duration: 4, stream_url: '/loop' } as Video
+  const ended = vi.fn()
+  const range = { start: 1, end: 2 }
+  media.state.paused = false
+  render(<QueryClientProvider client={client}><Player video={video} loopRange={range} onEnded={ended} /></QueryClientProvider>)
+  media.currentTime = 2.1
+  fireEvent.click(screen.getByText('time event'))
+  expect(media.currentTime).toBe(1)
+  media.state.paused = true
+  media.currentTime = 3
+  fireEvent.click(screen.getByText('time event'))
+  expect(media.currentTime).toBe(3)
+  fireEvent.click(screen.getByText('end event'))
+  expect(media.currentTime).toBe(1)
+  expect(media.play).toHaveBeenCalledOnce()
+  expect(ended).not.toHaveBeenCalled()
+  client.clear()
+})
+
+test('rate and volume persist per account; editor rate override does not overwrite preference', () => {
+  vi.mocked(api.get).mockResolvedValue([])
+  const client = new QueryClient()
+  client.setQueryData(['auth'], { user: { username: 'alice' } })
+  const video = { id: 'prefs', duration: 4, stream_url: '/prefs' } as Video
+  const view = (rate?: number) => <QueryClientProvider client={client}><Player video={video} playbackRate={rate} /></QueryClientProvider>
+  const mounted = render(view())
+  fireEvent.click(screen.getByText('rate event'))
+  fireEvent.click(screen.getByText('volume event'))
+  expect(screen.getByTestId('rate').textContent).toBe('1.5')
+  expect(screen.getByTestId('volume').textContent).toBe('0.35')
+  expect(screen.getByTestId('muted').textContent).toBe('true')
+  mounted.rerender(view(0.5))
+  fireEvent.click(screen.getByText('rate event'))
+  mounted.rerender(view())
+  expect(screen.getByTestId('rate').textContent).toBe('1.5')
+  client.setQueryData(['auth'], { user: { username: 'bob' } })
+  mounted.rerender(view())
+  expect(screen.getByTestId('rate').textContent).toBe('1')
+  expect(screen.getByTestId('volume').textContent).toBe('1')
+  client.clear()
+})
+
+
+test('blocked browser storage still allows changing rate and volume for this page session', () => {
+  vi.mocked(api.get).mockResolvedValue([])
+  const client = new QueryClient()
+  client.setQueryData(['auth'], { user: { username: 'blocked-storage' } })
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+  const video = { id: 'blocked', duration: 4, stream_url: '/blocked' } as Video
+  render(<QueryClientProvider client={client}><Player video={video} /></QueryClientProvider>)
+  fireEvent.click(screen.getByText('rate event'))
+  fireEvent.click(screen.getByText('volume event'))
+  expect(screen.getByTestId('rate').textContent).toBe('1.5')
+  expect(screen.getByTestId('volume').textContent).toBe('0.35')
   client.clear()
 })

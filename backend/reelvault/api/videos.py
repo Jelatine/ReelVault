@@ -45,6 +45,20 @@ def get_video(db: Session, video_id: str, *, allow_deleted: bool = False) -> Vid
     return video
 
 
+@router.get("/videos/{video_id}/playlist")
+def folder_playlist(video_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    video = get_video(db, video_id)
+    folder = db.get(Folder, video.folder_id) if video.folder_id is not None else None
+    items = db.scalars(
+        select(Video)
+        .where(
+            Video.folder_id == video.folder_id, Video.status == "ready", Video.deleted_at.is_(None)
+        )
+        .order_by(Video.created_at, Video.id)
+    ).all()
+    return {"name": folder.name if folder else "未分类", "items": [video_to_dict(v) for v in items]}
+
+
 def set_tags(db: Session, video: Video, names: list[str]) -> None:
     clean = sorted({n.strip()[:64] for n in names if n.strip()})
     tags = []
