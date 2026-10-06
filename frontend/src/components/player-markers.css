@@ -1,0 +1,7 @@
+.vds-controls-group:has(> .rv-player-markers) { position: relative; }
+.rv-player-markers { position: absolute; top: 15.5px; left: calc(12px + var(--media-slider-thumb-size, 15px) / 2); right: calc(12px + var(--media-slider-thumb-size, 15px) / 2); height: 14px; pointer-events: none; z-index: 5; }
+.rv-player-marker { position: absolute; top: 0; width: 14px; height: 14px; transform: translateX(-50%); border: 2px solid white; border-radius: 50%; background: #7950f2; padding: 0; cursor: pointer; pointer-events: auto; }
+.rv-player-marker-chapter { background: #087f8c; border-radius: 2px; }
+.rv-player-marker:focus-visible { outline: 3px solid #ffd43b; outline-offset: 2px; }
+
+.vds-video-layout[data-sm] .rv-player-markers { top: 19.5px; left: calc(6px + var(--media-slider-thumb-size, 15px) / 2); right: calc(6px + var(--media-slider-thumb-size, 15px) / 2); }

@@ -40,7 +40,7 @@ test('stale results are hidden and submit starts a pollable queued task; rejects
   show({ stale: true, analysis: null, job: null })
   await screen.findByText(/源视频已变化/)
   expect(screen.queryByRole('button', { name: '跳转场景 2' })).toBeNull()
-  const submit = screen.getByRole('button', { name: '检测镜头切换' }) as HTMLButtonElement
+  const submit = await screen.findByRole('button', { name: '检测镜头切换' }) as HTMLButtonElement
   fireEvent.change(screen.getByLabelText('场景变化阈值'), { target: { value: '0' } })
   expect(submit.disabled).toBe(true)
   fireEvent.change(screen.getByLabelText('场景变化阈值'), { target: { value: '0.3' } })

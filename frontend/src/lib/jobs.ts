@@ -54,6 +54,7 @@ export function useJobEvents(enabled: boolean) {
         qc.invalidateQueries({ queryKey: ['video'] })
         qc.invalidateQueries({ queryKey: ['history'] })
         qc.invalidateQueries({ queryKey: ['scenes'] })
+        qc.invalidateQueries({ queryKey: ['bookmarks'] })
         qc.invalidateQueries({ queryKey: ['encoding'] })
         qc.invalidateQueries({ queryKey: ['folders'] })
         if (job.kind === 'edit') {

@@ -38,6 +38,8 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import FolderSelect from '../components/FolderSelect'
 import JobRow from '../components/JobRow'
 import Player from '../components/Player'
+import BookmarkPanel from '../components/BookmarkPanel'
+import { useBookmarks } from '../lib/bookmarks'
 import EditHistory from '../components/EditHistory'
 import PlaylistPanel from '../components/PlaylistPanel'
 import { playlistNeighbors, playlistUrl, useCollection } from '../lib/collections'
@@ -168,6 +170,7 @@ export default function VideoPage() {
   const collectionId = params.get('collection')
   const collection = useCollection(collectionId)
   const { data: video, isLoading, error } = useVideo(id)
+  const markers = useBookmarks(video)
   const jobs = useJobs()
   const player = useRef<MediaPlayerInstance>(null)
   const [time, setTime] = useState(0)
@@ -228,6 +231,7 @@ export default function VideoPage() {
             <Box className="player-wrap" pos="relative" mx="auto" w="100%" maw={maxW}
               style={{ '--rv-transform': overlay.transform ?? 'none' } as React.CSSProperties}>
               <Player key={video.stream_url} ref={player} video={video} onTimeUpdate={setTime}
+                bookmarks={markers.data?.bookmarks} chapters={markers.data?.chapters}
                 playbackRate={overlay.playbackRate ?? 1}
                 autoPlay={params.get('autoplay') === '1' && ready}
                 onEnded={() => {
@@ -265,6 +269,8 @@ export default function VideoPage() {
                 截图
               </Button>
             </Group>
+
+            {ready && <BookmarkPanel key={video.stream_url} video={video} currentTime={time} seek={seek} />}
 
             {ready && tool === 'trim' && <FrameControls video={video} currentTime={time} seek={seek} pause={pause} />}
 

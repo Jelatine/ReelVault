@@ -18,6 +18,8 @@ vi.mock('../lib/collections', async (original) => ({ ...(await original<typeof i
 }))
 vi.mock('../components/Player', () => ({ default: ({ onEnded, autoPlay }: { onEnded: () => void; autoPlay: boolean }) =>
   <div><output data-testid="autoplay">{String(autoPlay)}</output><button onClick={onEnded}>结束播放</button></div> }))
+vi.mock('../components/BookmarkPanel', () => ({ default: () => null }))
+vi.mock('../lib/bookmarks', () => ({ useBookmarks: () => ({ data: { bookmarks: [], chapters: [] } }) }))
 vi.mock('../components/VideoRating', () => ({ default: () => null }))
 vi.mock('../components/EditHistory', () => ({ default: () => null }))
 vi.mock('../editor/FrameControls', () => ({ default: () => null }))

@@ -19,6 +19,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from . import __version__
 from .api import (
     assets,
+    bookmarks,
     collections,
     folders,
     history,
@@ -167,6 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     for r in (
         auth_api.router,
         assets.router,
+        bookmarks.router,
         images.router,
         luts.router,
         subtitles.router,

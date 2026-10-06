@@ -272,3 +272,16 @@ class SceneAnalysis(Base):
     duration: Mapped[float] = mapped_column(Float)
     cuts: Mapped[list[dict[str, float]]] = mapped_column(JSON)
     detected_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class Bookmark(Base):
+    __tablename__ = "bookmarks"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    video_id: Mapped[str] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    position: Mapped[float] = mapped_column(Float)
+    title: Mapped[str] = mapped_column(String(128))
+    note: Mapped[str] = mapped_column(Text)
+    kind: Mapped[str] = mapped_column(String(16))
+    signature: Mapped[list[Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

@@ -10,6 +10,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { formatDuration, formatDate } from '../lib/format'
 import type { Video } from '../lib/types'
+import PlayerMarkers from './PlayerMarkers'
+import { chapterVtt } from '../lib/bookmarks'
+import './player-markers.css'
+import type { Bookmark, Chapter } from '../lib/bookmarks'
 import { useSubtitles } from '../lib/subtitles'
 
 interface Props {
@@ -17,10 +21,12 @@ interface Props {
   onTimeUpdate?: (t: number) => void
   autoPlay?: boolean
   onEnded?: () => void
+  bookmarks?: Bookmark[]
+  chapters?: Chapter[]
   playbackRate?: number
 }
 
-const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, onEnded, playbackRate }, ref) {
+const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, onEnded, playbackRate, bookmarks = [], chapters = [] }, ref) {
   const player = useRef<MediaPlayerInstance>(null)
   const mergedRef = useMergedRef(player, ref)
   const played = useRef(false)
@@ -109,6 +115,7 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
       style={{ aspectRatio: video.width && video.height ? `${video.width} / ${video.height}` : '16 / 9', maxHeight: '70vh' }}
     >
       <MediaProvider>
+        {!!chapters.length && <Track key={chapterVtt(chapters)} kind="chapters" type="vtt" content={chapterVtt(chapters)} label="章节" default />}
         {subtitles.data?.filter((track) => track.playable && track.url).map((track) => <Track
           key={track.id} src={track.url!} kind="subtitles" type="vtt" label={track.label} language={track.language}
         />)}
@@ -116,6 +123,8 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
       </MediaProvider>
       <DefaultVideoLayout
         icons={defaultLayoutIcons}
+        slots={{ afterTimeSlider: <PlayerMarkers bookmarks={bookmarks} chapters={chapters} duration={video.duration}
+          seek={(time) => { if (player.current) player.current.currentTime = time }} /> }}
         thumbnails={video.thumbnails_url ?? undefined}
         playbackRates={[0.5, 0.75, 1, 1.25, 1.5, 2, 3]}
       />
