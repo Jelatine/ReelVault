@@ -33,6 +33,7 @@ from ..media import derive
 from ..media.ffmpeg import FFmpegError, ffmpeg_args, run_command
 from ..media.probe import probe
 from ..media.timing import timing_index
+from ..metadata import MetadataPatch, update_metadata
 from ..models import Folder, Tag, Upload, Video, new_id, utcnow
 from .deps import FiniteNumber, get_jobs, get_settings
 
@@ -266,7 +267,7 @@ SORT_COLUMNS = {
     "updated": Video.updated_at,
     "rating": Video.rating,
     "favorite": Video.favorite,
-    "captured": Video.captured_at,
+    "captured": func.coalesce(Video.captured_at, Video.created_at),
     "relevance": Video.created_at,
 }
 
@@ -291,12 +292,13 @@ def list_videos(
     captured_after: datetime | None = None,
     captured_before: datetime | None = None,
     include_children: bool = False,
-    sort: SortKey = "relevance",
+    sort: SortKey | None = None,
     order: Literal["asc", "desc"] = "desc",
     page: int = Query(1, ge=1),
     page_size: int = Query(48, ge=1, le=500),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    sort = sort or ("relevance" if q.strip() else "captured")
     stmt = select(Video)
     stmt = stmt.where(Video.deleted_at.is_not(None) if trash else Video.deleted_at.is_(None))
     stmt = stmt.where(Video.rating >= rating_min)
@@ -433,6 +435,18 @@ class VideoPatch(BaseModel):
     folder_id: int | None = None
     move: bool = False  # folder_id is applied only when true (so null can mean "root")
     tags: list[str] | None = None
+
+
+@router.patch("/videos/{video_id}/metadata")
+def edit_metadata(
+    video_id: str, body: MetadataPatch, db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+    video = get_video(db, video_id)
+    update_metadata(video, body)
+    video.updated_at = utcnow()
+    db.commit()
+    return video_to_dict(video)
 
 
 @router.patch("/videos/{video_id}")

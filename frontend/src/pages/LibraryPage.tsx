@@ -146,7 +146,7 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
   const qc = useQueryClient()
   const folders = useFolders()
   const [view, setView] = useLocalStorage<'grid' | 'list'>({ key: 'rv-view', defaultValue: 'grid' })
-  const [sort, setSort] = useLocalStorage({ key: 'rv-sort', defaultValue: 'created' })
+  const [sort, setSort] = useLocalStorage({ key: 'rv-sort', defaultValue: 'captured' })
   const [storedOrder, setOrder] = useLocalStorage<'asc' | 'desc'>({ key: 'rv-order', defaultValue: 'desc' })
   const order = params.get('order') ?? storedOrder
   const [selected, setSelected] = useState<string[]>([])

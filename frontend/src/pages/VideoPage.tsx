@@ -65,6 +65,7 @@ import { api } from '../lib/api'
 import { formatBytes, formatDate, formatDuration } from '../lib/format'
 import { useJobs, useVideo } from '../lib/queries'
 import type { Video } from '../lib/types'
+import MetadataPanel from '../components/MetadataPanel'
 
 function InfoPanel({ video }: { video: Video }) {
   useTranslation()
@@ -155,6 +156,7 @@ function InfoPanel({ video }: { video: Video }) {
           ))}
         </Table.Tbody>
       </Table>
+      <MetadataPanel video={video} />
       <Group gap="xs">
         <Button component="a" href={video.download_url} variant="light" leftSection={<IconDownload size={16} />}>{tr("下载原文件")}</Button>
         {video.deleted_at ? (

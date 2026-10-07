@@ -50,6 +50,7 @@ async def ingest(ctx: JobContext, job: Job) -> None:
         ctx.set_progress(0, "分析视频")
         info = await probe(s.ffprobe, str(src), ctx.handle)
         with ctx.db() as db:
+            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
             video = db.get(Video, video_id)
             assert video is not None
             apply_media_info(video, info, src.stat().st_size)
@@ -356,6 +357,7 @@ def _store_new(
     shutil.move(str(result), dest)
     label = ops.OP_LABELS.get(params.op, params.op)
     with ctx.db() as db:
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
         src = db.get(Video, source.id)
         video = Video(
             id=vid,
@@ -374,6 +376,11 @@ def _store_new(
         )
         if src is not None:
             video.tags = list(src.tags)
+        metadata_source = src or source
+        video.captured_at = metadata_source.captured_at
+        video.meta = {**(metadata_source.meta or {}), "custom_cover": False}
+        video.metadata_overrides = dict(metadata_source.metadata_overrides or {})
+        video.custom_fields = dict(metadata_source.custom_fields or {})
         db.add(video)
         db.commit()
     return vid
@@ -392,6 +399,7 @@ def _replace_with_backup(
     new_file = s.library_dir / f"{source.id}-{new_id()[:8]}{result.suffix}"
     shutil.move(str(result), new_file)
     with ctx.db() as db:
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
         video = db.get(Video, source.id)
         if video is None:
             new_file.unlink(missing_ok=True)
@@ -416,6 +424,9 @@ def _replace_with_backup(
             favorite=video.favorite,
             cover_time=video.cover_time,
             meta=video.meta,
+            captured_at=video.captured_at,
+            metadata_overrides=dict(video.metadata_overrides or {}),
+            custom_fields=dict(video.custom_fields or {}),
         )
         backup.tags = list(video.tags)
         db.add(backup)

@@ -1,4 +1,11 @@
 export interface Video {
+  metadata?: {
+    device_make: string | null
+    device_model: string | null
+    gps: { latitude: number; longitude: number; altitude: number | null } | null
+    custom_fields: Record<string, string>
+    overridden: string[]
+  }
   id: string
   title: string
   captured_at: string | null

@@ -154,6 +154,8 @@ class Video(Base):
     video_codec: Mapped[str] = mapped_column(String(32), default="")
     audio_codec: Mapped[str | None] = mapped_column(String(32))
     meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    metadata_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    custom_fields: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
 
     has_poster: Mapped[bool] = mapped_column(Boolean, default=False)
     has_preview: Mapped[bool] = mapped_column(Boolean, default=False)

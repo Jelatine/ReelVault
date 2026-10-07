@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shutil
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .config import Settings
 from .media.probe import MediaInfo
+from .metadata import capture_time, metadata_values, source_metadata
 from .models import Folder, Video, new_id
 
 VIDEO_EXTENSIONS = {
@@ -102,13 +102,13 @@ def apply_media_info(video: Video, info: MediaInfo, size: int) -> None:
     video.video_codec = info.video_codec
     video.audio_codec = info.audio_codec
     video.meta = {**(video.meta or {}), **info.to_meta()}
-    captured = info.extra.get("creation_time")
-    if captured:
-        try:
-            value = datetime.fromisoformat(str(captured).replace("Z", "+00:00"))
-            video.captured_at = value.replace(tzinfo=UTC) if value.tzinfo is None else value
-        except ValueError:
-            pass
+    overrides = video.metadata_overrides or {}
+    if "captured_at" in overrides:
+        video.captured_at = capture_time(overrides["captured_at"])
+    else:
+        captured = capture_time(source_metadata(video.meta)["captured_at"])
+        if captured is not None:
+            video.captured_at = captured
 
 
 def delete_video_files(settings: Settings, video: Video) -> None:
@@ -135,6 +135,7 @@ def video_to_dict(v: Video) -> dict[str, Any]:
         "rating": v.rating,
         "favorite": v.favorite,
         "captured_at": v.captured_at.isoformat() if v.captured_at else None,
+        "metadata": metadata_values(v),
         "original_name": v.original_name,
         "folder_id": v.folder_id,
         "status": v.status,
