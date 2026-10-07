@@ -18,7 +18,9 @@ from ..db import get_db
 from ..errors import APIError
 from ..importer import Importer
 from ..jobs.manager import JobManager
+from ..media import ops
 from ..models import Job, RuntimeSetting, Video
+from ..storage import edit_bytes, snapshot, upload_bytes
 from ..updates import UpdateError, Updater
 from .deps import get_jobs, get_settings
 
@@ -188,3 +190,74 @@ async def update_apply(updater: Updater = Depends(get_updater)) -> dict[str, Any
     except UpdateError as e:
         raise APIError(status.HTTP_409_CONFLICT, str(e), code="upgrade_conflict") from e
     return updater.status()
+
+
+class StoragePreference(BaseModel):
+    warning_mb: int = Field(1024, ge=0, le=1048576, strict=True)
+    warning_percent: int = Field(5, ge=0, le=100, strict=True)
+
+
+@router.get("/api/system/storage", dependencies=[Depends(require_auth)])
+def storage_status(
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+) -> dict[str, Any]:
+    return snapshot(db, settings)
+
+
+@router.put("/api/system/storage", dependencies=[Depends(require_auth)])
+def storage_preferences(
+    body: StoragePreference,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    values = {
+        "storage_warning_mb": body.warning_mb,
+        "storage_warning_percent": body.warning_percent,
+    }
+    saved = db.get(RuntimeSetting, "storage")
+    if saved is None:
+        db.add(RuntimeSetting(key="storage", value=values))
+    else:
+        saved.value = values
+    db.commit()
+    settings.storage_warning_mb = body.warning_mb
+    settings.storage_warning_percent = body.warning_percent
+    return snapshot(db, settings)
+
+
+class StorageEstimate(BaseModel):
+    upload_sizes: list[int] = Field(default_factory=list, max_length=1000)
+    video_ids: list[str] = Field(default_factory=list, max_length=1000)
+    edit: ops.EditParams | None = None
+    batch: bool = False
+
+
+@router.post("/api/system/storage/estimate", dependencies=[Depends(require_auth)])
+def storage_estimate(
+    body: StorageEstimate, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+) -> dict[str, Any]:
+    if any(size <= 0 or size > 2**63 - 1 for size in body.upload_sizes):
+        raise APIError(400, "文件大小无效", code="upload_size_invalid")
+    required = sum(upload_bytes(size) for size in body.upload_sizes)
+    if body.edit:
+        ids = body.video_ids
+        if isinstance(body.edit, (ops.MergeParams, ops.CompositeParams)):
+            if body.batch:
+                raise APIError(
+                    400, "多源操作不能用于每视频独立批处理", code="batch_multi_source_unsupported"
+                )
+            ids = list(
+                dict.fromkeys(
+                    [vid for vid in ids if vid not in body.edit.video_ids] + body.edit.video_ids
+                )
+            )
+        for vid in ids:
+            video = db.get(Video, vid)
+            if video is None or video.deleted_at:
+                raise APIError(404, "源视频不存在或已删除", code="source_video_not_found")
+        required += (
+            sum(edit_bytes(db, body.edit, [vid]) for vid in dict.fromkeys(ids))
+            if body.batch
+            else edit_bytes(db, body.edit, ids)
+        )
+    return snapshot(db, settings, required)

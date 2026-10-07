@@ -33,8 +33,8 @@ class OpPlan:
 
 
 class Segment(BaseModel):
-    start: float = Field(ge=0)
-    end: float = Field(gt=0)
+    start: float = Field(ge=0, allow_inf_nan=False)
+    end: float = Field(gt=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def _order(self) -> Segment:
@@ -71,7 +71,7 @@ class MergeParams(BaseModel):
     # Target size for re-encoding; defaults to the first video.
     width: int | None = Field(None, ge=16, le=7680)
     height: int | None = Field(None, ge=16, le=4320)
-    fps: float | None = Field(None, gt=0, le=120)
+    fps: float | None = Field(None, gt=0, le=120, allow_inf_nan=False)
     crf: int = Field(21, ge=0, le=51)
     transition: Literal[
         "none",
@@ -100,9 +100,9 @@ class CompressParams(BaseModel):
     quality: Literal["high", "medium", "low"] = "medium"
     # Shorter side in pixels; None keeps the original resolution.
     resolution: Literal[2160, 1440, 1080, 720, 480, 360] | None = None
-    max_fps: float | None = Field(None, gt=0, le=120)
+    max_fps: float | None = Field(None, gt=0, le=120, allow_inf_nan=False)
     # When set, two-pass encode aiming for this output size.
-    target_size_mb: float | None = Field(None, gt=0)
+    target_size_mb: float | None = Field(None, gt=0, allow_inf_nan=False)
     audio_bitrate: Literal[64, 96, 128, 160, 192, 256] = 128
     preset: Literal["ultrafast", "veryfast", "faster", "fast", "medium", "slow"] = "medium"
 
@@ -118,7 +118,7 @@ class CropParams(BaseModel):
 
 class SpeedParams(BaseModel):
     op: Literal["speed"] = "speed"
-    factor: float = Field(ge=0.25, le=4)
+    factor: float = Field(ge=0.25, le=4, allow_inf_nan=False)
     crf: int = Field(20, ge=0, le=51)
 
 

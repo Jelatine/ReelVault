@@ -37,6 +37,7 @@ from ..metadata import MetadataPatch, update_metadata
 from ..models import Folder, Tag, Upload, Video, new_id, utcnow
 from ..pinyin_search import normalize_pinyin_query
 from ..search_syntax import parse_search
+from ..storage import check_budget, lock_budget, upload_bytes
 from .deps import FiniteNumber, get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["videos"], dependencies=[Depends(require_auth)])
@@ -134,11 +135,8 @@ def init_upload(
         )
     if not folder_exists(db, body.folder_id):
         raise APIError(status.HTTP_400_BAD_REQUEST, "文件夹不存在", code="folder_not_found")
-    free = shutil.disk_usage(settings.data_dir).free
-    if body.size > free:
-        raise APIError(
-            status.HTTP_507_INSUFFICIENT_STORAGE, "磁盘空间不足", code="insufficient_storage"
-        )
+    lock_budget(db)
+    check_budget(db, settings, upload_bytes(body.size))
     upload = Upload(
         filename=body.filename,
         size=body.size,
@@ -182,6 +180,10 @@ async def upload_chunk(
             params={"received": upload.received},
         )
     path = _upload_path(settings, upload_id)
+    received_bytes = path.stat().st_size if path.exists() else 0
+    check_budget(
+        db, settings, max(0, upload_bytes(upload.size) - received_bytes), exclude_upload=upload.id
+    )
     written = 0
     async with aiofiles.open(path, "r+b" if path.exists() else "wb") as f:
         await f.seek(offset)
@@ -236,7 +238,10 @@ def complete_upload(
     try:
         set_tags(db, video, upload.tags)
         db.delete(upload)
-        jobs.submit(db, "ingest", {}, [video.id])
+        db.flush()
+        jobs.submit(
+            db, "ingest", {"storage_bytes": upload_bytes(upload.size) - upload.size}, [video.id]
+        )
     except Exception:
         db.rollback()
         shutil.move(str(abs_path(settings, video.file_path)), _upload_path(settings, upload_id))

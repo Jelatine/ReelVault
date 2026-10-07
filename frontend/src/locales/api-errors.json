@@ -526,5 +526,17 @@
   "search_query_empty": {
     "en": "Enter a search query.",
     "zh": "搜索内容不能为空"
+  },
+  "storage_budget_exceeded": {
+    "zh": "磁盘可用空间不足，请清理空间或取消未完成任务后重试",
+    "en": "Insufficient available storage. Free space or cancel unfinished tasks, then try again."
+  },
+  "edit_estimate_invalid": {
+    "zh": "编辑参数必须是有限数值",
+    "en": "Edit parameters must be finite numbers."
+  },
+  "upload_size_invalid": {
+    "zh": "文件大小无效",
+    "en": "Invalid file size."
   }
 }

@@ -18,6 +18,7 @@ from ..jobs.manager import JobManager
 from ..media.hls import estimated_bytes
 from ..media.probe import MediaInfo
 from ..models import HlsPackage, Job, RuntimeSetting, Video
+from ..storage import check_budget as check_disk_budget
 from .deps import get_jobs, get_settings
 from .scenes import ready_video, signature
 
@@ -38,9 +39,7 @@ def check_budget(
             select(Job).where(Job.kind == "hls", Job.status.in_(ACTIVE), Job.id != exclude_job)
         )
     )
-    # Account for other queued/active HLS work as well as the current package.
-    if shutil.disk_usage(settings.data_dir).free < estimate + reserved + 64 * 1024 * 1024:
-        raise APIError(507, "磁盘剩余空间不足，无法生成 HLS", code="insufficient_storage")
+    check_disk_budget(db, settings, estimate, exclude_job=exclude_job)
     if packages_size(db) + reserved + estimate > settings.hls_max_cache_gb * 1024**3:
         raise APIError(409, "HLS 缓存将超过上限，请清理缓存或增加上限", code="hls_cache_limit")
 

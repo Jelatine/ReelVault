@@ -5,6 +5,7 @@ import { notifications } from '@mantine/notifications'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api, errorText } from '../lib/api'
+import { preflightEdit } from '../lib/storage'
 import type { Job } from '../lib/types'
 import { defaultOutput } from './edit'
 import { OutputFields } from './OutputFields'
@@ -40,6 +41,7 @@ export default function BatchEditForm({ ids, onDone }: { ids: string[]; onDone: 
         setBusy(true)
         setError('')
         try {
+          if (preset) await preflightEdit(ids, preset.edit, true)
           const jobs = await api.post<Job[]>('/api/jobs/batch', {
             video_ids: ids, preset_id: Number(selected),
             output: { mode: exportOnly ? 'new' : output.mode, title: output.title.trim() || null },

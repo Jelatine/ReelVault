@@ -17,7 +17,12 @@ afterEach(() => { cleanup(); vi.clearAllMocks() })
 test('review a preset and submit every selected video; keep the form open on failure', async () => {
   const preset = { id: 5, name: '旅行统一压缩', edit: { op: 'compress', codec: 'h265', resolution: 720 } }
   vi.mocked(api.get).mockResolvedValue([preset])
-  vi.mocked(api.post).mockRejectedValueOnce(new Error('视频不存在')).mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }])
+  let attempts = 0
+  vi.mocked(api.post).mockImplementation(async (url) => {
+    if (url === '/api/system/storage/estimate') return { sufficient: true, required_bytes: 100, available_bytes: 10000 }
+    if (++attempts === 1) throw new Error('视频不存在')
+    return [{ id: 'a' }, { id: 'b' }]
+  })
   const done = vi.fn()
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   client.setQueryData(['edit-presets'], [preset])

@@ -151,6 +151,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     validated = Settings(**saved_hls.value)
                     for key in ("hls_enabled", "hls_min_size_mb", "hls_max_cache_gb"):
                         setattr(settings, key, getattr(validated, key))
+                saved_storage = db.get(RuntimeSetting, "storage")
+                if saved_storage:
+                    validated = Settings(**saved_storage.value)
+                    settings.storage_warning_mb = validated.storage_warning_mb
+                    settings.storage_warning_percent = validated.storage_warning_percent
             bootstrap_admin(app, settings)
             cleanup_stale_uploads(app, settings)
             app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)

@@ -24,6 +24,7 @@ import { promptText } from '../components/prompt'
 import UpdatePanel from '../components/UpdatePanel'
 import BackupPanel from '../components/BackupPanel'
 import HlsSettings from '../components/HlsSettings'
+import StoragePanel from '../components/StoragePanel'
 import EncodingPanel from '../components/EncodingPanel'
 import ImportSettings from '../components/ImportSettings'
 import PwaPanel from '../components/PwaPanel'
@@ -229,7 +230,8 @@ export default function SettingsPage() {
       <Paper withBorder p="md"><NotificationPanel /></Paper>
       <Paper withBorder p="md">
         <EncodingPanel />
-        <HlsSettings />
+        <StoragePanel />
+          <HlsSettings />
       </Paper>
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Paper withBorder p="md">

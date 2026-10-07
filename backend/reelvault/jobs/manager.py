@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from ..config import Settings
 from ..media.encoding import EncoderRuntime
 from ..media.ffmpeg import Canceled, ProcessHandle
-from ..models import Job, utcnow
+from ..models import Job, Video, utcnow
+from ..storage import check_budget, job_bytes, lock_budget
 
 log = logging.getLogger("reelvault.jobs")
 
@@ -178,6 +179,17 @@ class JobManager:
         *,
         priority: int = 1,
     ) -> list[Job]:
+        lock_budget(db)
+        budgeted = []
+        for kind, params, ids in requests:
+            estimate = job_bytes(db, kind, params, ids)
+            budgeted.append(
+                (kind, {**params, "storage_bytes": estimate} if estimate else params, ids)
+            )
+        requests = budgeted
+        required = sum(params.get("storage_bytes", 0) for _, params, _ in requests)
+        if required:
+            check_budget(db, self.settings, required)
         jobs = [
             Job(kind=kind, params=params, video_ids=ids, priority=priority, message="排队中")
             for kind, params, ids in requests
@@ -189,8 +201,35 @@ class JobManager:
             self.publish(job)
         return jobs
 
-    def submit_from_worker(self, kind: str, params: dict[str, Any], video_ids: list[str]) -> str:
+    def submit_from_worker(
+        self,
+        kind: str,
+        params: dict[str, Any],
+        video_ids: list[str],
+        *,
+        reservation_from: str | None = None,
+    ) -> str:
         with self.sessionmaker() as db:
+            if reservation_from:
+                lock_budget(db)
+                parent = db.get(Job, reservation_from)
+                video = db.get(Video, video_ids[0])
+                if parent and video:
+                    # Transfer remaining edit allowance to its derived-media job,
+                    # rather than releasing it or reserving the same work twice.
+                    remaining = max(0, int(parent.params.get("storage_bytes", 0)) - video.size)
+                    parent.params = {**parent.params, "storage_bytes": 0}
+                    job = Job(
+                        kind=kind,
+                        params={**params, "storage_bytes": remaining},
+                        video_ids=video_ids,
+                        message="排队中",
+                    )
+                    db.add(job)
+                    db.commit()
+                    self.enqueue(job.id)
+                    self.publish(job)
+                    return job.id
             return self.submit(db, kind, params, video_ids).id
 
     def enqueue(self, job_id: str) -> None:
@@ -346,6 +385,14 @@ class JobManager:
         try:
             if handler is None:
                 raise RuntimeError(f"未知任务类型 {job.kind}")
+            with self.sessionmaker() as db:
+                required = (
+                    job_bytes(db, job.kind, job.params, list(job.video_ids))
+                    if "storage_bytes" not in job.params
+                    else int(job.params["storage_bytes"])
+                )
+                if required:
+                    check_budget(db, self.settings, required, exclude_job=job.id)
             await handler(ctx, job)
         except Canceled:
             status, message = "canceled", "已取消"
@@ -359,6 +406,11 @@ class JobManager:
             final = db.get(Job, job_id)
             if final is None:
                 return
+            if job.kind == "ingest" and status == "failed":
+                for video_id in job.video_ids:
+                    video = db.get(Video, video_id)
+                    if video and video.status == "processing":
+                        video.status, video.error = "error", (error or "处理失败")[:2000]
             final.status = status
             final.error = error
             final.message = message

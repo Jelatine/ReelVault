@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     hls_enabled: bool = False
     hls_min_size_mb: int = Field(256, ge=0, le=102400)
     hls_max_cache_gb: int = Field(20, ge=1, le=1024)
+    storage_warning_mb: int = Field(1024, ge=0, le=1048576)
+    storage_warning_percent: int = Field(5, ge=0, le=100)
     vaapi_device: str = "/dev/dri/renderD128"
 
     # Session lifetime without "remember me" (sliding, in hours).

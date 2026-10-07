@@ -27,6 +27,7 @@ from ..media.subtitles import plan_subtitle
 from ..media.timing import snap_cut, timing_index
 from ..media.watermark import plan_watermark
 from ..models import Job, SceneAnalysis, Video, new_id, utcnow
+from ..storage import MIB, check_budget
 from .duplicates import duplicates
 from .manager import Handler, JobContext
 
@@ -55,6 +56,17 @@ async def ingest(ctx: JobContext, job: Job) -> None:
             video = db.get(Video, video_id)
             assert video is not None
             apply_media_info(video, info, src.stat().st_size)
+            required = 32 * MIB
+            if not info.browser_playable:
+                rate = (
+                    max(info.bitrate, info.width * info.height * (info.fps or 30) * 0.5) + 256_000
+                )
+                required += int(max(0, info.duration) * rate / 8 * 1.5)
+            check_budget(db, s, required, exclude_job=job.id)
+            job.params = {**job.params, "storage_bytes": required}
+            stored = db.get(Job, job.id)
+            if stored:
+                stored.params = {**stored.params, "storage_bytes": required}
             db.commit()
 
         out = derived_dir(s, video_id)
@@ -329,7 +341,7 @@ async def edit(ctx: JobContext, job: Job) -> None:
         else:
             new_id_ = _store_new(ctx, first_video, result, params, output.get("title"), provenance)
         _set_job(ctx, job.id, result_video_id=new_id_)
-        ctx.manager.submit_from_worker("ingest", {}, [new_id_])
+        ctx.manager.submit_from_worker("ingest", {}, [new_id_], reservation_from=job.id)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

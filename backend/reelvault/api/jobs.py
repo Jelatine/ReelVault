@@ -21,6 +21,7 @@ from ..library import abs_path
 from ..media import ops
 from ..media.assets import AssetError, audio_asset, image_asset, lut_asset, subtitle_asset
 from ..models import EditPreset, Job, Video
+from ..storage import check_budget, job_bytes, lock_budget
 from .deps import get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["jobs"], dependencies=[Depends(require_auth)])
@@ -334,6 +335,7 @@ async def retry_job(
     db: Session = Depends(get_db),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
+    lock_budget(db)
     old = _get(db, job_id)
     if old.status != "failed":
         raise APIError(409, "只有失败任务可以重试", code="job_retry_requires_failure")
@@ -362,6 +364,9 @@ async def retry_job(
         params.pop(field, None)
     if "requested_edit" in params:
         params["edit"] = params.pop("requested_edit")
+    params["storage_bytes"] = job_bytes(db, old.kind, params, list(old.video_ids))
+    if params["storage_bytes"]:
+        check_budget(db, jobs.settings, params["storage_bytes"])
     # Persist the complete retry before waking a worker; keep the failed record.
     new = Job(
         kind=old.kind,

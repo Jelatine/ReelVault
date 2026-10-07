@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
+import { preflightEdit } from '../lib/storage'
 import type { Job, Video } from '../lib/types'
 
 export interface EditorContext {
@@ -35,6 +36,7 @@ export function useSubmitEdit(videoId: string) {
   const submit = async (edit: Record<string, unknown>, output?: OutputOptions) => {
     setBusy(true)
     try {
+      await preflightEdit([videoId], edit)
       const job = await api.post<Job>(`/api/videos/${videoId}/edit`, {
         edit,
         output: output ? { mode: output.mode, title: output.title.trim() || null } : {},

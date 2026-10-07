@@ -1339,5 +1339,15 @@
   "不支持的服务配置同步操作": "Unsupported service synchronization operation",
   "同步请求必须是对象": "Synchronization request must be an object",
   "已有未完成的服务配置同步请求": "A service synchronization request is already pending",
-  "服务配置同步超时，请检查 reelvault-service-sync.path 和辅助服务日志": "Service synchronization timed out. Check reelvault-service-sync.path and helper logs."
+  "服务配置同步超时，请检查 reelvault-service-sync.path 和辅助服务日志": "Service synchronization timed out. Check reelvault-service-sync.path and helper logs.",
+  "磁盘空间预警": "Disk space warning",
+  "空间预估": "Storage estimate",
+  "预计需要 {{required}}，扣除未完成任务后可用 {{available}}。实际占用取决于视频内容和编码。": "Estimated requirement: {{required}}. Available after unfinished tasks: {{available}}. Actual usage depends on video content and encoding.",
+  "扣除未完成任务后可用 {{available}}，低于预警阈值 {{threshold}}。请清理缓存、回收站或取消未完成的上传和任务。": "Available after unfinished tasks: {{available}}, below the warning threshold of {{threshold}}. Clear caches or trash, or cancel unfinished uploads and jobs.",
+  "剩余 {{free}} · 未完成任务预算 {{reserved}} · 可用 {{available}}": "Free {{free}} · Unfinished task budget {{reserved}} · Available {{available}}",
+  "剩余空间预警（MiB）": "Free space warning (MiB)",
+  "剩余空间预警（%）": "Free space warning (%)",
+  "取两个阈值中较大的值，均设为 0 可关闭预警。预警不会禁止任务；空间预算不足时会阻止上传和编辑。替换视频仍保留原文件，不会立即释放空间。": "The larger threshold applies. Set both to 0 to disable warnings. Warnings allow tasks to proceed; insufficient storage budgets block uploads and edits. Replacing a video keeps the original and does not immediately free space.",
+  "保存空间预警设置": "Save storage warning settings",
+  "磁盘可用空间不足，请清理空间或取消未完成任务后重试": "Insufficient available storage. Free space or cancel unfinished tasks, then try again."
 }

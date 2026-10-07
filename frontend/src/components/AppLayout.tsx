@@ -43,6 +43,7 @@ import { OfflineNotice } from './PwaPanel'
 import LanguageSelect from './LanguageSelect'
 import { shortcutBlocked } from '../lib/shortcuts'
 import SearchBox from './SearchBox'
+import { StorageWarning } from './StoragePanel'
 
 export default function AppLayout() {
   useTranslation()
@@ -204,7 +205,7 @@ export default function AppLayout() {
 
       <AppShell.Main id="main-content" tabIndex={-1}>
         <OfflineNotice />
-        <Outlet />
+        <StorageWarning /><Outlet />
       </AppShell.Main>
       <MobileNavigation onNavigate={close} />
 
