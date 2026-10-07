@@ -133,15 +133,20 @@ export default function AppLayout() {
       navbar={{ width: 260, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="md"
     >
+      <a className="skip-link" href="#main-content" onClick={(event) => {
+        event.preventDefault()
+        document.getElementById('main-content')?.focus()
+      }}>{tr('跳到主要内容')}</a>
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
           <Group gap="xs" wrap="nowrap">
-            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm"
+              aria-label={opened ? tr('关闭导航菜单') : tr('打开导航菜单')} aria-expanded={opened} aria-controls="sidebar-navigation" />
             <Group
               gap={6}
               wrap="nowrap"
               style={{ textDecoration: 'none', color: 'inherit' }}
-              renderRoot={(props) => <Link to="/" {...props} />}
+              renderRoot={(props) => <Link to="/" {...props} aria-label={tr('ReelVault 首页')} />}
             >
               <IconMovie color="var(--mantine-color-violet-6)" />
               <Text fw={700} visibleFrom="xs">
@@ -218,11 +223,11 @@ export default function AppLayout() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="xs" aria-label={tr("侧栏导航")}>
+      <AppShell.Navbar id="sidebar-navigation" p="xs" aria-label={tr("侧栏导航")}>
         <FolderNav onNavigate={close} />
       </AppShell.Navbar>
 
-      <AppShell.Main>
+      <AppShell.Main id="main-content" tabIndex={-1}>
         <OfflineNotice />
         <Outlet />
       </AppShell.Main>

@@ -260,13 +260,13 @@ export default function LibraryPage() {
           <Text c="dimmed" size="sm">
             {data?.total ?? 0}{tr(" 个视频")}</Text>
           {(q || tag) && (
-            <ActionIcon variant="subtle" color="gray" onClick={() => setParams({ folder })}>
+            <ActionIcon variant="subtle" color="gray" aria-label={tr('清除搜索与标签筛选')} onClick={() => setParams({ folder })}>
               <IconX size={16} />
             </ActionIcon>
           )}
         </Group>
         <Group gap="xs">
-          <Select data={sortOptions()} value={effectiveSort} onChange={(v) => { if (v) { setSort(v); setFilter("sort", v) } }} w={120} size="xs" allowDeselect={false} />
+          <Select aria-label={tr('视频排序方式')} data={sortOptions()} value={effectiveSort} onChange={(v) => { if (v) { setSort(v); setFilter("sort", v) } }} w={120} size="xs" allowDeselect={false} />
           <ActionIcon variant="default" onClick={() => setOrder(order === 'asc' ? 'desc' : 'asc')} aria-label={tr("排序方向")}>
             {order === 'asc' ? <IconSortAscending size={16} /> : <IconSortDescending size={16} />}
           </ActionIcon>
@@ -280,7 +280,7 @@ export default function LibraryPage() {
             ]}
           />
           <Tooltip label={tr("全选本页")}>
-            <ActionIcon variant="default" onClick={() => setSelected(items.map((v) => v.id))}>
+            <ActionIcon variant="default" aria-label={tr('全选本页')} onClick={() => setSelected(items.map((v) => v.id))}>
               <IconSelectAll size={16} />
             </ActionIcon>
           </Tooltip>
@@ -296,6 +296,8 @@ export default function LibraryPage() {
 
       <AdvancedFilters />
       {error && <Alert color="red">{error.message}</Alert>}
+
+      <VisuallyHidden role="status" aria-atomic="true">{tr("已选择 ")}{selected.length}{tr(" 个")}</VisuallyHidden>
 
       {selected.length > 0 && (
         <Paper withBorder p="xs" pos="sticky" top={70} style={{ zIndex: 5 }}>

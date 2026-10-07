@@ -14,6 +14,8 @@ import {
   IconTrash,
   IconVideo,
   IconHome,
+  IconChevronDown,
+  IconChevronRight,
 } from '@tabler/icons-react'
 import { useState, type DragEvent } from 'react'
 import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE, dragIds } from '../lib/selection'
@@ -29,6 +31,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
   useTranslation()
 
   const [dropTarget, setDropTarget] = useState<number | 'root' | null>(null)
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   const [context, setContext] = useState<{ node: FolderNode; position: MenuPosition }>()
   const folders = useFolders()
   const tags = useTags()
@@ -111,28 +114,26 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
   })
 
   const renderNode = (node: FolderNode): React.ReactNode => (
-    <NavLink
-      key={node.id}
-      {...dropProps(node.id)}
-      label={node.name}
-      onContextMenu={(event) => setContext({ node, position: contextPosition(event) })}
-      onKeyDown={keyboardContext}
-      leftSection={<IconFolder size={16} />}
-      active={folder === String(node.id)}
-      onClick={() => go({ folder: String(node.id) })}
-      defaultOpened
-      disableRightSectionRotation
-      childrenOffset={14}
-      rightSection={
-        <Group gap={2} wrap="nowrap" onClick={(e) => e.stopPropagation()}>
-          {node.count > 0 && (
-            <Text size="xs" c="dimmed">
-              {node.count}
-            </Text>
-          )}
+    <div key={node.id}>
+      <Group gap={2} wrap="nowrap">
+        {node.children.length > 0 && <ActionIcon size="sm" variant="subtle"
+          aria-label={tr('展开或收起 {{v0}} 的子文件夹', { v0: node.name })}
+          aria-expanded={!collapsed.has(node.id)} aria-controls={`folder-children-${node.id}`}
+          onClick={() => setCollapsed(previous => {
+            const next = new Set(previous)
+            if (next.has(node.id)) next.delete(node.id); else next.add(node.id)
+            return next
+          })}>{collapsed.has(node.id) ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}</ActionIcon>}
+        <NavLink component={Link} to={`/library?folder=${node.id}`}
+          {...dropProps(node.id)} style={{ ...dropProps(node.id).style, flex: 1, minWidth: 0 }} label={node.name}
+          onContextMenu={(event) => setContext({ node, position: contextPosition(event) })}
+          onKeyDown={keyboardContext} leftSection={<IconFolder size={16} />}
+          active={folder === String(node.id)} onClick={onNavigate}
+          aria-current={folder === String(node.id) ? 'page' : undefined}
+          rightSection={node.count > 0 ? <Text size="xs" c="dimmed">{node.count}</Text> : undefined} />
           <Menu position="bottom-end" withinPortal>
             <Menu.Target>
-              <ActionIcon size="sm" variant="subtle" color="gray">
+              <ActionIcon size="sm" variant="subtle" color="gray" aria-label={tr("{{v0}}的文件夹菜单", { v0: node.name })}>
                 <IconDots size={14} />
               </ActionIcon>
             </Menu.Target>
@@ -142,11 +143,11 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
               <Menu.Item color="red" onClick={() => deleteFolder(node)}>{tr("删除")}</Menu.Item>
             </Menu.Dropdown>
           </Menu>
-        </Group>
-      }
-    >
-      {node.children.length ? node.children.map(renderNode) : undefined}
-    </NavLink>
+      </Group>
+      {node.children.length > 0 && <div id={`folder-children-${node.id}`} hidden={collapsed.has(node.id)} style={{ paddingLeft: 14 }}>
+        {node.children.map(renderNode)}
+      </div>}
+    </div>
   )
 
   const tree = buildTree(folders.data ?? [])
@@ -154,6 +155,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
   return (
     <ScrollArea style={{ flex: 1 }}>
       <NavLink component={Link} to="/" label={tr("首页")} leftSection={<IconHome size={16} />}
+        aria-current={location.pathname === '/' ? 'page' : undefined}
         active={location.pathname === '/'} onClick={onNavigate} />
       {context && <ContextMenu key={`${context.node.id}:${context.position.x}:${context.position.y}`} position={context.position}
         label={tr("{{v0}}的文件夹菜单", { v0: context.node.name })} close={() => setContext(undefined)}>
@@ -163,16 +165,20 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         <Menu.Item color="red" onClick={() => deleteFolder(context.node)}>{tr("删除")}</Menu.Item>
       </ContextMenu>}
       <NavLink
+        component="button" type="button"
         label={tr("全部视频")}
         leftSection={<IconVideo size={16} />}
         active={folder === 'all' && !tag}
+        aria-pressed={folder === 'all' && !tag}
         onClick={() => go({ folder: 'all' })}
       />
       <NavLink
+        component="button" type="button"
         {...dropProps(null)}
         label={tr("未分类")}
         leftSection={<IconInbox size={16} />}
         active={folder === 'root'}
+        aria-pressed={folder === 'root'}
         onClick={() => go({ folder: 'root' })}
       />
       <Group justify="space-between" mt="sm" px="sm">
@@ -188,7 +194,9 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
           <Group gap={6} p="sm">
             {tags.data!.map((t) => (
               <Badge
+                component="button" type="button"
                 key={t.name}
+                aria-pressed={tag === t.name}
                 variant={tag === t.name ? 'filled' : 'light'}
                 leftSection={<IconHash size={10} />}
                 style={{ cursor: 'pointer', textTransform: 'none' }}
@@ -208,6 +216,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         label={tr("任务中心")}
         leftSection={<IconListCheck size={16} />}
         active={location.pathname === '/jobs'}
+        aria-current={location.pathname === '/jobs' ? 'page' : undefined}
         onClick={onNavigate}
       />
       <NavLink
@@ -216,6 +225,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         label={tr("回收站")}
         leftSection={<IconTrash size={16} />}
         active={location.pathname === '/trash'}
+        aria-current={location.pathname === '/trash' ? 'page' : undefined}
         onClick={onNavigate}
       />
       <NavLink
@@ -224,6 +234,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         label={tr("设置")}
         leftSection={<IconSettings size={16} />}
         active={location.pathname === '/settings'}
+        aria-current={location.pathname === '/settings' ? 'page' : undefined}
         onClick={onNavigate}
       />
     </ScrollArea>

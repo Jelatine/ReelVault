@@ -50,7 +50,7 @@ export default function ScenePanel({ video, seek, onScene, onCut, onAll }: {
         <NumberInput label={tr("场景最小间隔（秒）")} value={interval} min={0.05} max={600} step={0.1} onChange={(v) => setInterval(Number(v))} />
       </Group>
       <Button size="xs" variant="light" loading={busy} disabled={!valid || active(job)} onClick={submit}>{tr("检测镜头切换")}</Button>
-      {active(job) && <><Text size="sm">{job?.status === 'paused' ? tr("场景检测已暂停，可在任务中心继续") : job?.message || tr("场景检测排队中")}</Text><Progress value={(job?.progress ?? 0)*100} /></>}
+      {active(job) && <><Text size="sm">{job?.status === 'paused' ? tr("场景检测已暂停，可在任务中心继续") : job?.message || tr("场景检测排队中")}</Text><Progress aria-label={tr("任务进度")} value={(job?.progress ?? 0)*100} /></>}
       {(error || query.error) && <Alert color="red">{errorText(error || query.error)}</Alert>}
       {job?.status === 'failed' && <Alert color="red">{tr("场景检测失败：")}{serverText(job.error)}</Alert>}
       {job?.status === 'canceled' && <Text size="sm">{tr("场景检测已取消，已有检测结果保留。")}</Text>}

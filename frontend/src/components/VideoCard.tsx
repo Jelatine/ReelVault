@@ -44,6 +44,7 @@ export default function VideoCard({ video, highlight, selected, selectable, onTo
   useTranslation()
 
   const [hover, setHover] = useState(false)
+  const [focused, setFocused] = useState(false)
   return (
     <Card
       withBorder
@@ -51,9 +52,14 @@ export default function VideoCard({ video, highlight, selected, selectable, onTo
       className="video-card"
       data-video-id={video.id}
       tabIndex={0}
+      role="group"
       aria-label={video.title}
+      aria-description={onToggle ? tr('按 Enter 打开视频；空格选择视频。') : tr('按 Enter 打开视频。')}
       onContextMenu={onContextMenu}
       onKeyDown={(event) => {
+        if (event.target === event.currentTarget && event.key === ' ' && onToggle) {
+          event.preventDefault(); onToggle(event); return
+        }
         if (onContextMenu) keyboardContext(event)
         else if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault(); onOpen()
@@ -63,23 +69,28 @@ export default function VideoCard({ video, highlight, selected, selectable, onTo
       onDragStart={onDragStart}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false) }}
       onClick={(event) => onSelect ? onSelect(event) : (selectable ? onToggle?.(event) : onOpen())}
       style={selected ? { outline: '2px solid var(--mantine-color-violet-6)' } : undefined}
     >
       <Card.Section pos="relative">
-        {(selectable || hover) && onToggle && (
+        {(selectable || hover || focused) && onToggle && (
           <Checkbox
             className="thumb-select"
             checked={!!selected}
             onChange={(event) => onToggle(event.nativeEvent as unknown as Modifiers)}
             onClick={(e) => e.stopPropagation()}
-            aria-label={tr("选择")}
+            aria-label={tr("选择 {{v0}}", { v0: video.title })}
           />
         )}
         <Thumb video={video} hover={hover} />
       </Card.Section>
       <div style={{ padding: '8px 10px' }}>
-        <Text size="sm" fw={500} truncate title={video.title}>
+        <Text component="a" href={`/videos/${video.id}`} size="sm" fw={500} truncate title={video.title}
+          c="inherit" style={{ textDecoration: 'none' }} onClick={(event) => {
+            event.preventDefault(); event.stopPropagation(); onOpen()
+          }}>
           <Highlight component="span" highlight={highlight?.split(/\s+/) ?? []}>{video.title}</Highlight>
         </Text>
         {highlight && video.search_excerpt && (

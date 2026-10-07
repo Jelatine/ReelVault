@@ -33,6 +33,7 @@ export default function CollectionNav({ onNavigate }: { onNavigate: () => void }
     {(collections.data ?? []).map((collection) => <NavLink key={collection.id} component={Link}
       to={`/collections/${collection.id}`} label={collection.name} leftSection={<IconPlaylist size={16} />}
       active={location.pathname === `/collections/${collection.id}`} onClick={onNavigate}
+      aria-current={location.pathname === `/collections/${collection.id}` ? 'page' : undefined}
       rightSection={<Text size="xs" c="dimmed">{collection.count}</Text>} />)}
   </>
 }

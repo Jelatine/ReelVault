@@ -86,13 +86,13 @@ export default function MergePanel({ video, initialIds, pause }: EditorContext &
                   </div>
                 </Group>
                 <Group gap={2} wrap="nowrap">
-                  <ActionIcon variant="subtle" disabled={i === 0} onClick={() => move(i, -1)}>
+                  <ActionIcon aria-label={tr("上移输入 {{v0}}", { v0: i + 1 })} variant="subtle" disabled={i === 0} onClick={() => move(i, -1)}>
                     <IconArrowUp size={14} />
                   </ActionIcon>
-                  <ActionIcon variant="subtle" disabled={i === ids.length - 1} onClick={() => move(i, 1)}>
+                  <ActionIcon aria-label={tr("下移输入 {{v0}}", { v0: i + 1 })} variant="subtle" disabled={i === ids.length - 1} onClick={() => move(i, 1)}>
                     <IconArrowDown size={14} />
                   </ActionIcon>
-                  <ActionIcon variant="subtle" color="red" onClick={() => setIds((l) => l.filter((x) => x !== id))}>
+                  <ActionIcon aria-label={tr("移除输入 {{v0}}", { v0: i + 1 })} variant="subtle" color="red" onClick={() => setIds((l) => l.filter((x) => x !== id))}>
                     <IconX size={14} />
                   </ActionIcon>
                 </Group>
@@ -102,6 +102,7 @@ export default function MergePanel({ video, initialIds, pause }: EditorContext &
         })}
       </Stack>
       <Select
+        aria-label={tr("搜索并添加视频…")}
         placeholder={tr("搜索并添加视频…")}
         searchable
         searchValue={search}

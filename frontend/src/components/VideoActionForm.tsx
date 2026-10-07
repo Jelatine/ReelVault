@@ -29,7 +29,7 @@ export default function VideoActionForm({ video, action, onDone }: { video: Vide
   return <Stack>
     {action === 'move' && <FolderSelect label={tr("目标文件夹")} value={folder} onChange={setFolder} disabled={saving} />}
     {action === 'tags' && <TagsInput label={tr("视频标签")} placeholder={tr("输入后回车")} value={tags} onChange={setTags} disabled={saving} />}
-    {action === 'rating' && <><Text size="sm">{tr("设置评分（再次点击当前星级可清除）")}</Text><Rating aria-label={tr("设置视频评分")} value={rating} onChange={setRating} readOnly={saving} /></>}
+    {action === 'rating' && <><Text size="sm">{tr("设置评分（再次点击当前星级可清除）")}</Text><Rating aria-label={tr("设置视频评分")} getSymbolLabel={(value) => tr('{{v0}} 星', { v0: value })} value={rating} onChange={setRating} readOnly={saving} /></>}
     {error && <Alert color="red">{errorText(error)}</Alert>}
     <Button loading={saving} onClick={save}>{tr("保存")}</Button>
   </Stack>

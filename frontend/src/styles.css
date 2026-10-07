@@ -4,6 +4,32 @@ body,
   min-height: 100%;
 }
 
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--mantine-color-violet-6);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  transform: translateY(-160%);
+  z-index: 1000;
+  padding: 10px 16px;
+  border-radius: 6px;
+  color: var(--mantine-color-text);
+  background: var(--mantine-color-body);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .video-card, .rotate-preview, .player-wrap video { transition: none; }
+  .video-card:hover { transform: none; }
+}
+
 .video-card {
   cursor: pointer;
   transition: transform 120ms ease, box-shadow 120ms ease;

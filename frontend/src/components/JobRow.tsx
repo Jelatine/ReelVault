@@ -95,7 +95,7 @@ export default function JobRow({ job, compact }: { job: Job; compact?: boolean }
         onChange={(event) => void act('priority', Number(event.currentTarget.value))} />}
       {active && (
         <>
-          <Progress value={job.progress * 100} animated={job.status === 'running'} size="sm" />
+          <Progress aria-label={tr('任务进度')} value={job.progress * 100} animated={job.status === 'running'} size="sm" />
           <Text size="xs" c="dimmed">
             {job.status === 'paused' ? tr("已暂停 · {{v0}}", { v0: serverText(job.message) }) : serverText(job.message)} {job.status === 'running' && `${Math.round(job.progress * 100)}%`}
             {job.status === 'running' && job.eta_seconds != null && tr(" · 预计剩余约 {{v0}}", { v0: formatDuration(Math.ceil(job.eta_seconds)) })}

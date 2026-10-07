@@ -42,7 +42,7 @@ export default function UploadPanel() {
           <ActionIcon variant="subtle" aria-label={collapsed ? tr("展开上传列表") : tr("收起上传列表")} onClick={() => setCollapsed((c) => !c)}>
             {collapsed ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
           </ActionIcon>
-          {!active && <CloseButton size="sm" onClick={() => uploads.clearFinished()} />}
+          {!active && <CloseButton aria-label={tr("清除列表")} size="sm" onClick={() => uploads.clearFinished()} />}
         </Group>
       </Group>
       {!collapsed && (
@@ -71,6 +71,7 @@ export default function UploadPanel() {
                   )}
                 </Group>
                 <Progress
+                  aria-label={tr('{{v0}} 的上传进度', { v0: item.name })}
                   size="sm"
                   value={(item.loaded / Math.max(item.size, 1)) * 100}
                   color={item.status === 'error' ? 'red' : item.status === 'done' ? 'green' : undefined}

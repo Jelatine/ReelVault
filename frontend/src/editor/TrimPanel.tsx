@@ -114,6 +114,9 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
             </Group>
           </Group>
           <RangeSlider
+            thumbFromLabel={tr('片段 {{v0}} 起点', { v0: i + 1 })}
+            thumbToLabel={tr('片段 {{v0}} 终点', { v0: i + 1 })}
+            thumbValueText={(value) => formatDuration(value, true)}
             min={0}
             max={duration}
             step={0.001}
@@ -125,6 +128,8 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
             }}
             onChangeEnd={([start]) => seek(start)}
           />
+          <Button size="compact-xs" variant={i === active ? 'light' : 'subtle'} aria-pressed={i === active}
+            onClick={() => setActive(i)}>{tr('选择片段 {{v0}}', { v0: i + 1 })}</Button>
           <Group grow>
             <TimeInput size="xs" label={tr("开始")} value={s.start} max={duration} onChange={(v) => update(i, { start: v })} />
             <TimeInput size="xs" label={tr("结束")} value={s.end} max={duration} onChange={(v) => update(i, { end: v })} />

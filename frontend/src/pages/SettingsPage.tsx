@@ -66,9 +66,9 @@ function PasswordForm() {
       })}
     >
       <Stack>
-        <PasswordInput label={tr("当前密码")} autoComplete="current-password" {...form.getInputProps('current_password')} />
-        <PasswordInput label={tr("新密码")} autoComplete="new-password" {...form.getInputProps('new_password')} error={typeof form.errors.new_password === 'string' ? translateStoredText(form.errors.new_password) : form.errors.new_password} />
-        <PasswordInput label={tr("确认新密码")} autoComplete="new-password" {...form.getInputProps('confirm')} error={typeof form.errors.confirm === 'string' ? translateStoredText(form.errors.confirm) : form.errors.confirm} />
+        <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("当前密码")} autoComplete="current-password" {...form.getInputProps('current_password')} />
+        <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("新密码")} autoComplete="new-password" {...form.getInputProps('new_password')} error={typeof form.errors.new_password === 'string' ? translateStoredText(form.errors.new_password) : form.errors.new_password} />
+        <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("确认新密码")} autoComplete="new-password" {...form.getInputProps('confirm')} error={typeof form.errors.confirm === 'string' ? translateStoredText(form.errors.confirm) : form.errors.confirm} />
         <Checkbox label={tr("同时退出其他所有设备")} {...form.getInputProps('logout_others', { type: 'checkbox' })} />
         <Button type="submit">{tr("修改密码")}</Button>
       </Stack>
@@ -135,6 +135,7 @@ function Devices() {
                           <Badge size="xs" color="green">{tr("当前设备")}</Badge>
                         )}
                         <ActionIcon
+                          aria-label={tr("重命名设备")}
                           size="xs"
                           variant="subtle"
                           onClick={async () => {
@@ -194,7 +195,7 @@ function SystemPanel() {
       <Title order={4}>{tr("系统")}</Title>
       <Text size="sm">{tr("磁盘：已用 ")}{formatBytes(data.disk.used)} / {formatBytes(data.disk.total)}{tr("，剩余 ")}{formatBytes(data.disk.free)}
       </Text>
-      <Progress value={usedPct} color={usedPct > 90 ? 'red' : undefined} />
+      <Progress aria-label={tr("所在磁盘使用率")} value={usedPct} color={usedPct > 90 ? 'red' : undefined} />
       <SimpleGrid cols={2} spacing="xs">
         <Text size="sm">{tr("视频：")}{data.library.count}{tr(" 个（")}{formatBytes(data.library.size)}{tr('）')}</Text>
         <Text size="sm">{tr("回收站：")}{data.trash.count}{tr(" 个（")}{formatBytes(data.trash.size)}{tr('）')}</Text>

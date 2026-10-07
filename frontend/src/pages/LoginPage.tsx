@@ -56,7 +56,7 @@ export default function LoginPage() {
   })
 
   return (
-    <Center mih="100vh" p="md">
+    <Center component="main" mih="100vh" p="md">
       <Paper withBorder shadow="md" p="xl" w="100%" maw={400}>
         <form onSubmit={submit}>
           <Stack>
@@ -69,7 +69,7 @@ export default function LoginPage() {
             </Title>
             {error && <Alert color="red">{errorText(error)}</Alert>}
             <TextInput label={tr("用户名")} autoComplete="username" required {...form.getInputProps('username')} />
-            <PasswordInput
+            <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }}
               label={tr("密码")}
               autoComplete="current-password"
               required
@@ -83,7 +83,7 @@ export default function LoginPage() {
               <TextInput label={tr("设备名称")} {...form.getInputProps('device_name')} />
             ) : (
               <Text size="xs" c="dimmed">{tr("设备：")}{form.values.device_name}{' '}
-                <Anchor size="xs" onClick={() => setShowDevice(true)}>{tr("修改")}</Anchor>
+                <Anchor component="button" type="button" size="xs" onClick={() => setShowDevice(true)}>{tr("修改")}</Anchor>
               </Text>
             )}
             <Button type="submit" loading={busy} fullWidth>{tr("登录")}</Button>

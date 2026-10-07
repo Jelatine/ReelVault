@@ -1,5 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+import { tr } from '../lib/i18n'
+import { formatDuration } from '../lib/format'
 import type { Video } from '../lib/types'
 
 interface Cue {
@@ -41,6 +44,7 @@ interface Props {
 
 /** Film-strip built from the scrubbing sprite, with selected segments highlighted. */
 export default function Timeline({ video, currentTime, segments = [], onSeek, frames = 12 }: Props) {
+  useTranslation()
   const ref = useRef<HTMLDivElement>(null)
   const { data: cues = [] } = useQuery({
     queryKey: ['vtt', video.thumbnails_url],
@@ -77,6 +81,25 @@ export default function Timeline({ video, currentTime, segments = [], onSeek, fr
     <div
       ref={ref}
       className="timeline"
+      role="slider"
+      tabIndex={video.duration > 0 ? 0 : -1}
+      aria-label={tr('缩略图时间轴')}
+      aria-orientation="horizontal"
+      aria-valuemin={0}
+      aria-valuemax={Math.max(0, video.duration)}
+      aria-valuenow={Math.max(0, Math.min(video.duration, currentTime))}
+      aria-valuetext={formatDuration(currentTime, true)}
+      aria-disabled={video.duration <= 0}
+      onKeyDown={(event) => {
+        if (video.duration <= 0 || event.altKey || event.ctrlKey || event.metaKey) return
+        const step = event.shiftKey ? 10 : 1
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? video.duration
+          : ['ArrowLeft', 'ArrowDown'].includes(event.key) ? currentTime - step
+            : ['ArrowRight', 'ArrowUp'].includes(event.key) ? currentTime + step : null
+        if (next === null) return
+        event.preventDefault(); event.stopPropagation()
+        onSeek(Math.max(0, Math.min(video.duration, next)))
+      }}
       onClick={(e) => seekFromEvent(e.clientX)}
       style={{ cursor: 'pointer' }}
     >

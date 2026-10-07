@@ -29,6 +29,7 @@ export default function VideoRating({ video }: { video: Video }) {
   return (
     <Group gap="xs" onClick={(event) => event.stopPropagation()}>
       <Rating aria-label={tr("视频评分")} value={video.rating} count={5} size="sm"
+        getSymbolLabel={(value) => tr('{{v0}} 星', { v0: value })}
         readOnly={saving || !!video.deleted_at} onChange={(rating) => void save({ rating })} />
       <ActionIcon aria-label={video.favorite ? tr("取消收藏") : tr("收藏视频")} aria-pressed={video.favorite}
         variant="subtle" color={video.favorite ? 'red' : 'gray'} disabled={saving || !!video.deleted_at}
