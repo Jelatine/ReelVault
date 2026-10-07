@@ -312,6 +312,29 @@ class SceneAnalysis(Base):
     detected_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class VideoFingerprint(Base):
+    __tablename__ = "video_fingerprints"
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), primary_key=True
+    )
+    asset_version: Mapped[int] = mapped_column(Integer)
+    signature: Mapped[list[Any]] = mapped_column(JSON)
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    visual: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    visual_error: Mapped[str | None] = mapped_column(Text)
+    algorithm: Mapped[int] = mapped_column(Integer)
+    detected_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class DuplicateMatch(Base):
+    __tablename__ = "duplicate_matches"
+    # Content identifiers survive source deletion and avoid quadratic identical-file pairs.
+    left_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    right_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    score: Mapped[float] = mapped_column(Float)
+    algorithm: Mapped[int] = mapped_column(Integer)
+
+
 class Bookmark(Base):
     __tablename__ = "bookmarks"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)

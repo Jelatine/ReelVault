@@ -12,6 +12,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const TagsPage = lazy(() => import('./pages/TagsPage'))
+const DuplicatesPage = lazy(() => import('./pages/DuplicatesPage'))
 const SetupPage = lazy(() => import('./pages/SetupPage'))
 const TrashPage = lazy(() => import('./pages/TrashPage'))
 const VideoPage = lazy(() => import('./pages/VideoPage'))
@@ -47,6 +48,7 @@ function AppRoutes() {
         <Route path="trash" element={<TrashPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="tags" element={<TagsPage />} />
+        <Route path="duplicates" element={<DuplicatesPage />} />
       </Route>
       <Route path="login" element={<Navigate to="/" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />

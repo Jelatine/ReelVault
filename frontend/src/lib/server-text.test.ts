@@ -6,6 +6,18 @@ import type { Job } from './types'
 
 afterEach(async () => { await setLanguage('zh') })
 
+it('localizes duplicate scan stages and partial failure counts', async () => {
+  await setLanguage('en')
+  expect(jobLabel({ kind: 'duplicates', params: {} } as Job)).toBe('Duplicate video detection')
+  expect(serverText('文件哈希 2/12')).toBe('Hashing files 2/12')
+  expect(serverText('抽帧比较 2/12')).toBe('Sampling frames 2/12')
+  expect(serverText('已检查 2/12')).toBe('Checked 2/12')
+  expect(serverText('比较相似视频')).toBe('Comparing similar videos')
+  expect(serverText('已检查 12 个视频；1 个文件失败、2 个抽帧失败')).toBe('Checked 12 videos; 1 file failures, 2 frame sampling failures')
+  await setLanguage('zh')
+  expect(serverText('文件哈希 2/12')).toBe('文件哈希 2/12')
+})
+
 it('localizes known progress and preserves technical details and parameter values', async () => {
   await setLanguage('en')
   expect(jobLabel({ kind: 'edit', params: { edit: { op: 'trim' } } } as Job)).toBe('Trim')

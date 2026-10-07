@@ -498,5 +498,17 @@
   "smart_folder_name_conflict": {
     "zh": "同名智能文件夹已存在",
     "en": "A smart folder with this name already exists."
+  },
+  "duplicate_videos_busy": {
+    "zh": "所选视频仍有未完成任务，请完成或取消后再处理",
+    "en": "The selected videos have unfinished jobs. Complete or cancel them before proceeding."
+  },
+  "duplicate_result_stale": {
+    "zh": "视频文件已变化或检测结果已过期，请重新扫描",
+    "en": "The video files changed or the detection results are outdated. Scan again."
+  },
+  "duplicate_not_match": {
+    "zh": "所选视频不是有效的重复或相似匹配",
+    "en": "The selected videos are not a valid duplicate or similarity match."
   }
 }

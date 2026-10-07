@@ -9,6 +9,7 @@ import { jobNotificationObserver } from './system-notifications'
 const operationLabels = (): Record<string, string> => ({
   ingest: tr("处理新视频"),
   scenes: tr("场景检测"),
+  duplicates: tr("重复视频检测"),
   hls: tr("生成 HLS 清晰度"),
   adjust: tr("画面调整"),
   effect: tr("片段效果"),
@@ -67,6 +68,7 @@ export function useJobEvents(session: string | null, username: string) {
         qc.invalidateQueries({ queryKey: ['hls-settings'] })
         qc.invalidateQueries({ queryKey: ['folders'] })
         qc.invalidateQueries({ queryKey: ['dashboard'] })
+        qc.invalidateQueries({ queryKey: ['duplicates'] })
         if (job.kind === 'edit') {
           const label = jobLabel(job)
           if (job.status === 'succeeded') {

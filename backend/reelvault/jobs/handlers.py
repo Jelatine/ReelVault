@@ -27,6 +27,7 @@ from ..media.subtitles import plan_subtitle
 from ..media.timing import snap_cut, timing_index
 from ..media.watermark import plan_watermark
 from ..models import Job, SceneAnalysis, Video, new_id, utcnow
+from .duplicates import duplicates
 from .manager import Handler, JobContext
 
 edit_params: TypeAdapter[ops.EditParams] = TypeAdapter(ops.EditParams)
@@ -561,4 +562,10 @@ async def hls(ctx: JobContext, job: Job) -> None:
             shutil.rmtree(target, ignore_errors=True)
 
 
-HANDLERS: dict[str, Handler] = {"ingest": ingest, "scenes": scenes, "hls": hls, "edit": edit}
+HANDLERS: dict[str, Handler] = {
+    "ingest": ingest,
+    "scenes": scenes,
+    "hls": hls,
+    "edit": edit,
+    "duplicates": duplicates,
+}

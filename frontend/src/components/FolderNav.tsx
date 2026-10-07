@@ -192,6 +192,8 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
       <SmartFolderNav onNavigate={onNavigate} />
       <NavLink component={Link} to="/tags" label={tr('标签管理')} leftSection={<IconHash size={16} />}
         active={location.pathname === '/tags'} aria-current={location.pathname === '/tags' ? 'page' : undefined} onClick={onNavigate} />
+      <NavLink component={Link} to="/duplicates" label={tr('重复视频检测')} leftSection={<IconVideo size={16} />}
+        active={location.pathname === '/duplicates'} aria-current={location.pathname === '/duplicates' ? 'page' : undefined} onClick={onNavigate} />
       {(tags.data?.some(tag => tag.count > 0) ?? false) && (
         <>
           <Text size="xs" c="dimmed" fw={600} mt="sm" px="sm">{tr("标签")}</Text>

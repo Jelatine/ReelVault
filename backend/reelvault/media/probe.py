@@ -34,6 +34,7 @@ class MediaInfo:
     channels: int = 0
     audio_delay: float = 0
     video_delay: float = 0
+    video_duration: float = 0
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -132,6 +133,7 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
 
     info.video_index = int(video.get("index", 0))
     info.video_delay = float(video.get("start_time") or 0) - float(fmt.get("start_time") or 0)
+    info.video_duration = float(video.get("duration") or 0)
     info.extra = {**(fmt.get("tags") or {}), **(video.get("tags") or {})}
     info.extra["subtitle_streams"] = subtitle_streams(data)
     info.video_codec = video.get("codec_name", "")

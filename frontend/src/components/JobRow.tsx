@@ -43,7 +43,7 @@ export default function JobRow({ job, compact }: { job: Job; compact?: boolean }
     <Stack component="article" aria-label={tr("任务 {{v0}}", { v0: job.id.slice(0, 8) })} gap={4}>
       <Group justify="space-between" wrap="nowrap">
         <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-          <Badge color={color} variant="light" size="sm">
+          <Badge color={color} variant="light" size="sm" style={{ flexShrink: 0 }}>
             {label}
           </Badge>
           <Text size="sm" fw={500}>
@@ -71,6 +71,7 @@ export default function JobRow({ job, compact }: { job: Job; compact?: boolean }
               rightSection={<IconExternalLink size={12} />}
             >{tr("查看结果")}</Button>
           )}
+          {job.status === 'succeeded' && job.kind === 'duplicates' && <Button size="compact-xs" variant="subtle" component={Link} to="/duplicates">{tr('查看检测结果')}</Button>}
           {job.status === 'succeeded' && job.has_result_file && (
             <Button
               size="compact-xs"
