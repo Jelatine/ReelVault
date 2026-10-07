@@ -33,9 +33,13 @@ export default function NotificationPanel() {
     <Group>
       <Button disabled={!optedIn && (!supported || denied)} loading={busy} variant={enabled ? 'default' : 'filled'} onClick={async () => {
         setError(false)
-        if (optedIn) { setNotificationsEnabled(user.username, false); await clearSystemNotifications(user.session_id); return }
         setBusy(true)
-        try { await enableNotifications(user.username) }
+        try {
+          if (optedIn) {
+            setNotificationsEnabled(user.username, false)
+            await clearSystemNotifications(user.session_id)
+          } else await enableNotifications(user.username)
+        }
         catch { setError(true) }
         finally { setBusy(false); refresh(value => value + 1) }
       }}>{optedIn ? tr('关闭任务通知') : tr('启用任务通知')}</Button>

@@ -51,9 +51,9 @@ function worker() {
     self: { location: { origin }, registration: { showNotification, getNotifications }, clients: { claim, matchAll, openWindow }, skipWaiting, addEventListener: (type: string, callback: (event: WorkerEvent) => void) => callbacks.set(type, callback) },
     caches, fetch: network, Request, Response, URL, Set, Promise,
   })
-  async function fire(type: string, data?: unknown) {
+  async function fire(type: string, data?: unknown, ports: NonNullable<WorkerEvent['ports']> = []) {
     const pending: Promise<unknown>[] = []
-    callbacks.get(type)!({ data, source: { url: `${origin}/library` }, ports: [], waitUntil: (promise) => pending.push(promise) })
+    callbacks.get(type)!({ data, source: { url: `${origin}/library` }, ports, waitUntil: (promise) => pending.push(promise) })
     await Promise.all(pending)
   }
   async function fetchResource(url: string, method = 'GET', navigate = false) {
@@ -74,6 +74,21 @@ function worker() {
 
 describe('job notification delivery and navigation', () => {
   const message = { type: 'JOB_NOTIFICATION', session: 'account-session', id: 'long-job', title: 'ReelVault · Trim completed', body: 'Open result', url: '/videos/result', lang: 'en' }
+  it('acknowledges cleanup only after the current notifications have been closed', async () => {
+    const w = worker()
+    await w.fire('message', { type: 'SESSION', session: message.session })
+    await w.fire('message', message)
+    let finish: ((items: typeof w.notifications) => void) | undefined
+    w.getNotifications.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const acknowledge = vi.fn()
+    const pending = w.fire('message', { type: 'CLEAR_NOTIFICATIONS', session: message.session }, [{ postMessage: acknowledge }])
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+    expect(acknowledge).not.toHaveBeenCalled()
+    finish!([...w.notifications])
+    await pending
+    expect(w.notifications).toHaveLength(0)
+    expect(acknowledge).toHaveBeenCalledWith({ ok: true })
+  })
   it('serializes duplicate tabs, retains deduplication after poster clearing, and clears on logout', async () => {
     const w = worker()
     await w.fire('message', message)

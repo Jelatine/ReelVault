@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { setLanguage } from './i18n'
-import { enableNotifications, jobNotificationObserver, notificationsEnabled, notificationsSupported, sendSystemNotification, setNotificationsEnabled } from './system-notifications'
+import { clearSystemNotifications, enableNotifications, jobNotificationObserver, notificationsEnabled, notificationsSupported, sendSystemNotification, setNotificationsEnabled } from './system-notifications'
 import type { Job } from './types'
 
 const postMessage = vi.fn()
@@ -71,4 +71,20 @@ it('stops pending delivery when disabled and sends nothing without browser permi
   Object.defineProperty(Notification, 'permission', { value: 'denied', configurable: true })
   await sendSystemNotification('alice', 'session', 'job', 'Done', '/jobs')
   expect(postMessage).not.toHaveBeenCalled()
+})
+
+it('waits for worker cleanup confirmation before opt-out completes', async () => {
+  class Channel {
+    port1 = { onmessage: null as ((event: MessageEvent) => void) | null, close: vi.fn() }
+    port2 = { postMessage: (data: unknown) => this.port1.onmessage?.({ data } as MessageEvent) }
+  }
+  vi.stubGlobal('MessageChannel', Channel)
+  let done = false
+  const pending = clearSystemNotifications('session').then(() => { done = true })
+  await vi.waitFor(() => expect(postMessage).toHaveBeenCalledOnce())
+  expect(done).toBe(false)
+  expect(postMessage.mock.calls[0][0]).toEqual({ type: 'CLEAR_NOTIFICATIONS', session: 'session' })
+  postMessage.mock.calls[0][1][0].postMessage({ ok: true })
+  await pending
+  expect(done).toBe(true)
 })

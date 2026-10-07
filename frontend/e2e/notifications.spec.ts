@@ -49,6 +49,11 @@ test('显式启用长任务系统通知、多标签去重、关闭与退出清�
   await page.getByRole('button', { name: '启用任务通知', exact: true }).click()
   await expect(page.getByText('任务通知已启用', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '发送测试通知', exact: true }).click()
+  await expect.poll(() => page.evaluate(async () => {
+    const state = await (await caches.open('reelvault-offline-state')).match('/__reelvault_offline_state__')
+    const data = await state?.json()
+    return data?.notifications?.some((id: string) => id.startsWith('test-')) ?? false
+  })).toBe(true)
   await expect.poll(count).toBe(1)
   await other.close()
   await page.getByRole('button', { name: '用户菜单' }).click()

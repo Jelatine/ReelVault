@@ -145,6 +145,7 @@ self.addEventListener('message', (event) => {
   } else if (event.data?.type === 'CLEAR_NOTIFICATIONS') {
     event.waitUntil(serial(async () => {
       if ((await state()).owner === event.data.session) await closeNotifications()
+      event.ports[0]?.postMessage({ ok: true })
     }).catch(() => {}))
   } else if (event.data?.type === 'JOB_NOTIFICATION') {
     event.waitUntil(serial(async () => {

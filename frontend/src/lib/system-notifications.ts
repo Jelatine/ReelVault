@@ -47,7 +47,21 @@ export async function sendSystemNotification(username: string, session: string, 
 export async function clearSystemNotifications(session: string) {
   if (!('serviceWorker' in navigator)) return
   const registration = await navigator.serviceWorker.getRegistration().catch(() => undefined)
-  registration?.active?.postMessage({ type: 'CLEAR_NOTIFICATIONS', session })
+  const worker = registration?.active
+  if (!worker) return
+  await new Promise<void>((resolve, reject) => {
+    const channel = new MessageChannel()
+    const timer = window.setTimeout(() => {
+      channel.port1.close()
+      reject(new Error(tr('清理超时，请重试。')))
+    }, 5000)
+    channel.port1.onmessage = () => {
+      window.clearTimeout(timer)
+      channel.port1.close()
+      resolve()
+    }
+    worker.postMessage({ type: 'CLEAR_NOTIFICATIONS', session }, [channel.port2])
+  })
 }
 
 /** Observe active jobs first, so loading historical results never sends notifications. */
