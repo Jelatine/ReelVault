@@ -137,6 +137,7 @@ export interface UpdateStatus {
   install_mode: 'package' | 'docker' | 'source' | 'none'
   can_auto_upgrade: boolean
   auto_upgrade_blocker: string | null
+  systemd_sync_enabled?: boolean
   instructions: string
   phase: 'idle' | 'downloading' | 'verifying' | 'installing' | 'restarting' | 'failed'
   message: string

@@ -94,6 +94,8 @@ class Settings(BaseSettings):
     install_mode: str = "auto"
     # Allow one-click upgrades from the web UI (release-package installs only).
     allow_self_update: bool = True
+    # Enabled by the Ubuntu installer after installing its root-owned path helper.
+    systemd_sync: bool | None = None
     uv: str = "uv"
 
     @property

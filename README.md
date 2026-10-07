@@ -161,11 +161,17 @@ ReelVault 会定期（默认每 12 小时）检查 [GitHub Releases](https://git
 
 | 部署方式 | 升级方式 |
 | --- | --- |
-| Ubuntu 安装包（`install.sh`） | **一键升级**：自动下载安装包、校验 SHA256、替换程序、安装依赖，然后自动重启；任何一步失败都会恢复到原版本。有任务正在运行时不允许升级 |
+| Ubuntu 安装包（`install.sh`） | **一键升级**：自动下载安装包、校验 SHA256、替换程序、安装依赖、同步 systemd 服务配置，然后自动重启。失败时回滚程序与服务配置；回滚未确认会提示检查。有任务正在运行时不允许升级 |
 | Docker | 页面给出 `docker compose pull && docker compose up -d` 等命令 |
 | 源码运行（含 macOS） | 页面给出 `git pull && make install && make build` 等步骤 |
 
 一键升级依赖 systemd 的 `Restart=on-failure`（安装脚本已配置）：升级完成后程序以退出码 75 退出，由 systemd 拉起新版本。数据库迁移会在新版本启动时自动执行。
+
+Ubuntu 的新版安装脚本会安装 root 所有的 `reelvault-service-sync.path` 和受限辅助服务，并启用 `REELVAULT_SYSTEMD_SYNC=true`。原有安装需从新版安装包运行一次 `sudo ./deploy/install.sh`，以安装辅助服务；之后的在线升级自动同步发布包中的 `deploy/reelvault.service` 并执行 daemon-reload。标准 systemd 安装会自动检查辅助服务是否可用，缺少时显示安装说明。
+
+辅助程序由 `/usr/bin/python3 -I` 从 `/usr/local/libexec` 启动，仅接受固定 ReelVault 账号、启动命令、配置路径与可写目录，保留主服务的 `NoNewPrivileges` 等保护。程序和依赖安装成功后才提交服务配置，重载/确认失败会恢复原配置；root 保存的事务备份可处理确认响应丢失，其他操作已修改主服务文件时拒绝覆盖并提示检查。环境文件与自定义 `reelvault.service.d/` drop-in 不会被在线升级改写。新的账号、启动路径、额外可写目录或尚未支持的指令需要管理员运行新版安装脚本；辅助程序自身也只由安装脚本更新。主服务文件的自定义修改应放入 drop-in。相关日志可用 `journalctl -u reelvault-service-sync.service` 查看。
+
+同步目前针对标准 `/opt/reelvault` Ubuntu 安装；源码、Docker 和 macOS 升级沿用各自方式。显式设置 `REELVAULT_SYSTEMD_SYNC=false` 可选择只升级程序，此时需自行同步 systemd 配置。
 
 不希望服务器访问 GitHub 时，设置 `REELVAULT_UPDATE_CHECK=false` 关闭自动检查；`REELVAULT_ALLOW_SELF_UPDATE=false` 只保留检查、禁用一键升级。
 
@@ -192,6 +198,7 @@ ReelVault 会定期（默认每 12 小时）检查 [GitHub Releases](https://git
 | `REELVAULT_VAAPI_DEVICE` | `/dev/dri/renderD128` | VAAPI 渲染设备路径 |
 | `REELVAULT_AUDIO_UPLOAD_MAX_MB` | `128` | 单个音频素材的上传上限（MiB） |
 | `REELVAULT_UPDATE_CHECK` | `true` | 是否定期检查新版本 |
+| `REELVAULT_SYSTEMD_SYNC` | 自动检测标准 systemd 安装；Ubuntu 安装脚本设为 `true` | 在线升级同步受限的 systemd 服务配置；首次需安装辅助服务 |
 | `REELVAULT_UPDATE_CHECK_INTERVAL_HOURS` | `12` | 检查间隔 |
 | `REELVAULT_UPDATE_INCLUDE_PRERELEASES` | `false` | 是否提示预发布版本（如 `-rc`） |
 | `REELVAULT_ALLOW_SELF_UPDATE` | `true` | 是否允许在页面中一键升级（仅 Ubuntu 安装包部署） |

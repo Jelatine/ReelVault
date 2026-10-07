@@ -88,7 +88,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: [backend, frontend, e2e]
+    needs: [backend, frontend, e2e, systemd]
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-buildx-action@v4
@@ -109,3 +109,29 @@ jobs:
           done
           docker logs rv
           exit 1
+
+  systemd:
+    name: systemd (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [backend, frontend]
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+      - name: Build release package
+        run: |
+          cd frontend
+          npm ci
+          cd ..
+          make package VERSION=ci
+      - name: Verify real install and online upgrade under systemd
+        run: sudo env GITHUB_ACTIONS=true python3 deploy/test-systemd.py

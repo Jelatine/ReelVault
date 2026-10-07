@@ -5,6 +5,16 @@ export function serverText(text: string | null | undefined): string {
   if (!text || currentLanguage() === 'zh') return text ?? ''
   if (i18n.exists(text)) return tr(text)
   let match: RegExpMatchArray | null
+  if ((match = text.match(/^程序已回滚，systemd 配置回滚未确认：([\s\S]+)$/))) return tr('程序已回滚，systemd 配置回滚未确认：{{detail}}', { detail: serverText(match[1]) })
+  if ((match = text.match(/^systemd 重载失败：([\s\S]*)$/))) return tr('systemd 重载失败：{{detail}}', { detail: match[1] })
+  if ((match = text.match(/^服务配置同步失败：([\s\S]+)；回滚失败：([\s\S]+)$/))) return tr('服务配置同步失败：{{detail}}；回滚失败：{{rollback}}', { detail: serverText(match[1]), rollback: serverText(match[2]) })
+  if ((match = text.match(/^服务配置必须保留 (.+)$/))) return tr('服务配置必须保留 {{value}}', { value: match[1] })
+  if ((match = text.match(/^服务配置重复指令：(.+)$/))) return tr('服务配置重复指令：{{key}}', { key: match[1] })
+  if ((match = text.match(/^服务配置包含不允许的依赖：(.+)$/))) return tr('服务配置包含不允许的依赖：{{key}}', { key: match[1] })
+  if ((match = text.match(/^服务配置包含不允许的指令或值：(.+)$/))) return tr('服务配置包含不允许的指令或值：{{key}}', { key: match[1] })
+  if ((match = text.match(/^辅助服务目录权限不正确：(.+)$/))) return tr('辅助服务目录权限不正确：{{path}}', { path: match[1] })
+  if ((match = text.match(/^辅助服务目录必须由 root 管理：(.+)$/))) return tr('辅助服务目录必须由 root 管理：{{path}}', { path: match[1] })
+  if ((match = text.match(/^辅助服务文件权限不正确：(.+)$/))) return tr('辅助服务文件权限不正确：{{path}}', { path: match[1] })
   if ((match = text.match(/^文件哈希 (\d+)\/(\d+)$/))) return tr('文件哈希 {{current}}/{{total}}', { current: match[1], total: match[2] })
   if ((match = text.match(/^抽帧比较 (\d+)\/(\d+)$/))) return tr('抽帧比较 {{current}}/{{total}}', { current: match[1], total: match[2] })
   if ((match = text.match(/^已检查 (\d+)\/(\d+)$/))) return tr('已检查 {{current}}/{{total}}', { current: match[1], total: match[2] })

@@ -5,6 +5,7 @@ import hashlib
 import json
 import shutil
 import tarfile
+import threading
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,11 @@ from reelvault import updates
 from reelvault.config import Settings
 from reelvault.db import make_engine
 from reelvault.migrate import upgrade
+from reelvault.service_sync import ServiceSync, ServiceSyncError, process_once
 from reelvault.updates import UpdateError, Updater, is_newer, parse_version
+
+from .test_service_sync import TEMPLATE
+from .test_service_sync import helper as helper
 
 REPO = "Jelatine/ReelVault"
 
@@ -110,7 +115,9 @@ def make_app_dir(root: Path, version: str) -> Path:
     return app
 
 
-def make_release(root: Path, version: str, *, corrupt_sha: bool = False) -> Path:
+def make_release(
+    root: Path, version: str, *, corrupt_sha: bool = False, unit: str | None = None
+) -> Path:
     dist = root / "dist"
     pkg = dist / f"reelvault-{version}" / "backend"
     (pkg / "reelvault" / "static").mkdir(parents=True)
@@ -118,6 +125,10 @@ def make_release(root: Path, version: str, *, corrupt_sha: bool = False) -> Path
     (pkg / "reelvault" / "static" / "index.html").write_text(version)
     (pkg / "pyproject.toml").write_text(f'version = "{version}"\n')
     (pkg / "uv.lock").write_text(f"lock {version}\n")
+    (pkg / ".python-version").write_text("3.13\n")
+    if unit is not None:
+        (pkg.parent / "deploy").mkdir()
+        (pkg.parent / "deploy" / "reelvault.service").write_text(unit)
     # what tar on macOS adds; must not end up in the install
     (pkg / "reelvault" / "._junk.py").write_bytes(b"\x00\x05\x16\x07")
     name = f"reelvault-{version}.tar.gz"
@@ -137,9 +148,11 @@ def run_upgrade(
     uv: str = "true",
     corrupt_sha: bool = False,
     busy: int = 0,
+    unit: str | None = None,
+    systemd: bool = False,
 ) -> tuple[Updater, Path, list[bool]]:
     app = make_app_dir(tmp_path, "0.1.0")
-    dist = make_release(tmp_path, "0.2.0", corrupt_sha=corrupt_sha)
+    dist = make_release(tmp_path, "0.2.0", corrupt_sha=corrupt_sha, unit=unit)
     monkeypatch.setattr(
         updates, "fetch_json", lambda url, token=None: release_json("0.2.0", base="file://dist")
     )
@@ -149,7 +162,13 @@ def run_upgrade(
         lambda url, dest, token=None: shutil.copy(dist / url.rsplit("/", 1)[1], dest),
     )
     restarted: list[bool] = []
-    settings = Settings(data_dir=tmp_path / "data", install_mode="package", uv=shutil.which(uv))
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        install_mode="package",
+        uv=shutil.which(uv),
+        systemd_sync=systemd,
+    )
+    monkeypatch.setattr(updates, "SYSTEMD_APP_DIR", app)
     settings.ensure_dirs()
     engine = make_engine(settings.db_path)
     upgrade(engine)
@@ -211,6 +230,7 @@ def test_failed_dependency_install_rolls_back(
     assert '"0.1.0"' in (app / "reelvault" / "__init__.py").read_text()
     assert (app / "uv.lock").read_text() == "lock 0.1.0\n"
     assert not (app / "reelvault.new").exists()
+    assert not (app / ".python-version").exists()
 
 
 def test_checksum_mismatch_aborts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,3 +243,102 @@ def test_checksum_mismatch_aborts(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 def test_upgrade_refused_while_jobs_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(UpdateError, match="等待完成"):
         run_upgrade(tmp_path, monkeypatch, busy=1)
+
+
+@pytest.mark.parametrize("failure", [None, "apply", "commit", "rollback", "dependencies"])
+def test_package_upgrade_real_helper_requests_and_atomic_rollback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    helper,
+    failure: str | None,
+) -> None:
+    paths, reloads = helper
+    original_unit = paths.unit.read_bytes()
+    stop = threading.Event()
+    errors: list[Exception] = []
+
+    def serve() -> None:
+        while not stop.is_set():
+            if (paths.requests / "request.json").exists():
+                try:
+                    process_once(paths)
+                except Exception as error:
+                    errors.append(error)
+            stop.wait(0.01)
+
+    class Client(ServiceSync):
+        def __init__(self) -> None:
+            super().__init__(paths.requests)
+
+        @classmethod
+        def available(cls) -> bool:
+            return True
+
+        def send(self, action: str, content: str | None = None) -> None:
+            if failure == "rollback" and action == "rollback":
+                raise ServiceSyncError("rollback unavailable")
+            super().send(action, content)
+            if action == failure or (failure == "rollback" and action == "apply"):
+                raise ServiceSyncError(f"{action} acknowledgement lost")
+
+    monkeypatch.setattr(updates, "ServiceSync", Client)
+    worker = threading.Thread(target=serve)
+    worker.start()
+    try:
+        up, app, restarted = run_upgrade(
+            tmp_path,
+            monkeypatch,
+            systemd=True,
+            unit=TEMPLATE.read_text(),
+            uv="false" if failure == "dependencies" else "true",
+        )
+    finally:
+        stop.set()
+        worker.join(timeout=2)
+    assert not worker.is_alive() and not errors
+    if failure is None:
+        assert restarted == [True] and up.state.phase == "restarting"
+        assert paths.unit.read_text() == TEMPLATE.read_text() and len(reloads) == 1
+        assert json.loads(paths.state.read_text())["phase"] == "committed"
+        assert (app / "reelvault" / "static" / "index.html").read_text() == "0.2.0"
+    else:
+        assert not restarted and up.state.phase == "failed"
+        assert (app / "reelvault" / "static" / "index.html").read_text() == "0.1.0"
+        if failure == "rollback":
+            assert "回滚需要检查" in up.state.message and "未确认" in (up.state.error or "")
+            assert paths.state.exists() and paths.unit.read_text() == TEMPLATE.read_text()
+        else:
+            assert paths.unit.read_bytes() == original_unit and not paths.state.exists()
+            assert len(reloads) == (0 if failure == "dependencies" else 2)
+
+
+@pytest.mark.parametrize(
+    "unit", [None, TEMPLATE.read_text().replace("User=reelvault", "User=root")]
+)
+def test_systemd_upgrade_rejects_missing_or_unsafe_unit_before_program_swap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unit: str | None,
+) -> None:
+    monkeypatch.setattr(ServiceSync, "available", classmethod(lambda cls: True))
+    up, app, restarted = run_upgrade(tmp_path, monkeypatch, systemd=True, unit=unit)
+    assert not restarted and up.state.phase == "failed"
+    assert (app / "reelvault" / "static" / "index.html").read_text() == "0.1.0"
+    assert not (app / ".upgrade-backup").exists()
+
+
+def test_existing_systemd_install_requires_bootstrap_and_explicit_opt_out(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = make_app_dir(tmp_path, "0.1.0")
+    monkeypatch.setattr(updates, "SYSTEMD_APP_DIR", app)
+    monkeypatch.setattr(updates.sys, "platform", "linux")
+    monkeypatch.setenv("INVOCATION_ID", "test-service")
+    monkeypatch.setattr(ServiceSync, "available", classmethod(lambda cls: False))
+    settings = Settings(data_dir=tmp_path, install_mode="package", uv=shutil.which("true"))
+    updater = Updater(settings, app_dir=app)
+    assert updater.systemd_sync_enabled
+    assert "install.sh" in (updater.auto_upgrade_blocker() or "")
+    settings.systemd_sync = False
+    assert updater.auto_upgrade_blocker() is None

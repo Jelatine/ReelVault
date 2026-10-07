@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch ReelVault service configuration requests
+
+[Path]
+PathExists=/var/lib/reelvault-service-sync/requests/request.json
+Unit=reelvault-service-sync.service
+
+[Install]
+WantedBy=multi-user.target

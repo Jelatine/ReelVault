@@ -6,6 +6,14 @@ import type { Job } from './types'
 
 afterEach(async () => { await setLanguage('zh') })
 
+it('localizes service rollback status and preserves directive and path diagnostics', async () => {
+  await setLanguage('en')
+  expect(serverText('正在同步 systemd 服务配置')).toBe('Synchronizing systemd service configuration')
+  expect(serverText('升级失败，回滚需要检查')).toBe('Update failed; rollback requires inspection')
+  expect(serverText('程序已回滚，systemd 配置回滚未确认：服务配置必须保留 User=reelvault')).toBe('Application rolled back; systemd rollback is unconfirmed: Service configuration must retain User=reelvault')
+  expect(serverText('辅助服务目录权限不正确：/var/lib/reelvault-service-sync')).toBe('Incorrect helper directory permissions: /var/lib/reelvault-service-sync')
+})
+
 it('localizes duplicate scan stages and partial failure counts', async () => {
   await setLanguage('en')
   expect(jobLabel({ kind: 'duplicates', params: {} } as Job)).toBe('Duplicate video detection')

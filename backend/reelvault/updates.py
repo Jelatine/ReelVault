@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import time
 import urllib.request
@@ -22,17 +23,23 @@ from typing import Any
 from . import __version__
 from .backup import create_backup
 from .config import PACKAGE_DIR, Settings
+from .service_sync import ServiceSync, validate_unit
 
 log = logging.getLogger("reelvault.updates")
 
 # Exit code asking the service manager (systemd Restart=on-failure, launchd KeepAlive)
 # to start the process again after an upgrade.
 RESTART_EXIT_CODE = 75
+SYSTEMD_APP_DIR = Path("/opt/reelvault")
 
 _SEMVER = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
 
 
 class UpdateError(RuntimeError):
+    pass
+
+
+class RollbackError(UpdateError):
     pass
 
 
@@ -191,7 +198,23 @@ class Updater:
             return f"找不到 uv 命令（{self.settings.uv}）"
         if not os.access(self.app_dir, os.W_OK):
             return f"程序目录 {self.app_dir} 不可写"
+        if self.systemd_sync_enabled and self.app_dir != SYSTEMD_APP_DIR:
+            return "systemd 配置同步仅支持标准 /opt/reelvault 安装，请使用 deploy/install.sh"
+        if self.systemd_sync_enabled and not ServiceSync.available():
+            return "systemd 同步辅助服务未安装或不可用，请重新运行新版 deploy/install.sh"
         return None
+
+    @property
+    def systemd_sync_enabled(self) -> bool:
+        if self.mode != "package":
+            return False
+        if self.settings.systemd_sync is not None:
+            return self.settings.systemd_sync
+        return (
+            sys.platform == "linux"
+            and self.app_dir == SYSTEMD_APP_DIR
+            and bool(os.environ.get("INVOCATION_ID"))
+        )
 
     def status(self) -> dict[str, Any]:
         latest = self.state.latest
@@ -219,6 +242,7 @@ class Updater:
             "install_mode": self.mode,
             "can_auto_upgrade": self.auto_upgrade_blocker() is None,
             "auto_upgrade_blocker": self.auto_upgrade_blocker(),
+            "systemd_sync_enabled": self.systemd_sync_enabled,
             "instructions": instructions(self.mode, self.settings.update_repo, version),
             "phase": self.state.phase,
             "message": self.state.message,
@@ -311,7 +335,12 @@ class Updater:
                 await asyncio.to_thread(self._upgrade_sync, release)
             except Exception as e:
                 log.exception("upgrade failed")
-                self._set("failed", "升级失败，已恢复到原版本", str(e))
+                message = (
+                    "升级失败，回滚需要检查"
+                    if isinstance(e, RollbackError)
+                    else "升级失败，已恢复到原版本"
+                )
+                self._set("failed", message, str(e))
                 return
             self._set("restarting", f"已升级到 v{release.version}，正在重启")
             log.info("upgraded to %s, restarting", release.version)
@@ -355,12 +384,19 @@ class Updater:
             for required in ("pyproject.toml", "uv.lock", "reelvault/static/index.html"):
                 if not (src / required).exists():
                     raise UpdateError(f"安装包不完整：缺少 {required}")
+            unit = None
+            if self.systemd_sync_enabled:
+                unit_path = src.parent / "deploy" / "reelvault.service"
+                if not unit_path.is_file() or unit_path.is_symlink():
+                    raise UpdateError("安装包不完整：缺少 deploy/reelvault.service")
+                unit = unit_path.read_text()
+                validate_unit(unit)
 
             self._set("installing", "正在安装新版本")
             if self.settings.db_path.is_file():
                 backup_path = create_backup(self.settings, reason="before-upgrade")
                 log.info("database/config backed up before upgrade: %s", backup_path)
-            self._swap_and_sync(src)
+            self._swap_and_sync(src, unit)
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
@@ -380,13 +416,16 @@ class Updater:
         if result.returncode != 0:
             raise UpdateError(f"安装依赖失败：{(result.stderr or result.stdout).strip()[-1500:]}")
 
-    def _swap_and_sync(self, src: Path) -> None:
+    def _swap_and_sync(self, src: Path, unit: str | None = None) -> None:
         """Replace the package and lock files; restore the previous ones on failure."""
         app = self.app_dir
         backup = app / ".upgrade-backup"
         shutil.rmtree(backup, ignore_errors=True)
         backup.mkdir()
         files = ["pyproject.toml", "uv.lock", ".python-version"]
+        existed = {f: (app / f).exists() for f in files}
+        sync = ServiceSync() if unit is not None else None
+        service_attempted = False
         try:
             shutil.copytree(src / "reelvault", app / "reelvault.new")
             (app / "reelvault").rename(backup / "reelvault")
@@ -397,6 +436,11 @@ class Updater:
                 if (src / f).exists():
                     shutil.copy2(src / f, app / f)
             self._uv_sync()
+            if sync is not None:
+                self._set("installing", "正在同步 systemd 服务配置")
+                service_attempted = True
+                sync.send("apply", unit)
+                sync.send("commit")
         except Exception:
             log.warning("upgrade failed, rolling back")
             shutil.rmtree(app / "reelvault.new", ignore_errors=True)
@@ -406,6 +450,18 @@ class Updater:
             for f in files:
                 if (backup / f).exists():
                     shutil.copy2(backup / f, app / f)
+                elif not existed[f]:
+                    (app / f).unlink(missing_ok=True)
+            if sync is not None and service_attempted:
+                try:
+                    sync.send("rollback")
+                except Exception as error:
+                    # Retain the root-owned backup; don't claim service rollback succeeded.
+                    try:
+                        self._uv_sync()
+                    except Exception:
+                        log.exception("re-sync after unconfirmed service rollback failed")
+                    raise RollbackError(f"程序已回滚，systemd 配置回滚未确认：{error}") from error
             try:
                 self._uv_sync()
             except Exception as e:  # pragma: no cover - best effort

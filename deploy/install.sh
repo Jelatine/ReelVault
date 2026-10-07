@@ -23,7 +23,7 @@ fi
 
 echo "==> 安装系统依赖 (ffmpeg)"
 apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-noto-cjk curl ca-certificates >/dev/null
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-noto-cjk curl ca-certificates python3 >/dev/null
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "==> 安装 uv"
@@ -53,8 +53,21 @@ if [[ ! -f "$CONF_DIR/reelvault.env" ]]; then
 fi
 
 echo "==> 配置 systemd 服务"
+echo "==> 安装受限的服务配置同步辅助程序"
+install -d -o root -g root -m 755 /usr/local/libexec /var/lib/reelvault-service-sync
+install -d -o root -g root -m 700 /var/lib/reelvault-service-sync/private
+install -d -o root -g reelvault -m 1770 /var/lib/reelvault-service-sync/requests
+install -o root -g root -m 644 "$SRC_DIR/backend/reelvault/service_sync.py" /usr/local/libexec/reelvault-service-sync.py
+printf '1\n' > /var/lib/reelvault-service-sync/protocol
+chmod 644 /var/lib/reelvault-service-sync/protocol
+if ! grep -q '^REELVAULT_SYSTEMD_SYNC=' "$CONF_DIR/reelvault.env"; then
+  printf '\nREELVAULT_SYSTEMD_SYNC=true\n' >> "$CONF_DIR/reelvault.env"
+fi
+install -o root -g root -m 644 "$SRC_DIR/deploy/reelvault-service-sync.service" /etc/systemd/system/reelvault-service-sync.service
+install -o root -g root -m 644 "$SRC_DIR/deploy/reelvault-service-sync.path" /etc/systemd/system/reelvault-service-sync.path
 cp "$SRC_DIR/deploy/reelvault.service" /etc/systemd/system/reelvault.service
 systemctl daemon-reload
+systemctl enable --now reelvault-service-sync.path >/dev/null
 systemctl enable reelvault >/dev/null
 systemctl restart reelvault
 

@@ -1,7 +1,7 @@
 [Unit]
 Description=ReelVault video server
-After=network-online.target
-Wants=network-online.target
+After=network-online.target reelvault-service-sync.path
+Wants=network-online.target reelvault-service-sync.path
 
 [Service]
 Type=simple
@@ -12,12 +12,13 @@ EnvironmentFile=/etc/reelvault/reelvault.env
 ExecStart=/opt/reelvault/.venv/bin/reelvault
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=90
 # Hardening
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/var/lib/reelvault
+ReadWritePaths=/var/lib/reelvault /var/lib/reelvault-service-sync/requests
 
 [Install]
 WantedBy=multi-user.target

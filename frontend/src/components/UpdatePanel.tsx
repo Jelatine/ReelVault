@@ -141,6 +141,8 @@ export default function UpdatePanel() {
       </Text>
 
       {data.check_error && <Alert color="yellow">{serverText(data.check_error)}</Alert>}
+      {data.systemd_sync_enabled && <Text size="sm" c="dimmed">{tr('一键升级会同步服务配置；环境配置与自定义 drop-in 保留。')}</Text>}
+      {data.systemd_sync_enabled && !data.update_available && data.auto_upgrade_blocker && <Alert color="yellow">{serverText(data.auto_upgrade_blocker)}</Alert>}
 
       {upgrading && (
         <Alert color="blue" icon={<Loader size={16} />} title={phaseLabels()[data.phase]}>
