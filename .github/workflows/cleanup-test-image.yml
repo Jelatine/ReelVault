@@ -1,0 +1,36 @@
+name: Clean obsolete test image
+
+on:
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: Delete the exclusively tagged 0.1.0-rc.1 version after rechecking
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    if: github.repository == 'Jelatine/ReelVault' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: reelvault-ghcr-mutation
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify cleanup guards
+        run: python3 -m unittest deploy/test_cleanup_test_image.py
+      - name: Inspect the exact test tag
+        if: ${{ !inputs.delete }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 deploy/cleanup_test_image.py
+      - name: Delete and verify the exact test version
+        if: ${{ inputs.delete }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 deploy/cleanup_test_image.py --delete
