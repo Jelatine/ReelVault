@@ -562,5 +562,33 @@
   "storage_location_in_use": {
     "zh": "存储位置仍有视频或未完成任务，不能移除",
     "en": "Storage still contains videos or unfinished tasks and cannot be removed."
+  },
+  "share_unavailable": {
+    "zh": "分享链接不存在、已撤销或已过期",
+    "en": "This share is unavailable, revoked or expired."
+  },
+  "share_password_required": {
+    "zh": "请输入分享访问密码",
+    "en": "Enter the share password."
+  },
+  "share_password_incorrect": {
+    "zh": "分享访问密码不正确",
+    "en": "Incorrect share password."
+  },
+  "share_password_rate_limited": {
+    "zh": "分享密码尝试过多，请稍后重试",
+    "en": "Too many share password attempts. Try again later."
+  },
+  "share_download_disabled": {
+    "zh": "此分享不允许下载原文件",
+    "en": "Original downloads are disabled for this share."
+  },
+  "share_video_unavailable": {
+    "zh": "该视频不在分享范围内或不可用",
+    "en": "This video is unavailable or outside the share."
+  },
+  "share_limit": {
+    "zh": "分享链接已达到上限，请先撤销不用的链接",
+    "en": "Share link limit reached. Revoke unused links first."
   }
 }

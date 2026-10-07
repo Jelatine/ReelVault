@@ -25,6 +25,7 @@ import UpdatePanel from '../components/UpdatePanel'
 import BackupPanel from '../components/BackupPanel'
 import HlsSettings from '../components/HlsSettings'
 import LocationsPanel from '../components/LocationsPanel'
+import SharePanel from '../components/SharePanel'
 import StoragePanel from '../components/StoragePanel'
 import EncodingPanel from '../components/EncodingPanel'
 import ImportSettings from '../components/ImportSettings'
@@ -233,6 +234,7 @@ export default function SettingsPage() {
         <EncodingPanel />
         <LocationsPanel />
         <StoragePanel />
+        <SharePanel />
           <HlsSettings />
       </Paper>
       <SimpleGrid cols={{ base: 1, md: 2 }}>

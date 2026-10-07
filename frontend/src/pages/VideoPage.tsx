@@ -67,6 +67,8 @@ import { useJobs, useVideo } from '../lib/queries'
 import type { Video } from '../lib/types'
 import MetadataPanel from '../components/MetadataPanel'
 
+import { ShareButton } from '../components/SharePanel'
+
 function InfoPanel({ video }: { video: Video }) {
   useTranslation()
 
@@ -158,6 +160,7 @@ function InfoPanel({ video }: { video: Video }) {
       </Table>
       <MetadataPanel video={video} />
       <Group gap="xs">
+        <ShareButton target={{ video_id: video.id }} disabled={!!video.deleted_at || video.status !== 'ready'} />
         <Button component="a" href={video.download_url} variant="light" leftSection={<IconDownload size={16} />}>{tr("下载原文件")}</Button>
         {video.deleted_at ? (
           <Button variant="light" leftSection={<IconRestore size={16} />} onClick={restore}>{tr("恢复")}</Button>

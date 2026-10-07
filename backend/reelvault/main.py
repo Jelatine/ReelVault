@@ -34,6 +34,7 @@ from .api import (
     playback,
     scenes,
     search,
+    shares,
     smart_folders,
     subtitles,
     system,
@@ -54,6 +55,7 @@ from .media.encoding import detect_encoders
 from .media.ffmpeg import ffmpeg_version
 from .migrate import upgrade
 from .models import HlsPackage, RuntimeSetting, Upload, User
+from .sharing import SharePrivacyMiddleware
 from .updates import Updater
 
 log = logging.getLogger("reelvault")
@@ -208,10 +210,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_error_handlers(app)
     app.state.settings = settings
     app.state.restart_requested = False
+    app.state.share_limiter = LoginLimiter(5, 15 * 60)
     app.state.login_limiter = LoginLimiter(
         settings.login_max_failures, settings.login_lock_minutes * 60
     )
     app.add_middleware(CSRFMiddleware)
+    app.add_middleware(SharePrivacyMiddleware)
 
     for r in (
         auth_api.router,
@@ -229,6 +233,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         playback.router,
         scenes.router,
         search.router,
+        shares.router,
         smart_folders.router,
         tags.router,
         videos.router,

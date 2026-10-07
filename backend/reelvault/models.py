@@ -8,6 +8,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -370,3 +371,32 @@ class HlsPackage(Base):
     renditions: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
     size: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class ShareLink(Base):
+    __tablename__ = "share_links"
+    __table_args__ = (
+        CheckConstraint("(video_id IS NULL) != (collection_id IS NULL)", name="share_one_target"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True)
+    video_id: Mapped[str | None] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"))
+    collection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE")
+    )
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    allow_download: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
+class ShareGrant(Base):
+    __tablename__ = "share_grants"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    share_id: Mapped[str] = mapped_column(
+        ForeignKey("share_links.id", ondelete="CASCADE"), index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)

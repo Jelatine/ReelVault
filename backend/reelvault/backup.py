@@ -267,6 +267,7 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
                 config.update(registry)
                 # Device tokens and temporary uploads are not portable. Never resurrect them.
                 db.execute("DELETE FROM sessions")
+                db.execute("DELETE FROM share_grants")
                 db.execute("DELETE FROM uploads")
                 db.execute(
                     "UPDATE jobs SET status='failed', error='恢复备份后需重新提交任务' "
