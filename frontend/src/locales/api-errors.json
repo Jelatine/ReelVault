@@ -490,5 +490,13 @@
   "tag_self_merge": {
     "zh": "不能将标签合并到自身",
     "en": "A tag cannot be merged into itself."
+  },
+  "smart_folder_not_found": {
+    "zh": "智能文件夹不存在",
+    "en": "The smart folder does not exist."
+  },
+  "smart_folder_name_conflict": {
+    "zh": "同名智能文件夹已存在",
+    "en": "A smart folder with this name already exists."
   }
 }

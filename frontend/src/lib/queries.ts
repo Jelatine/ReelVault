@@ -3,6 +3,7 @@ import { api, qs } from './api'
 import type { Folder, Job, Tag, UpdateStatus, Video, VideoPage } from './types'
 
 export interface VideoQuery {
+  smart?: number
   duration_min?: string
   duration_max?: string
   size_min?: string
@@ -30,11 +31,13 @@ export interface VideoQuery {
 export function useVideos(params: VideoQuery) {
   return useQuery({
     queryKey: ['videos', params],
-    queryFn: () => api.get<VideoPage>(`/api/videos${qs({ ...params })}`),
+    queryFn: () => params.smart
+      ? api.get<VideoPage>(`/api/smart-folders/${params.smart}/videos${qs({ page: params.page, page_size: params.page_size })}`)
+      : api.get<VideoPage>(`/api/videos${qs({ ...params })}`),
     placeholderData: keepPreviousData,
     // keep polling while something is still being processed
     refetchInterval: (q) =>
-      q.state.data?.items.some((v) => v.status === 'processing') ? 3000 : false,
+      params.smart ? 5000 : q.state.data?.items.some((v) => v.status === 'processing') ? 3000 : false,
   })
 }
 

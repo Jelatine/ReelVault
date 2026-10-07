@@ -1182,5 +1182,20 @@
   "合并标签 {{v0}}": "Merge tag {{v0}}",
   "删除标签 {{v0}}": "Delete tag {{v0}}",
   "删除标签": "Delete tag",
-  "删除标签「{{v0}}」？视频与回收站中的关联会移除，视频文件不会删除。": "Delete tag “{{v0}}”? Associations on videos and in trash are removed; video files are kept."
+  "删除标签「{{v0}}」？视频与回收站中的关联会移除，视频文件不会删除。": "Delete tag “{{v0}}”? Associations on videos and in trash are removed; video files are kept.",
+  "智能文件夹": "Smart folders",
+  "智能文件夹加载失败": "Could not load smart folders",
+  "在视频库保存筛选条件以创建。": "Save filters in the library to create one.",
+  "{{v0}}的智能文件夹菜单": "Smart folder menu for {{v0}}",
+  "重命名智能文件夹": "Rename smart folder",
+  "删除智能文件夹": "Delete smart folder",
+  "删除「{{v0}}」的保存条件？视频文件不会删除。": "Delete the saved filters for “{{v0}}”? Video files are kept.",
+  "保存筛选与排序条件，打开时自动显示当前匹配的视频。": "Save filters and sorting to show currently matching videos whenever you open this folder.",
+  "智能文件夹名称": "Smart folder name",
+  "更新智能文件夹": "Update smart folder",
+  "保存为智能文件夹": "Save as smart folder",
+  "正在加载智能文件夹": "Loading smart folder",
+  "智能文件夹不存在或已删除。": "This smart folder does not exist or has been deleted.",
+  "智能文件夹自动显示当前匹配的视频。": "This smart folder automatically shows currently matching videos.",
+  "筛选条件已修改，尚未保存到智能文件夹。": "These filter changes have not been saved to the smart folder."
 }

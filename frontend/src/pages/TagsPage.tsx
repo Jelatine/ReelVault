@@ -72,7 +72,7 @@ export default function TagsPage() {
   const [filter, setFilter] = useState<string | null>('all')
   const [busy, setBusy] = useState(false)
   const refresh = () => {
-    for (const key of ['tags', 'tag-groups', 'videos', 'video', 'dashboard', 'uploads']) void qc.invalidateQueries({ queryKey: [key] })
+    for (const key of ['tags', 'tag-groups', 'smart-folders', 'videos', 'video', 'dashboard', 'uploads']) void qc.invalidateQueries({ queryKey: [key] })
   }
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true)

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_auth
 from ..db import get_db
 from ..errors import APIError
-from ..models import Tag, TagGroup, Upload, Video, video_tags
+from ..models import SmartFolder, Tag, TagGroup, Upload, Video, video_tags
 
 router = APIRouter(prefix="/api/tags", tags=["tags"], dependencies=[Depends(require_auth)])
 
@@ -100,6 +100,11 @@ def tag_dict(db: Session, tag: Tag, counts: dict[bool, int] | None = None) -> di
 def rewrite_uploads(db: Session, old: str, new: str | None) -> None:
     # Incomplete resumable uploads must not recreate a removed/renamed tag.
     with db.no_autoflush:
+        if new is not None:
+            for folder in db.scalars(
+                select(SmartFolder).where(SmartFolder.filters["tag"].as_string() == old)
+            ):
+                folder.filters = {**folder.filters, "tag": new}
         for upload in db.scalars(select(Upload)):
             if old in upload.tags:
                 upload.tags = list(

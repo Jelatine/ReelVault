@@ -17,6 +17,7 @@ from sqlalchemy import (
     Table,
     Text,
     TypeDecorator,
+    UniqueConstraint,
 )
 from sqlalchemy.engine import Dialect
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -165,6 +166,18 @@ class Video(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(UTCDateTime, index=True)
 
     tags: Mapped[list[Tag]] = relationship(secondary=video_tags, lazy="selectin")
+
+
+class SmartFolder(Base):
+    __tablename__ = "smart_folders"
+    __table_args__ = (UniqueConstraint("user_id", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    filters: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
 
 class Collection(Base):

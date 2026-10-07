@@ -19,6 +19,7 @@ import {
   Title,
   Tooltip,
   VisuallyHidden,
+  Loader,
 } from '@mantine/core'
 import { useLocalStorage } from '@mantine/hooks'
 import { modals } from '@mantine/modals'
@@ -38,7 +39,7 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import BatchEditForm from '../editor/BatchEditForm'
 import AdvancedFilters from '../components/AdvancedFilters'
 import { FILTER_KEYS } from '../lib/filters'
@@ -56,6 +57,8 @@ import { adjacentCard, shortcutBlocked } from '../lib/shortcuts'
 import { confirmAction } from '../components/prompt'
 import { formatBytes, formatDate, formatDuration } from '../lib/format'
 import { useFolders, useVideos } from '../lib/queries'
+import { filterParams, savedFilters, sameFilters, useSmartFolders, type SmartFolder } from '../lib/smart-folders'
+import SmartFolderSave from '../components/SmartFolderSave'
 
 const PAGE_SIZE = 48
 
@@ -99,6 +102,43 @@ function TagForm({ onDone }: { onDone: (tags: string[], remove: boolean) => void
 }
 
 export default function LibraryPage() {
+  const [params] = useSearchParams()
+  const id = params.get('smart')
+  return id ? <SavedLibraryPage key={id} id={id} /> : <LibraryContent />
+}
+
+function SavedLibraryPage({ id }: { id: string }) {
+  useTranslation()
+  const saved = useSmartFolders()
+  const [params, setParams] = useSearchParams()
+  const folder = saved.data?.find(item => String(item.id) === id)
+  const previous = useRef<SmartFolder['filters'] | undefined>(undefined)
+  useEffect(() => {
+    if (!folder) return
+    const old = previous.current
+    previous.current = folder.filters
+    if (!old || sameFilters(old, folder.filters) || !params.has('sort') || !params.has('order')) return
+    const current = savedFilters(params, params.get('sort')!, params.get('order')!)
+    // Refresh saved conditions changed elsewhere, while preserving this tab's preview.
+    if (sameFilters(old, current)) {
+      const next = filterParams(folder.filters)
+      next.set('smart', id)
+      setParams(next, { replace: true })
+    }
+  }, [folder, id, params, setParams])
+  if (saved.error) return <Alert color="red">{saved.error.message}<Button onClick={() => void saved.refetch()}>{tr('重试')}</Button></Alert>
+  if (saved.isLoading) return <Loader aria-label={tr('正在加载智能文件夹')} />
+  if (!folder) return <Alert color="red">{tr('智能文件夹不存在或已删除。')}</Alert>
+  if (!params.has('sort') || !params.has('order')) {
+    const next = filterParams(folder.filters)
+    next.set('smart', id)
+    if (params.has('page')) next.set('page', params.get('page')!)
+    return <Navigate to={`/library?${next}`} replace />
+  }
+  return <LibraryContent smartFolder={folder} />
+}
+
+function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
   useTranslation()
 
   const [params, setParams] = useSearchParams()
@@ -107,7 +147,8 @@ export default function LibraryPage() {
   const folders = useFolders()
   const [view, setView] = useLocalStorage<'grid' | 'list'>({ key: 'rv-view', defaultValue: 'grid' })
   const [sort, setSort] = useLocalStorage({ key: 'rv-sort', defaultValue: 'created' })
-  const [order, setOrder] = useLocalStorage<'asc' | 'desc'>({ key: 'rv-order', defaultValue: 'desc' })
+  const [storedOrder, setOrder] = useLocalStorage<'asc' | 'desc'>({ key: 'rv-order', defaultValue: 'desc' })
+  const order = params.get('order') ?? storedOrder
   const [selected, setSelected] = useState<string[]>([])
   const [context, setContext] = useState<{ video: Video; position: MenuPosition }>()
   const anchor = useRef<string | null>(null)
@@ -130,7 +171,7 @@ export default function LibraryPage() {
   const tag = params.get('tag') ?? undefined
   const q = params.get('q') ?? undefined
   const rating_min = Number(params.get('rating_min') ?? 0)
-  const favorite = params.get('favorite') === 'true' ? true : undefined
+  const favorite = params.has('favorite') ? params.get('favorite') === 'true' : undefined
   const setFilter = (key: string, value: string | null) => {
     const next = new URLSearchParams(params)
     if (value) next.set(key, value)
@@ -141,8 +182,10 @@ export default function LibraryPage() {
   const page = Number(params.get('page') ?? 1)
 
   const effectiveSort = q && !params.has('sort') ? 'relevance' : (params.get('sort') ?? sort)
+  const currentFilters = savedFilters(params, effectiveSort, order)
+  const unchanged = smartFolder && sameFilters(smartFolder.filters, currentFilters)
   const filters = Object.fromEntries(FILTER_KEYS.map((key) => [key, params.get(key) ?? undefined]))
-  const { data, isLoading, error } = useVideos({ ...filters, folder, tag, q, rating_min, favorite, sort: effectiveSort, order, page, page_size: PAGE_SIZE })
+  const { data, isLoading, error } = useVideos({ ...filters, folder, tag, q, rating_min, favorite, sort: effectiveSort, order, page, page_size: PAGE_SIZE, smart: unchanged ? smartFolder.id : undefined })
 
   const filterKey = params.toString()
   useEffect(() => { anchor.current = null }, [filterKey])
@@ -158,7 +201,7 @@ export default function LibraryPage() {
       : folder === 'root'
         ? tr("未分类")
         : (folders.data?.find((f) => String(f.id) === folder)?.name ?? tr("文件夹"))
-  const title = q ? tr("搜索「{{v0}}」", { v0: q }) : tag ? `#${tag}` : folderName
+  const title = smartFolder?.name ?? (q ? tr("搜索「{{v0}}」", { v0: q }) : tag ? `#${tag}` : folderName)
 
   const toggle = (id: string, modifiers: Modifiers = {}) => {
     setSelected((current) => selectRange(data?.items.map((video) => video.id) ?? [], current, id, anchor.current, modifiers))
@@ -267,7 +310,7 @@ export default function LibraryPage() {
         </Group>
         <Group gap="xs">
           <Select aria-label={tr('视频排序方式')} data={sortOptions()} value={effectiveSort} onChange={(v) => { if (v) { setSort(v); setFilter("sort", v) } }} w={120} size="xs" allowDeselect={false} />
-          <ActionIcon variant="default" onClick={() => setOrder(order === 'asc' ? 'desc' : 'asc')} aria-label={tr("排序方向")}>
+          <ActionIcon variant="default" onClick={() => { const next = order === 'asc' ? 'desc' : 'asc'; setOrder(next); setFilter('order', next) }} aria-label={tr("排序方向")}>
             {order === 'asc' ? <IconSortAscending size={16} /> : <IconSortDescending size={16} />}
           </ActionIcon>
           <SegmentedControl
@@ -292,7 +335,10 @@ export default function LibraryPage() {
           data={[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: tr("{{v0}} 星及以上", { v0: n }) }))}
           onChange={(value) => setFilter("rating_min", value)} />
         <Button variant={favorite ? "filled" : "default"} onClick={() => setFilter("favorite", favorite ? null : "true")}>{tr("收藏")}</Button>
+        <SmartFolderSave filters={currentFilters} />
+        {smartFolder && !unchanged && <SmartFolderSave filters={currentFilters} folder={smartFolder} />}
       </Group>
+      {smartFolder && <Text size="sm" c="dimmed">{unchanged ? tr('智能文件夹自动显示当前匹配的视频。') : tr('筛选条件已修改，尚未保存到智能文件夹。')}</Text>}
 
       <AdvancedFilters />
       {error && <Alert color="red">{error.message}</Alert>}

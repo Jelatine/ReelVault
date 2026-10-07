@@ -23,6 +23,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { api } from '../lib/api'
 import { buildTree, useFolders, useTags, type FolderNode } from '../lib/queries'
 import CollectionNav from './CollectionNav'
+import SmartFolderNav from './SmartFolderNav'
 import { confirmAction, promptText } from './prompt'
 import ContextMenu from './ContextMenu'
 import { contextPosition, keyboardContext, type MenuPosition } from '../lib/context-menu'
@@ -168,8 +169,8 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         component="button" type="button"
         label={tr("全部视频")}
         leftSection={<IconVideo size={16} />}
-        active={folder === 'all' && !tag}
-        aria-pressed={folder === 'all' && !tag}
+        active={folder === 'all' && !tag && !params.has('smart')}
+        aria-pressed={folder === 'all' && !tag && !params.has('smart')}
         onClick={() => go({ folder: 'all' })}
       />
       <NavLink
@@ -188,6 +189,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         </ActionIcon>
       </Group>
       {tree.map(renderNode)}
+      <SmartFolderNav onNavigate={onNavigate} />
       <NavLink component={Link} to="/tags" label={tr('标签管理')} leftSection={<IconHash size={16} />}
         active={location.pathname === '/tags'} aria-current={location.pathname === '/tags' ? 'page' : undefined} onClick={onNavigate} />
       {(tags.data?.some(tag => tag.count > 0) ?? false) && (
