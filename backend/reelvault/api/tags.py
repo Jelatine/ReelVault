@@ -14,6 +14,7 @@ from ..auth import require_auth
 from ..db import get_db
 from ..errors import APIError
 from ..models import SmartFolder, Tag, TagGroup, Upload, Video, video_tags
+from ..search_syntax import rename_query_tag
 
 router = APIRouter(prefix="/api/tags", tags=["tags"], dependencies=[Depends(require_auth)])
 
@@ -101,10 +102,14 @@ def rewrite_uploads(db: Session, old: str, new: str | None) -> None:
     # Incomplete resumable uploads must not recreate a removed/renamed tag.
     with db.no_autoflush:
         if new is not None:
-            for folder in db.scalars(
-                select(SmartFolder).where(SmartFolder.filters["tag"].as_string() == old)
-            ):
-                folder.filters = {**folder.filters, "tag": new}
+            for folder in db.scalars(select(SmartFolder)):
+                filters = dict(folder.filters)
+                if filters.get("tag") == old:
+                    filters["tag"] = new
+                query = filters.get("q", "")
+                filters["q"] = rename_query_tag(query, old, new)
+                if filters != folder.filters:
+                    folder.filters = filters
         for upload in db.scalars(select(Upload)):
             if old in upload.tags:
                 upload.tags = list(

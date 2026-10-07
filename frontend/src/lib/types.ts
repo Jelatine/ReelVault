@@ -43,6 +43,7 @@ export interface Video {
 }
 
 export interface VideoPage {
+  search_terms?: string[]
   items: Video[]
   total: number
   page: number

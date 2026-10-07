@@ -29,6 +29,7 @@ import {
   IconUpload,
   IconFolderUp,
   IconUser,
+  IconHelp,
 } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
@@ -44,6 +45,7 @@ import MobileNavigation from './MobileNavigation'
 import { OfflineNotice } from './PwaPanel'
 import LanguageSelect from './LanguageSelect'
 import { shortcutBlocked } from '../lib/shortcuts'
+import SearchHelp from './SearchHelp'
 
 export default function AppLayout() {
   useTranslation()
@@ -154,12 +156,17 @@ export default function AppLayout() {
               </Text>
             </Group>
           </Group>
-          <form onSubmit={submitSearch} style={{ flex: 1, maxWidth: 480 }}>
+          <form onSubmit={submitSearch} style={{ flex: 1, minWidth: 0, maxWidth: 480 }}>
             <TextInput
               ref={searchInput}
               aria-label={tr("搜索视频")}
               placeholder={tr("搜索视频")}
               leftSection={<IconSearch size={16} />}
+              rightSectionPointerEvents="all"
+              rightSection={<ActionIcon type="button" variant="subtle" aria-label={tr('搜索语法说明')}
+                onClick={() => modals.open({ title: tr('搜索语法说明'), children: <SearchHelp /> })}>
+                <IconHelp size={18} />
+              </ActionIcon>}
               value={search}
               onChange={(e) => setSearch(e.currentTarget.value)}
             />

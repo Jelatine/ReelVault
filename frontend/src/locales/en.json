@@ -1277,5 +1277,12 @@
   "4K 按画面短边至少 2160 像素判断，可同时属于竖屏或横屏分类。": "4K requires a shorter side of at least 2,160 pixels and may overlap portrait or landscape groups.",
   "自动分类随拍摄信息和编辑结果更新，可叠加筛选或保存为智能文件夹。": "Groups update with capture metadata and editing results. Add filters or save the conditions as a smart folder.",
   "移除自动分组条件": "Remove automatic group condition",
-  "{{label}} · 1 个视频": "{{label}} · 1 video"
+  "{{label}} · 1 个视频": "{{label}} · 1 video",
+  "搜索语法说明": "Search syntax",
+  "关键词与条件用空格分隔，所有条件同时满足；仍可叠加高级筛选、自动分组，并保存为智能文件夹。": "Separate keywords and conditions with spaces. All conditions must match. Combine them with advanced filters or automatic groups and save them as a smart folder.",
+  "tag:旅行 rating:>=4 duration:>10m 2024": "tag:Travel rating:>=4 duration:>10m 2024",
+  "tag: 精确匹配标签；多个 tag: 要求同时包含各标签。含空格的标签用双引号包围，引号与反斜线可用反斜线转义。": "tag: matches an exact tag. Repeat tag: to require every tag. Wrap tags containing spaces in double quotes. Escape quotes and backslashes with a backslash.",
+  "tag:\"家庭 旅行\" tag:精选": "tag:\"Family Travel\" tag:Favorites",
+  "rating: 支持 0–5 的整数；duration: 支持非负数，s 为秒、m 为分钟、h 为小时，省略单位按秒。比较符为 >、>=、<、<=、=，省略比较符按相等。": "rating: accepts integers from 0 to 5. duration: accepts nonnegative numbers with s for seconds, m for minutes or h for hours; no unit means seconds. Use >, >=, <, <= or =. No operator means equality.",
+  "普通关键词仍搜索标题、描述、原文件名和标签。2024 是关键词，不会自动限制拍摄年份；年份分类请使用自动分组。未知前缀按关键词处理，无效的已知条件显示错误。": "Keywords search titles, descriptions, original filenames and tags. 2024 is a keyword; use automatic groups to filter by capture year. Unknown prefixes remain keywords. Invalid recognized conditions display an error."
 }

@@ -264,6 +264,7 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
   }
 
   const items = data?.items ?? []
+  const highlights = data?.search_terms ?? q?.split(/\s+/) ?? []
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
       if (shortcutBlocked(event)) return
@@ -405,7 +406,7 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
             <VideoCard
               key={v.id}
               video={v}
-              highlight={q}
+              highlight={highlights.join(' ')}
               selected={selected.includes(v.id)}
               selectable={selected.length > 0}
               onToggle={(event) => toggle(v.id, event)}
@@ -446,10 +447,10 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
                         <img src={v.poster_url} alt="" style={{ width: 64, height: 36, objectFit: 'cover', borderRadius: 4 }} />
                       )}
                       <Text size="sm" truncate maw={360}>
-                        <Highlight component="span" highlight={q?.split(/\s+/) ?? []}>{v.title}</Highlight>
+                        <Highlight component="span" highlight={highlights}>{v.title}</Highlight>
                       </Text>
                     </Group>
-                    {q && v.search_excerpt && <Highlight size="xs" c="dimmed" lineClamp={2} highlight={q.split(/\s+/)}>{v.search_excerpt}</Highlight>}
+                    {highlights.length > 0 && v.search_excerpt && <Highlight size="xs" c="dimmed" lineClamp={2} highlight={highlights}>{v.search_excerpt}</Highlight>}
                   </Table.Td>
                   <Table.Td><VideoRating video={v} /></Table.Td>
                   <Table.Td>{formatDuration(v.duration)}</Table.Td>

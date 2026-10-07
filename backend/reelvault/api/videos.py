@@ -35,6 +35,7 @@ from ..media.probe import probe
 from ..media.timing import timing_index
 from ..metadata import MetadataPatch, update_metadata
 from ..models import Folder, Tag, Upload, Video, new_id, utcnow
+from ..search_syntax import parse_search
 from .deps import FiniteNumber, get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["videos"], dependencies=[Depends(require_auth)])
@@ -300,7 +301,10 @@ def list_videos(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     sort = sort or ("relevance" if q.strip() else "captured")
+    parsed_search = parse_search(q)
+    terms = parsed_search.terms
     stmt = select(Video)
+    stmt = stmt.where(*parsed_search.conditions)
     stmt = stmt.where(Video.deleted_at.is_not(None) if trash else Video.deleted_at.is_(None))
     stmt = stmt.where(Video.rating >= rating_min)
     if auto is not None:
@@ -346,13 +350,12 @@ def list_videos(
         stmt = stmt.where(Video.container == format)
     has_match = False
     short_rank: Any = None
-    if q.strip():
+    if terms:
         search = table(
             "video_search",
             *(column(c) for c in ("video_id", "title", "description", "original_name", "tags")),
         )
         stmt = stmt.join(search, search.c.video_id == Video.id)
-        terms = q.strip().split()
         short_rank = sum(
             case((func.instr(func.lower(search.c[c]), term.lower()) > 0, weight), else_=0)
             for term in terms
@@ -411,7 +414,7 @@ def list_videos(
     else:
         for video in db.scalars(stmt).all():
             item = video_to_dict(video)
-            if q.strip():
+            if terms:
                 fields = [
                     video.title,
                     " ".join(t.name for t in video.tags),
@@ -419,14 +422,20 @@ def list_videos(
                     video.description,
                 ]
                 for value in fields:
-                    matches = [value.lower().find(term.lower()) for term in q.strip().split()]
+                    matches = [value.lower().find(term.lower()) for term in terms]
                     positions = [position for position in matches if position >= 0]
                     if positions:
                         start = max(0, min(positions) - 30)
                         item["search_excerpt"] = ("…" if start else "") + value[start : start + 120]
                         break
             items.append(item)
-    return {"items": items, "total": total, "page": page, "page_size": page_size}
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "search_terms": terms,
+    }
 
 
 @router.get("/videos/{video_id}")

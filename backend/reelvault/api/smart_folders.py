@@ -14,6 +14,7 @@ from ..db import get_db
 from ..errors import APIError
 from ..grouping import parse_group
 from ..models import SmartFolder
+from ..search_syntax import parse_search
 from .deps import FiniteNumber
 from .videos import SortKey, list_videos
 
@@ -25,7 +26,8 @@ FolderID = Annotated[int, Path(gt=0, le=SQLITE_MAX)]
 class SavedFilters(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    q: str = Field("", max_length=512)
+    # Renaming a tag can expand an existing query; only user writes are bounded.
+    q: str = ""
     folder: str = Field("all", pattern=r"^(all|root|[1-9][0-9]{0,18})$")
     tag: str | None = Field(None, max_length=64)
     rating_min: int = Field(0, ge=0, le=5)
@@ -62,6 +64,7 @@ class SavedFilters(BaseModel):
 
     @model_validator(mode="after")
     def valid_ranges(self) -> SavedFilters:
+        parse_search(self.q)
         if self.auto is not None:
             parse_group(self.auto)
         ranges: tuple[tuple[Any, Any], ...] = (
@@ -80,6 +83,13 @@ class FolderBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=128)
     filters: SavedFilters
+
+    @field_validator("filters")
+    @classmethod
+    def bounded_query(cls, value: SavedFilters) -> SavedFilters:
+        if len(value.q) > 512:
+            raise ValueError("Search query cannot exceed 512 characters")
+        return value
 
     @field_validator("name")
     @classmethod
@@ -106,7 +116,7 @@ class FolderPatch(BaseModel):
     def non_null_filters(cls, value: SavedFilters | None) -> SavedFilters:
         if value is None:
             raise ValueError("Filters cannot be null")
-        return value
+        return FolderBody.bounded_query(value)
 
 
 def get_folder(db: Session, folder_id: int, auth: CurrentAuth) -> SmartFolder:

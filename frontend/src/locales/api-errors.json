@@ -514,5 +514,9 @@
   "auto_group_invalid": {
     "zh": "无效的自动分组条件",
     "en": "Invalid automatic grouping rule."
+  },
+  "search_syntax_invalid": {
+    "en": "Invalid search condition: {{token}}. Check tag, rating or duration syntax.",
+    "zh": "搜索条件无效：{{token}}。请检查标签、评分或时长语法。"
   }
 }
