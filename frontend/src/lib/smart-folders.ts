@@ -3,7 +3,7 @@ import { api } from './api'
 import { FILTER_KEYS } from './filters'
 
 export interface SmartFolder { id: number; name: string; filters: Record<string, string | number | boolean | null> }
-export const SAVED_FILTER_KEYS = ['q', 'folder', 'tag', 'rating_min', 'favorite', ...FILTER_KEYS, 'sort', 'order'] as const
+export const SAVED_FILTER_KEYS = ['q', 'folder', 'tag', 'auto', 'rating_min', 'favorite', ...FILTER_KEYS, 'sort', 'order'] as const
 const DEFAULTS: Record<string, string> = { q: '', folder: 'all', rating_min: '0', include_children: 'false', sort: 'relevance', order: 'desc' }
 
 export function useSmartFolders() {

@@ -52,7 +52,8 @@ import type { Video } from '../lib/types'
 import VideoRating from '../components/VideoRating'
 import SelectionArea from '../components/SelectionArea'
 import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE, selectRange, type Modifiers } from '../lib/selection'
-import { api } from '../lib/api'
+import { api, errorText } from '../lib/api'
+import { autoGroupLabel, useAutoGroup } from '../lib/auto-groups'
 import { adjacentCard, shortcutBlocked } from '../lib/shortcuts'
 import { confirmAction } from '../components/prompt'
 import { formatBytes, formatDate, formatDuration } from '../lib/format'
@@ -170,6 +171,8 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
   const folder = params.get('folder') ?? 'all'
   const tag = params.get('tag') ?? undefined
   const q = params.get('q') ?? undefined
+  const auto = params.get('auto') ?? undefined
+  const autoGroup = useAutoGroup(auto)
   const rating_min = Number(params.get('rating_min') ?? 0)
   const favorite = params.has('favorite') ? params.get('favorite') === 'true' : undefined
   const setFilter = (key: string, value: string | null) => {
@@ -185,7 +188,7 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
   const currentFilters = savedFilters(params, effectiveSort, order)
   const unchanged = smartFolder && sameFilters(smartFolder.filters, currentFilters)
   const filters = Object.fromEntries(FILTER_KEYS.map((key) => [key, params.get(key) ?? undefined]))
-  const { data, isLoading, error } = useVideos({ ...filters, folder, tag, q, rating_min, favorite, sort: effectiveSort, order, page, page_size: PAGE_SIZE, smart: unchanged ? smartFolder.id : undefined })
+  const { data, isLoading, error } = useVideos({ ...filters, auto, folder, tag, q, rating_min, favorite, sort: effectiveSort, order, page, page_size: PAGE_SIZE, smart: unchanged ? smartFolder.id : undefined })
 
   const filterKey = params.toString()
   useEffect(() => { anchor.current = null }, [filterKey])
@@ -201,7 +204,7 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
       : folder === 'root'
         ? tr("未分类")
         : (folders.data?.find((f) => String(f.id) === folder)?.name ?? tr("文件夹"))
-  const title = smartFolder?.name ?? (q ? tr("搜索「{{v0}}」", { v0: q }) : tag ? `#${tag}` : folderName)
+  const title = smartFolder?.name ?? (auto !== undefined ? autoGroup.data ? autoGroupLabel(autoGroup.data) : tr('自动分组') : q ? tr("搜索「{{v0}}」", { v0: q }) : tag ? `#${tag}` : folderName)
 
   const toggle = (id: string, modifiers: Modifiers = {}) => {
     setSelected((current) => selectRange(data?.items.map((video) => video.id) ?? [], current, id, anchor.current, modifiers))
@@ -299,11 +302,15 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
     <Stack>
       <Group justify="space-between">
         <Group gap="xs">
-          <Title order={3}>{title}</Title>
+          <Title order={3} style={{ maxWidth: '100%', overflowWrap: 'anywhere' }}>{title}</Title>
           <Text c="dimmed" size="sm">
             {data?.total ?? 0}{tr(" 个视频")}</Text>
           {(q || tag) && (
-            <ActionIcon variant="subtle" color="gray" aria-label={tr('清除搜索与标签筛选')} onClick={() => setParams({ folder })}>
+            <ActionIcon variant="subtle" color="gray" aria-label={tr('清除搜索与标签筛选')} onClick={() => {
+              const next = new URLSearchParams(params)
+              for (const key of ['q', 'tag', 'page']) next.delete(key)
+              setParams(next)
+            }}>
               <IconX size={16} />
             </ActionIcon>
           )}
@@ -339,6 +346,9 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
         {smartFolder && !unchanged && <SmartFolderSave filters={currentFilters} folder={smartFolder} />}
       </Group>
       {smartFolder && <Text size="sm" c="dimmed">{unchanged ? tr('智能文件夹自动显示当前匹配的视频。') : tr('筛选条件已修改，尚未保存到智能文件夹。')}</Text>}
+      {auto !== undefined && <Group><Text size="sm" c="dimmed">{tr('自动分类随拍摄信息和编辑结果更新，可叠加筛选或保存为智能文件夹。')}</Text>
+        <Button size="compact-xs" variant="subtle" onClick={() => setFilter('auto', null)}>{tr('移除自动分组条件')}</Button></Group>}
+      {autoGroup.error && <Alert color="red">{errorText(autoGroup.error)}</Alert>}
 
       <AdvancedFilters />
       {error && <Alert color="red">{error.message}</Alert>}

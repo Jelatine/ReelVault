@@ -291,6 +291,7 @@ def list_videos(
     created_before: datetime | None = None,
     captured_after: datetime | None = None,
     captured_before: datetime | None = None,
+    auto: str | None = None,
     include_children: bool = False,
     sort: SortKey | None = None,
     order: Literal["asc", "desc"] = "desc",
@@ -302,6 +303,12 @@ def list_videos(
     stmt = select(Video)
     stmt = stmt.where(Video.deleted_at.is_not(None) if trash else Video.deleted_at.is_(None))
     stmt = stmt.where(Video.rating >= rating_min)
+    if auto is not None:
+        from ..grouping import group_condition
+
+        stmt = stmt.where(
+            Video.status == "ready", Video.deleted_at.is_(None), group_condition(auto)
+        )
     if favorite is not None:
         stmt = stmt.where(Video.favorite == favorite)
     ranges: list[tuple[Any, Any, Any]] = [

@@ -14,6 +14,8 @@ class Base(DeclarativeBase):
 
 
 def make_engine(path: Path) -> Engine:
+    from .metadata import device_key
+
     engine = create_engine(
         f"sqlite:///{path}",
         connect_args={"check_same_thread": False, "timeout": 30},
@@ -26,6 +28,7 @@ def make_engine(path: Path) -> Engine:
         cur.execute("PRAGMA foreign_keys=ON")
         cur.execute("PRAGMA synchronous=NORMAL")
         cur.close()
+        dbapi_conn.create_function("reelvault_device", 2, device_key, deterministic=True)
 
     return engine
 

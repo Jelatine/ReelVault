@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..auth import CurrentAuth, require_auth
 from ..db import get_db
 from ..errors import APIError
+from ..grouping import parse_group
 from ..models import SmartFolder
 from .deps import FiniteNumber
 from .videos import SortKey, list_videos
@@ -41,6 +42,7 @@ class SavedFilters(BaseModel):
     captured_after: datetime | None = None
     captured_before: datetime | None = None
     include_children: bool = False
+    auto: str | None = Field(None, max_length=80)
     sort: SortKey = "relevance"
     order: Literal["asc", "desc"] = "desc"
 
@@ -60,6 +62,8 @@ class SavedFilters(BaseModel):
 
     @model_validator(mode="after")
     def valid_ranges(self) -> SavedFilters:
+        if self.auto is not None:
+            parse_group(self.auto)
         ranges: tuple[tuple[Any, Any], ...] = (
             (self.duration_min, self.duration_max),
             (self.size_min, self.size_max),

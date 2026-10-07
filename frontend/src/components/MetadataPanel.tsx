@@ -71,7 +71,7 @@ export default function MetadataPanel({ video }: { video: Video }) {
   const [busy, setBusy] = useState(false)
   const updated = (value: Video) => {
     qc.setQueryData(['video', video.id], value)
-    for (const key of ['videos', 'dashboard', 'smart-folders']) void qc.invalidateQueries({ queryKey: [key] })
+    for (const key of ['videos', 'dashboard', 'smart-folders', 'auto-groups']) void qc.invalidateQueries({ queryKey: [key] })
   }
   const rows: [string, string][] = [[tr('拍摄时间'), video.captured_at ? formatDate(video.captured_at) : tr('未知')], [tr('设备品牌'), meta?.device_make ?? tr('未知')], [tr('设备型号'), meta?.device_model ?? tr('未知')],
     [tr('GPS 坐标'), meta?.gps ? `${meta.gps.latitude}, ${meta.gps.longitude}` : tr('未知')],

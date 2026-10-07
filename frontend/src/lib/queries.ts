@@ -4,6 +4,7 @@ import type { Folder, Job, Tag, UpdateStatus, Video, VideoPage } from './types'
 
 export interface VideoQuery {
   smart?: number
+  auto?: string
   duration_min?: string
   duration_max?: string
   size_min?: string
@@ -37,7 +38,7 @@ export function useVideos(params: VideoQuery) {
     placeholderData: keepPreviousData,
     // keep polling while something is still being processed
     refetchInterval: (q) =>
-      params.smart ? 5000 : q.state.data?.items.some((v) => v.status === 'processing') ? 3000 : false,
+      params.smart || params.auto !== undefined ? 5000 : q.state.data?.items.some((v) => v.status === 'processing') ? 3000 : false,
   })
 }
 

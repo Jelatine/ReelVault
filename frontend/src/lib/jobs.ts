@@ -69,6 +69,7 @@ export function useJobEvents(session: string | null, username: string) {
         qc.invalidateQueries({ queryKey: ['folders'] })
         qc.invalidateQueries({ queryKey: ['dashboard'] })
         qc.invalidateQueries({ queryKey: ['duplicates'] })
+        qc.invalidateQueries({ queryKey: ['auto-groups'] })
         if (job.kind === 'edit') {
           const label = jobLabel(job)
           if (job.status === 'succeeded') {

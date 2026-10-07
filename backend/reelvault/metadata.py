@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
 from datetime import UTC, datetime
@@ -76,6 +78,19 @@ def metadata_values(video: Video) -> dict[str, Any]:
         "custom_fields": video.custom_fields or {},
         "overridden": sorted(overrides),
     }
+
+
+def device_key(raw_meta: str | None, raw_overrides: str | None) -> str:
+    """SQLite's deterministic device classifier uses the same effective metadata as the UI."""
+    tags = json.loads(raw_meta or "{}") or {}
+    overrides = json.loads(raw_overrides or "{}") or {}
+    source = source_metadata(tags)
+    values = [overrides.get(key, source[key]) for key in ("device_make", "device_model")]
+    if not any(values):
+        return "unknown"
+    return hashlib.sha256(
+        json.dumps(values, ensure_ascii=False, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 class GPS(BaseModel):
