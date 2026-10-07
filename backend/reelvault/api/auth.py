@@ -11,7 +11,9 @@ from .. import auth as A
 from ..config import Settings
 from ..db import get_db
 from ..errors import APIError
-from ..models import AuthSession, User, utcnow
+from ..models import AuthSession, TwoFactor, User, utcnow
+from ..storage import lock_budget
+from ..two_factor import consume
 from .deps import get_settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -27,10 +29,12 @@ class LoginBody(BaseModel):
     password: str = Field(max_length=256)
     remember: bool = False
     device_name: str = Field("", max_length=128)
+    code: str | None = Field(None, max_length=64)
 
 
 class PasswordBody(BaseModel):
-    current_password: str
+    current_password: str = Field(max_length=256)
+    code: str | None = Field(None, max_length=64)
     new_password: str = Field(min_length=6, max_length=256)
     logout_others: bool = True
 
@@ -92,10 +96,22 @@ def login(
     limiter: A.LoginLimiter = request.app.state.login_limiter
     ip = A.client_ip(request)
     limiter.check(ip)
+    lock_budget(db)
+    limiter.check(ip)
     user = db.scalar(select(User).where(User.username == body.username.strip()))
     if user is None or not A.verify_password(user.password_hash, body.password):
         limiter.fail(ip)
         raise APIError(status.HTTP_401_UNAUTHORIZED, "用户名或密码错误", code="invalid_credentials")
+    factor = db.get(TwoFactor, user.id)
+    if factor is not None and factor.enabled_at:
+        peer = request.client.host if request.client else "unknown"
+        request.app.state.totp_limiter.check(peer)
+        try:
+            consume(factor, settings.data_dir, body.code)
+        except APIError as error:
+            if error.code == "totp_invalid":
+                request.app.state.totp_limiter.fail(peer)
+            raise
     limiter.success(ip)
     device = body.device_name.strip() or "未命名设备"
     sess, token = A.create_session(db, settings, user, request, body.remember, device)
@@ -135,15 +151,30 @@ def me(
 @router.post("/password")
 def change_password(
     body: PasswordBody,
+    request: Request,
     auth: A.CurrentAuth = Depends(A.require_auth),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    user = db.get(User, auth.user_id)
+    lock_budget(db)
+    user = db.get(User, auth.user_id, populate_existing=True)
     assert user is not None
     if not A.verify_password(user.password_hash, body.current_password):
         raise APIError(
             status.HTTP_400_BAD_REQUEST, "当前密码不正确", code="current_password_incorrect"
         )
+    factor = db.get(TwoFactor, user.id)
+    if factor and factor.enabled_at:
+        peer = request.client.host if request.client else "unknown"
+        request.app.state.totp_limiter.check(peer)
+        try:
+            consume(factor, settings.data_dir, body.code)
+        except APIError as error:
+            if error.code == "totp_invalid":
+                request.app.state.totp_limiter.fail(peer)
+            raise
+    elif factor:
+        db.delete(factor)
     user.password_hash = A.hash_password(body.new_password)
     user.password_changed_at = utcnow()
     revoked = 0

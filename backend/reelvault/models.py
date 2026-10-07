@@ -61,6 +61,22 @@ class User(Base):
     password_changed_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class TwoFactor(Base):
+    """Encrypted authenticator enrollment; recovery codes are stored as hashes."""
+
+    __tablename__ = "two_factor"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    secret_ciphertext: Mapped[str] = mapped_column(Text)
+    enabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    pending_session_id: Mapped[str | None] = mapped_column(String(32))
+    pending_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_counter: Mapped[int] = mapped_column(BigInteger, default=-1)
+    recovery_hashes: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
 class AuthSession(Base):
     """One row per logged-in device."""
 

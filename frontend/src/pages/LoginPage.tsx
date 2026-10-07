@@ -17,7 +17,7 @@ import { useForm } from '@mantine/form'
 import { IconMovie } from '@tabler/icons-react'
 import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { api, errorText } from '../lib/api'
+import { api, ApiError, errorText } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { guessDeviceName } from '../lib/format'
 import LanguageSelect from '../components/LanguageSelect'
@@ -31,12 +31,14 @@ export default function LoginPage() {
   const [error, setError] = useState<Error | string | null>(null)
   const [busy, setBusy] = useState(false)
   const [showDevice, setShowDevice] = useState(false)
+  const [showCode, setShowCode] = useState(false)
   const form = useForm({
     initialValues: {
       username: '',
       password: '',
       remember: true,
       device_name: guessDeviceName(),
+      code: '',
     },
   })
 
@@ -49,6 +51,7 @@ export default function LoginPage() {
       const from = (location.state as { from?: string } | null)?.from
       navigate(from && from !== '/login' ? from : '/', { replace: true })
     } catch (e) {
+      if (e instanceof ApiError && ['totp_required', 'totp_invalid', 'totp_key_unavailable'].includes(e.code ?? '')) setShowCode(true)
       setError(e instanceof Error ? e : String(e))
     } finally {
       setBusy(false)
@@ -75,6 +78,7 @@ export default function LoginPage() {
               required
               {...form.getInputProps('password')}
             />
+            {showCode && <TextInput label={tr('验证码或恢复码')} autoComplete="one-time-code" autoFocus required maxLength={64} {...form.getInputProps('code')} />}
             <Checkbox
               label={tr("记住我（30 天内免密登录）")}
               {...form.getInputProps('remember', { type: 'checkbox' })}

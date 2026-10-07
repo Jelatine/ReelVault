@@ -590,5 +590,29 @@
   "share_limit": {
     "zh": "分享链接已达到上限，请先撤销不用的链接",
     "en": "Share link limit reached. Revoke unused links first."
+  },
+  "totp_required": {
+    "zh": "请输入验证器验证码或恢复码",
+    "en": "Enter an authenticator or recovery code."
+  },
+  "totp_invalid": {
+    "zh": "验证码无效或已使用",
+    "en": "The code is invalid or has already been used."
+  },
+  "totp_key_unavailable": {
+    "zh": "验证器密钥不可用，请使用恢复码",
+    "en": "The authenticator key is unavailable. Use a recovery code."
+  },
+  "totp_already_enabled": {
+    "zh": "两步验证已启用",
+    "en": "Two-step verification is already enabled."
+  },
+  "totp_not_enabled": {
+    "zh": "两步验证尚未启用",
+    "en": "Two-step verification is not enabled."
+  },
+  "totp_enrollment_expired": {
+    "zh": "验证器设置已过期，请重新开始",
+    "en": "Authenticator setup expired. Start again."
   }
 }

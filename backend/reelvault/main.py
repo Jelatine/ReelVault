@@ -39,6 +39,7 @@ from .api import (
     subtitles,
     system,
     tags,
+    two_factor,
     videos,
 )
 from .api import auth as auth_api
@@ -211,6 +212,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.restart_requested = False
     app.state.share_limiter = LoginLimiter(5, 15 * 60)
+    app.state.totp_limiter = LoginLimiter(5, 15 * 60)
     app.state.login_limiter = LoginLimiter(
         settings.login_max_failures, settings.login_lock_minutes * 60
     )
@@ -219,6 +221,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     for r in (
         auth_api.router,
+        two_factor.router,
         assets.router,
         auto_groups.router,
         bookmarks.router,

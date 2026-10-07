@@ -20,6 +20,7 @@ from typing import Any
 from alembic.script import ScriptDirectory
 
 from . import __version__
+from .auth_keys import KEY_FILE, decrypt_secret, read_key
 from .config import Settings
 from .db import make_engine
 from .locations import resolve_path
@@ -29,6 +30,20 @@ from .models import new_id
 
 class BackupError(RuntimeError):
     pass
+
+
+def validate_auth_secrets(database: Path, data_dir: Path) -> None:
+    """Reject an archive that would strand enabled authenticators after restore."""
+    with closing(sqlite3.connect(database)) as db:
+        if not db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='two_factor'"
+        ).fetchone():
+            return
+        for (encrypted,) in db.execute("SELECT secret_ciphertext FROM two_factor"):
+            try:
+                decrypt_secret(data_dir, encrypted)
+            except (OSError, ValueError) as error:
+                raise BackupError("备份中的验证器密钥缺失或损坏") from error
 
 
 @contextmanager
@@ -99,10 +114,16 @@ def create_backup(
         database = work / "reelvault.db"
         snapshot(settings.db_path, database)
         revision = validate_database(database)
+        validate_auth_secrets(database, settings.data_dir)
+        key_path = settings.data_dir / KEY_FILE
+        try:
+            auth_key = read_key(key_path)
+        except FileNotFoundError:
+            auth_key = None
         config = json.dumps(settings.model_dump(mode="json"), ensure_ascii=False, indent=2).encode()
         with database.open("rb") as database_file:
             database_digest = hashlib.file_digest(database_file, "sha256").hexdigest()
-        manifest = {
+        manifest: dict[str, Any] = {
             "format": "reelvault-metadata",
             "version": 1,
             "app_version": __version__,
@@ -115,9 +136,13 @@ def create_backup(
             },
         }
         archive = work / "archive.zip"
+        if auth_key is not None:
+            manifest["sha256"]["auth-key"] = hashlib.sha256(auth_key).hexdigest()
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
             z.write(database, "reelvault.db")
             z.writestr("config.json", config)
+            if auth_key is not None:
+                z.writestr("auth-key", auth_key)
             z.writestr("manifest.json", json.dumps(manifest))
         archive.chmod(0o600)
         # Copy to the destination filesystem before publishing the complete archive.
@@ -144,24 +169,38 @@ def unpack_backup(archive: Path, work: Path) -> dict[str, Any]:
     try:
         with zipfile.ZipFile(archive) as z:
             names = z.namelist()
-            if len(names) != 3 or set(names) != {"reelvault.db", "config.json", "manifest.json"}:
+            expected = {"reelvault.db", "config.json", "manifest.json"}
+            if "auth-key" in names:
+                expected.add("auth-key")
+            if len(names) != len(expected) or set(names) != expected:
                 raise BackupError("备份包内容无效")
-            for name, limit in (
+            limits = [
                 ("reelvault.db", 1024**3),
                 ("config.json", 1024**2),
                 ("manifest.json", 65536),
-            ):
+            ]
+            if "auth-key" in expected:
+                limits.append(("auth-key", 44))
+            for name, limit in limits:
                 if z.getinfo(name).file_size > limit:
                     raise BackupError("备份包超过恢复大小限制")
                 with z.open(name) as src, (work / name).open("wb") as dest:
                     shutil.copyfileobj(src, dest)
+                (work / name).chmod(0o600)
             manifest = json.loads((work / "manifest.json").read_text())
             if manifest.get("format") != "reelvault-metadata" or manifest.get("version") != 1:
                 raise BackupError("备份格式不受支持")
-            for name in ("reelvault.db", "config.json"):
+            checked = ["reelvault.db", "config.json"]
+            if "auth-key" in expected:
+                checked.append("auth-key")
+            for name in checked:
                 with (work / name).open("rb") as f:
                     if hashlib.file_digest(f, "sha256").hexdigest() != manifest["sha256"][name]:
                         raise BackupError("备份校验失败")
+            if "auth-key" in expected:
+                os.replace(work / "auth-key", work / KEY_FILE)
+                read_key(work / KEY_FILE)
+            validate_auth_secrets(work / "reelvault.db", work)
             if validate_database(work / "reelvault.db") != manifest.get("revision"):
                 raise BackupError("备份版本不一致")
             config = json.loads((work / "config.json").read_text())
@@ -190,6 +229,7 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
             finally:
                 engine.dispose()
             with closing(sqlite3.connect(staged)) as db:
+                db.execute("DELETE FROM two_factor WHERE enabled_at IS NULL")
                 root = settings.data_dir
                 missing = []
                 row = db.execute(
@@ -296,6 +336,13 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
             if safety:
                 snapshot(settings.db_path, rollback)
             previous_config = restored_config.read_bytes() if restored_config.exists() else None
+            key_path = root / KEY_FILE
+            key_staged = work / KEY_FILE
+            try:
+                previous_key = read_key(key_path)
+            except FileNotFoundError:
+                previous_key = None
+            key_installed = False
             try:
                 if settings.db_path.exists():
                     # Fold any existing WAL into its database before swapping.
@@ -306,6 +353,9 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
                 staged.chmod(0o600)
                 os.replace(staged, settings.db_path)
                 os.replace(config_staged, restored_config)
+                if key_staged.exists():
+                    os.replace(key_staged, key_path)
+                    key_installed = True
             except Exception:
                 if safety:
                     os.replace(rollback, settings.db_path)
@@ -316,6 +366,12 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
                     restored_config.chmod(0o600)
                 else:
                     restored_config.unlink(missing_ok=True)
+                if key_installed:
+                    if previous_key is None:
+                        key_path.unlink(missing_ok=True)
+                    else:
+                        key_path.write_bytes(previous_key)
+                        key_path.chmod(0o600)
                 raise
             return {
                 "config_file": str(restored_config),

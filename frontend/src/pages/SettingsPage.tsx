@@ -13,6 +13,7 @@ import {
   Stack,
   Table,
   Text,
+  TextInput,
   Title,
   Tooltip,
 } from '@mantine/core'
@@ -26,6 +27,7 @@ import BackupPanel from '../components/BackupPanel'
 import HlsSettings from '../components/HlsSettings'
 import LocationsPanel from '../components/LocationsPanel'
 import SharePanel from '../components/SharePanel'
+import TwoFactorPanel from '../components/TwoFactorPanel'
 import StoragePanel from '../components/StoragePanel'
 import EncodingPanel from '../components/EncodingPanel'
 import ImportSettings from '../components/ImportSettings'
@@ -41,21 +43,23 @@ function PasswordForm() {
   useTranslation()
 
   const form = useForm({
-    initialValues: { current_password: '', new_password: '', confirm: '', logout_others: true },
+    initialValues: { current_password: '', new_password: '', confirm: '', code: '', logout_others: true },
     validate: {
       new_password: (v) => (v.length < 6 ? tr("密码至少 6 位") : null),
       confirm: (v, values) => (v !== values.new_password ? tr("两次输入不一致") : null),
     },
   })
   const qc = useQueryClient()
+  const factor = useQuery({ queryKey: ['totp'], queryFn: () => api.get<{ enabled: boolean }>('/api/auth/totp') })
   return (
     <form
-      onSubmit={form.onSubmit(async ({ current_password, new_password, logout_others }) => {
+      onSubmit={form.onSubmit(async ({ current_password, new_password, logout_others, code }) => {
         try {
           const r = await api.post<{ revoked: number }>('/api/auth/password', {
             current_password,
             new_password,
             logout_others,
+            code: code || null,
           })
           notifications.show({
             color: 'green',
@@ -72,6 +76,7 @@ function PasswordForm() {
         <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("当前密码")} autoComplete="current-password" {...form.getInputProps('current_password')} />
         <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("新密码")} autoComplete="new-password" {...form.getInputProps('new_password')} error={typeof form.errors.new_password === 'string' ? translateStoredText(form.errors.new_password) : form.errors.new_password} />
         <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("确认新密码")} autoComplete="new-password" {...form.getInputProps('confirm')} error={typeof form.errors.confirm === 'string' ? translateStoredText(form.errors.confirm) : form.errors.confirm} />
+        {factor.data?.enabled && <TextInput label={tr('验证码或恢复码')} autoComplete="one-time-code" required maxLength={64} {...form.getInputProps('code')} />}
         <Checkbox label={tr("同时退出其他所有设备")} {...form.getInputProps('logout_others', { type: 'checkbox' })} />
         <Button type="submit">{tr("修改密码")}</Button>
       </Stack>
@@ -235,6 +240,7 @@ export default function SettingsPage() {
         <LocationsPanel />
         <StoragePanel />
         <SharePanel />
+        <TwoFactorPanel />
           <HlsSettings />
       </Paper>
       <SimpleGrid cols={{ base: 1, md: 2 }}>
