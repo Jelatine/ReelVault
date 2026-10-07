@@ -16,7 +16,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 test('review a preset and submit every selected video; keep the form open on failure', async () => {
   const preset = { id: 5, name: '旅行统一压缩', edit: { op: 'compress', codec: 'h265', resolution: 720 } }
-  vi.mocked(api.get).mockResolvedValue([preset])
+  vi.mocked(api.get).mockImplementation(async url => url === '/api/system/locations' ? { default_id: 'local', items: [{ id: 'local', name: 'Primary', available: true }] } : [preset])
   let attempts = 0
   vi.mocked(api.post).mockImplementation(async (url) => {
     if (url === '/api/system/storage/estimate') return { sufficient: true, required_bytes: 100, available_bytes: 10000 }

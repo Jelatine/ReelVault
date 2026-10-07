@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from .config import Settings
+from .locations import encode_path, library_root, location_of, resolve_path
 from .media.probe import MediaInfo
 from .metadata import capture_time, metadata_values, source_metadata
 from .models import Folder, Video, new_id
@@ -20,11 +21,11 @@ VIDEO_EXTENSIONS = {
 
 
 def abs_path(settings: Settings, rel: str) -> Path:
-    return settings.data_dir / rel
+    return resolve_path(settings, rel)
 
 
 def rel_path(settings: Settings, path: Path) -> str:
-    return str(path.relative_to(settings.data_dir))
+    return encode_path(settings, path)
 
 
 def derived_dir(settings: Settings, video_id: str) -> Path:
@@ -54,10 +55,14 @@ def store_file(
     source_path: str | None = None,
     video_id: str | None = None,
     commit: bool = True,
+    storage_id: str | None = None,
 ) -> Video:
     """Place a file into the library and create its (processing) Video row."""
     vid = video_id or new_id()
-    dest = settings.library_dir / f"{vid}{ext_of(original_name)}"
+    dest = (
+        library_root(settings, storage_id or settings.storage_default)
+        / f"{vid}{ext_of(original_name)}"
+    )
     if move:
         shutil.move(str(src), dest)
     else:
@@ -127,6 +132,7 @@ def video_to_dict(v: Video) -> dict[str, Any]:
     ver = v.asset_version
     return {
         "id": v.id,
+        "storage_id": location_of(v.file_path),
         "title": v.title,
         "description": v.description,
         "source_video_id": v.source_video_id,

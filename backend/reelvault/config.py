@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     JsonConfigSettingsSource,
@@ -13,6 +14,18 @@ from pydantic_settings import (
 )
 
 PACKAGE_DIR = Path(__file__).resolve().parent
+
+
+class StorageRoot(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    path: Path
+
+    @field_validator("path")
+    @classmethod
+    def absolute_path(cls, value: Path) -> Path:
+        if not value.is_absolute():
+            raise ValueError("Storage path must be absolute")
+        return value
 
 
 class Settings(BaseSettings):
@@ -40,6 +53,19 @@ class Settings(BaseSettings):
         )
 
     data_dir: Path = Path("./data")
+    storage_locations: dict[str, StorageRoot] = Field(default_factory=dict)
+    storage_default: str = "local"
+
+    @model_validator(mode="after")
+    def valid_storage_registry(self) -> Settings:
+        if len(self.storage_locations) > 32 or any(
+            not re.fullmatch(r"[a-f0-9]{32}", key) for key in self.storage_locations
+        ):
+            raise ValueError("Invalid storage location identifiers")
+        if self.storage_default != "local" and self.storage_default not in self.storage_locations:
+            raise ValueError("Default storage location is not registered")
+        return self
+
     host: str = "0.0.0.0"
     port: int = 8080
 

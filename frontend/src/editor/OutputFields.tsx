@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { tr } from '../lib/i18n'
 import { Group, Radio, Stack, TextInput } from '@mantine/core'
+import StorageSelect from '../components/StorageSelect'
 import type { OutputOptions } from './edit'
 
 export function OutputFields({
@@ -28,6 +29,8 @@ export function OutputFields({
           </Group>
         </Radio.Group>
       )}
+      {value.mode === 'new' && <StorageSelect value={value.storage_id} onChange={storage_id => onChange({ ...value, storage_id })} />}
+      {value.mode === 'replace' && <div>{tr('替换结果保存在原视频的存储位置。')}</div>}
       {value.mode === 'new' && (
         <TextInput
           size="xs"

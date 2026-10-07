@@ -15,10 +15,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
+from ..locations import library_root, location_of
 from ..media.encoding import EncoderRuntime
 from ..media.ffmpeg import Canceled, ProcessHandle
 from ..models import Job, Video, utcnow
-from ..storage import check_budget, job_bytes, lock_budget
+from ..storage import check_budget, job_bytes, job_requirements, lock_budget
 
 log = logging.getLogger("reelvault.jobs")
 
@@ -182,14 +183,41 @@ class JobManager:
         lock_budget(db)
         budgeted = []
         for kind, params, ids in requests:
+            if kind == "edit":
+                output = dict(params.get("output", {}))
+                if params["edit"]["op"] in ("animation", "extract_audio"):
+                    target = "local"
+                elif output.get("mode") == "replace" or (
+                    params["edit"]["op"] == "embed_cover" and not params.get("history_replay")
+                ):
+                    source = db.get(Video, ids[0])
+                    target = location_of(source.file_path) if source else "local"
+                else:
+                    target = output.get("storage_id") or self.settings.storage_default
+                library_root(self.settings, target)
+                params = {**params, "output": {**output, "storage_id": target}}
             estimate = job_bytes(db, kind, params, ids)
             budgeted.append(
-                (kind, {**params, "storage_bytes": estimate} if estimate else params, ids)
+                (
+                    kind,
+                    {
+                        **params,
+                        "storage_bytes": estimate,
+                        "storage_plan": job_requirements(self.settings, kind, params, estimate),
+                    }
+                    if estimate
+                    else params,
+                    ids,
+                )
             )
         requests = budgeted
         required = sum(params.get("storage_bytes", 0) for _, params, _ in requests)
         if required:
-            check_budget(db, self.settings, required)
+            plan: dict[str, int] = {}
+            for _, params, _ in requests:
+                for key, amount in params.get("storage_plan", {}).items():
+                    plan[key] = plan.get(key, 0) + amount
+            check_budget(db, self.settings, required, requirements=plan)
         jobs = [
             Job(kind=kind, params=params, video_ids=ids, priority=priority, message="排队中")
             for kind, params, ids in requests
@@ -218,10 +246,14 @@ class JobManager:
                     # Transfer remaining edit allowance to its derived-media job,
                     # rather than releasing it or reserving the same work twice.
                     remaining = max(0, int(parent.params.get("storage_bytes", 0)) - video.size)
-                    parent.params = {**parent.params, "storage_bytes": 0}
+                    parent.params = {**parent.params, "storage_bytes": 0, "storage_plan": {}}
                     job = Job(
                         kind=kind,
-                        params={**params, "storage_bytes": remaining},
+                        params={
+                            **params,
+                            "storage_bytes": remaining,
+                            "storage_plan": {"local": remaining},
+                        },
                         video_ids=video_ids,
                         message="排队中",
                     )
@@ -386,13 +418,33 @@ class JobManager:
             if handler is None:
                 raise RuntimeError(f"未知任务类型 {job.kind}")
             with self.sessionmaker() as db:
-                required = (
-                    job_bytes(db, job.kind, job.params, list(job.video_ids))
-                    if "storage_bytes" not in job.params
-                    else int(job.params["storage_bytes"])
-                )
+                lock_budget(db)
+                if job.kind == "edit":
+                    # Metadata may have changed while waiting behind another edit.
+                    # Old jobs always targeted the primary library before locations
+                    # existed; freeze that choice when resuming an older queue.
+                    output = dict(job.params.get("output", {}))
+                    if not output.get("storage_id"):
+                        output["storage_id"] = "local"
+                    job.params = {**job.params, "output": output}
+                    required = job_bytes(db, job.kind, job.params, list(job.video_ids))
+                    plan = job_requirements(self.settings, job.kind, job.params, required)
+                else:
+                    required = (
+                        job_bytes(db, job.kind, job.params, list(job.video_ids))
+                        if "storage_bytes" not in job.params
+                        else int(job.params["storage_bytes"])
+                    )
+                    plan = job.params.get("storage_plan") or job_requirements(
+                        self.settings, job.kind, job.params, required
+                    )
                 if required:
-                    check_budget(db, self.settings, required, exclude_job=job.id)
+                    check_budget(db, self.settings, required, exclude_job=job.id, requirements=plan)
+                    job.params = {**job.params, "storage_bytes": required, "storage_plan": plan}
+                    stored = db.get(Job, job.id)
+                    if stored:
+                        stored.params = {**stored.params, **job.params}
+                    db.commit()
             await handler(ctx, job)
         except Canceled:
             status, message = "canceled", "已取消"

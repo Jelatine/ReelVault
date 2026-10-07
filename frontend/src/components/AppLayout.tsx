@@ -96,8 +96,8 @@ export default function AppLayout() {
       return
     }
     const id = modals.open({ title: tr("上传设置"), children: <UploadReview files={supported} folderId={currentFolder()}
-      onCancel={() => modals.close(id)} onStart={(folderId, tags) => {
-        uploads.add(supported, { folderId, tags, username: user?.username ?? '' }); modals.close(id)
+      onCancel={() => modals.close(id)} onStart={(folderId, tags, storageId) => {
+        uploads.add(supported, { folderId, tags, storageId, username: user?.username ?? '' }); modals.close(id)
       }} /> })
   }
 

@@ -22,6 +22,7 @@ from alembic.script import ScriptDirectory
 from . import __version__
 from .config import Settings
 from .db import make_engine
+from .locations import resolve_path
 from .migrate import alembic_config, upgrade
 from .models import new_id
 
@@ -191,6 +192,28 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
             with closing(sqlite3.connect(staged)) as db:
                 root = settings.data_dir
                 missing = []
+                row = db.execute(
+                    "SELECT value FROM runtime_settings WHERE key='storage_locations'"
+                ).fetchone()
+                registry = (
+                    json.loads(row[0])
+                    if row
+                    else {
+                        "storage_locations": config.get("storage_locations", {}),
+                        "storage_default": config.get("storage_default", "local"),
+                    }
+                )
+                try:
+                    configured = Settings(**registry)
+                    roots = {**configured.storage_locations, **settings.storage_locations}
+                    if (
+                        configured.storage_default != "local"
+                        and configured.storage_default not in roots
+                    ):
+                        raise ValueError("存储默认位置无效")
+                    media_settings = settings.model_copy(update={"storage_locations": roots})
+                except Exception as error:
+                    raise BackupError("备份存储位置配置无效") from error
                 for rel, digest in db.execute("SELECT file_path, sha256 FROM media_assets"):
                     path = (root / rel).resolve()
                     if Path(rel).is_absolute() or not path.is_relative_to(root):
@@ -208,9 +231,13 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
                     for rel in (original, playable):
                         if not rel:
                             continue
-                        path = (root / rel).resolve()
-                        if Path(rel).is_absolute() or not path.is_relative_to(root):
-                            raise BackupError("数据库包含非法媒体路径")
+                        try:
+                            path = resolve_path(media_settings, rel)
+                        except ValueError as error:
+                            raise BackupError("数据库包含非法媒体路径") from error
+                        except OSError:
+                            missing.append(rel)
+                            continue
                         if not path.is_file():
                             missing.append(rel)
                     assets = root / "derived" / video_id
@@ -226,6 +253,18 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
                         f"缺少 {len(missing)} 个媒体文件，请先恢复 library/、derived/ 和 assets/："
                         f"{missing[0]}"
                     )
+                registry = {
+                    "storage_locations": {
+                        key: entry.model_dump(mode="json") for key, entry in roots.items()
+                    },
+                    "storage_default": configured.storage_default,
+                }
+                if row:
+                    db.execute(
+                        "UPDATE runtime_settings SET value=? WHERE key='storage_locations'",
+                        (json.dumps(registry),),
+                    )
+                config.update(registry)
                 # Device tokens and temporary uploads are not portable. Never resurrect them.
                 db.execute("DELETE FROM sessions")
                 db.execute("DELETE FROM uploads")

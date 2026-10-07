@@ -1,4 +1,5 @@
 export interface Video {
+  storage_id?: string
   metadata?: {
     device_make: string | null
     device_model: string | null

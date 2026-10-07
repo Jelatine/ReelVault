@@ -9,6 +9,7 @@ import MergePanel from './MergePanel'
 
 const mocks = vi.hoisted(() => ({ submit: vi.fn() }))
 vi.mock('./edit', () => ({ defaultOutput: { mode: 'new', title: '' }, useSubmitEdit: () => ({ submit: mocks.submit, busy: false }) }))
+vi.mock('../lib/locations', () => ({ useLocations: () => ({ data: { default_id: 'local', items: [{ id: 'local', name: 'Primary', available: true }] } }), locationName: (item: {name: string}) => item.name }))
 vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn() }, qs: () => '' }))
 vi.mock('./SequencePreview', () => ({ default: ({ note }: { note: string }) => <span>{note}</span> }))
 beforeAll(() => {

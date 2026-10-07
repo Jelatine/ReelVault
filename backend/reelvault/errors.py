@@ -78,6 +78,19 @@ def install_error_handlers(app: FastAPI) -> None:
             status_code=422,
         )
 
+    from .locations import LocationUnavailable
+
+    @app.exception_handler(LocationUnavailable)
+    async def location_error(request: Request, error: LocationUnavailable) -> JSONResponse:
+        return JSONResponse(
+            {
+                "detail": str(error),
+                "code": "storage_location_unavailable",
+                "params": {"location_id": error.location_id},
+            },
+            status_code=503,
+        )
+
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, error: Exception) -> JSONResponse:
         log.error("Unhandled request error on %s", request.url.path, exc_info=error)

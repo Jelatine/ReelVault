@@ -11,12 +11,15 @@ interface UploadInfo {
 export interface UploadOptions {
   folderId: number | null
   tags: string[]
+  storageId?: string
   username: string
 }
 
 export function uploadKey(file: File, options: UploadOptions) {
-  return JSON.stringify([options.username, file.webkitRelativePath || file.name, file.size,
-    file.lastModified, options.folderId, [...new Set(options.tags.map((t) => t.trim().slice(0, 64)).filter(Boolean))].sort()])
+  const parts: unknown[] = [options.username, file.webkitRelativePath || file.name, file.size,
+    file.lastModified, options.folderId, [...new Set(options.tags.map((t) => t.trim().slice(0, 64)).filter(Boolean))].sort()]
+  if (options.storageId && options.storageId !== 'local') parts.push(options.storageId)
+  return JSON.stringify(parts)
 }
 
 function savedUpload(key: string, value?: string | null): string | null {
@@ -131,6 +134,7 @@ export class UploadStore {
     }
     const info = await api.post<UploadInfo>('/api/uploads', {
       filename: file.name,
+      storage_id: options.storageId,
       size: file.size,
       folder_id: options.folderId,
       tags: options.tags,

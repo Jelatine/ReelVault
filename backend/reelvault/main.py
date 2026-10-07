@@ -29,6 +29,7 @@ from .api import (
     hls,
     images,
     jobs,
+    locations,
     luts,
     playback,
     scenes,
@@ -156,6 +157,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     validated = Settings(**saved_storage.value)
                     settings.storage_warning_mb = validated.storage_warning_mb
                     settings.storage_warning_percent = validated.storage_warning_percent
+                saved_locations = db.get(RuntimeSetting, "storage_locations")
+                if saved_locations:
+                    validated = Settings(**saved_locations.value)
+                    settings.storage_locations = validated.storage_locations
+                    settings.storage_default = validated.storage_default
             bootstrap_admin(app, settings)
             cleanup_stale_uploads(app, settings)
             app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)
@@ -229,6 +235,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         folders.router,
         jobs.router,
         system.router,
+        locations.router,
     ):
         app.include_router(r)
 

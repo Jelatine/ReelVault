@@ -13,6 +13,8 @@ describe('resumable uploads', () => {
     Object.defineProperty(a, 'webkitRelativePath', { value: 'Trip/day1/a.mp4' })
     Object.defineProperty(b, 'webkitRelativePath', { value: 'Trip/day2/a.mp4' })
     expect(uploadKey(a, options)).not.toBe(uploadKey(b, options))
+    expect(uploadKey(a, options)).not.toBe(uploadKey(a, { ...options, storageId: 'a'.repeat(32) }))
+    expect(uploadKey(a, options)).toBe(uploadKey(a, { ...options, storageId: 'local' }))
     expect(uploadKey(a, options)).not.toBe(uploadKey(a, { ...options, folderId: 1 }))
     expect(uploadKey(a, options)).not.toBe(uploadKey(a, { ...options, username: 'other' }))
     expect(uploadKey(a, options)).not.toBe(uploadKey(a, { ...options, tags: ['other'] }))

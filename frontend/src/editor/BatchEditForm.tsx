@@ -41,10 +41,10 @@ export default function BatchEditForm({ ids, onDone }: { ids: string[]; onDone: 
         setBusy(true)
         setError('')
         try {
-          if (preset) await preflightEdit(ids, preset.edit, true)
+          if (preset) await preflightEdit(ids, preset.edit, true, output)
           const jobs = await api.post<Job[]>('/api/jobs/batch', {
             video_ids: ids, preset_id: Number(selected),
-            output: { mode: exportOnly ? 'new' : output.mode, title: output.title.trim() || null },
+            output: { storage_id: output.storage_id, mode: exportOnly ? 'new' : output.mode, title: output.title.trim() || null },
           })
           await qc.invalidateQueries({ queryKey: ['jobs'] })
           notifications.show({ message: tr("已提交 {{v0}} 个编辑任务", { v0: jobs.length }) })

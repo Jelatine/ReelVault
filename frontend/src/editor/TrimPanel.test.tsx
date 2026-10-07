@@ -5,6 +5,7 @@ import type { Video } from '../lib/types'
 import TrimPanel from './TrimPanel'
 
 const submit = vi.hoisted(() => vi.fn())
+vi.mock('../lib/locations', () => ({ useLocations: () => ({ data: { default_id: 'local', items: [{ id: 'local', name: 'Primary', available: true }] } }), locationName: (item: {name: string}) => item.name }))
 vi.mock('./edit', () => ({ defaultOutput: { mode: 'new', title: '' }, useSubmitEdit: () => ({ submit, busy: false }) }))
 vi.mock('./ScenePanel', () => ({ default: () => null }))
 vi.mock('./PresetControls', () => ({ default: () => null }))

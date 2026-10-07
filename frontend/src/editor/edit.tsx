@@ -25,6 +25,7 @@ export interface Overlay {
 }
 
 export interface OutputOptions {
+  storage_id?: string
   mode: 'new' | 'replace'
   title: string
 }
@@ -36,10 +37,10 @@ export function useSubmitEdit(videoId: string) {
   const submit = async (edit: Record<string, unknown>, output?: OutputOptions) => {
     setBusy(true)
     try {
-      await preflightEdit([videoId], edit)
+      await preflightEdit([videoId], edit, false, output)
       const job = await api.post<Job>(`/api/videos/${videoId}/edit`, {
         edit,
-        output: output ? { mode: output.mode, title: output.title.trim() || null } : {},
+        output: output ? { storage_id: output.storage_id, mode: output.mode, title: output.title.trim() || null } : {},
       })
       qc.setQueryData<Job[]>(['jobs'], (old) => (old ? [job, ...old.filter((j) => j.id !== job.id)] : old))
       notifications.show({

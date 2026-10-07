@@ -15,6 +15,7 @@ from ..library import (
     rel_path,
     stem_of,
 )
+from ..locations import library_root, location_of
 from ..media import derive, ops
 from ..media.adjust import plan_adjust
 from ..media.animation import plan_animation
@@ -63,10 +64,18 @@ async def ingest(ctx: JobContext, job: Job) -> None:
                 )
                 required += int(max(0, info.duration) * rate / 8 * 1.5)
             check_budget(db, s, required, exclude_job=job.id)
-            job.params = {**job.params, "storage_bytes": required}
+            job.params = {
+                **job.params,
+                "storage_bytes": required,
+                "storage_plan": {"local": required},
+            }
             stored = db.get(Job, job.id)
             if stored:
-                stored.params = {**stored.params, "storage_bytes": required}
+                stored.params = {
+                    **stored.params,
+                    "storage_bytes": required,
+                    "storage_plan": {"local": required},
+                }
             db.commit()
 
         out = derived_dir(s, video_id)
@@ -339,7 +348,15 @@ async def edit(ctx: JobContext, job: Job) -> None:
         ):
             new_id_ = _replace_with_backup(ctx, first_video, result, params, provenance)
         else:
-            new_id_ = _store_new(ctx, first_video, result, params, output.get("title"), provenance)
+            new_id_ = _store_new(
+                ctx,
+                first_video,
+                result,
+                params,
+                output.get("title"),
+                provenance,
+                output.get("storage_id"),
+            )
         _set_job(ctx, job.id, result_video_id=new_id_)
         ctx.manager.submit_from_worker("ingest", {}, [new_id_], reservation_from=job.id)
     finally:
@@ -363,10 +380,11 @@ def _store_new(
     params: ops.EditParams,
     title: str | None,
     provenance: list[dict[str, Any]],
+    storage_id: str | None = None,
 ) -> str:
     s = ctx.settings
     vid = new_id()
-    dest = s.library_dir / f"{vid}{result.suffix}"
+    dest = library_root(s, storage_id or s.storage_default) / f"{vid}{result.suffix}"
     shutil.move(str(result), dest)
     label = ops.OP_LABELS.get(params.op, params.op)
     with ctx.db() as db:
@@ -409,7 +427,10 @@ def _replace_with_backup(
     """Swap the edited file into the existing video; the old file goes to the trash
     as a separate video so it can still be restored."""
     s = ctx.settings
-    new_file = s.library_dir / f"{source.id}-{new_id()[:8]}{result.suffix}"
+    new_file = (
+        library_root(s, location_of(source.file_path))
+        / f"{source.id}-{new_id()[:8]}{result.suffix}"
+    )
     shutil.move(str(result), new_file)
     with ctx.db() as db:
         db.connection().exec_driver_sql("BEGIN IMMEDIATE")

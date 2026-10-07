@@ -18,11 +18,13 @@ from ..db import get_db
 from ..errors import APIError
 from ..importer import Importer
 from ..jobs.manager import JobManager
+from ..locations import location_of
 from ..media import ops
 from ..models import Job, RuntimeSetting, Video
-from ..storage import edit_bytes, snapshot, upload_bytes
+from ..storage import edit_bytes, job_requirements, snapshot, upload_requirements
 from ..updates import UpdateError, Updater
 from .deps import get_jobs, get_settings
+from .jobs import OutputOptions
 
 router = APIRouter(tags=["system"])
 
@@ -152,7 +154,13 @@ def configure_import_watch(
     if (
         body.enabled
         and root
-        and root.resolve().is_relative_to(importer.settings.data_dir.resolve())
+        and any(
+            root.resolve().is_relative_to(managed)
+            for managed in [
+                importer.settings.data_dir.resolve(),
+                *(entry.path for entry in importer.settings.storage_locations.values()),
+            ]
+        )
     ):
         raise APIError(
             400, "导入目录不能位于 ReelVault 数据目录内", code="import_directory_inside_data"
@@ -230,6 +238,8 @@ class StorageEstimate(BaseModel):
     video_ids: list[str] = Field(default_factory=list, max_length=1000)
     edit: ops.EditParams | None = None
     batch: bool = False
+    storage_id: str | None = Field(default=None, pattern=r"^(local|[a-f0-9]{32})$")
+    output: OutputOptions = OutputOptions()
 
 
 @router.post("/api/system/storage/estimate", dependencies=[Depends(require_auth)])
@@ -238,7 +248,14 @@ def storage_estimate(
 ) -> dict[str, Any]:
     if any(size <= 0 or size > 2**63 - 1 for size in body.upload_sizes):
         raise APIError(400, "文件大小无效", code="upload_size_invalid")
-    required = sum(upload_bytes(size) for size in body.upload_sizes)
+    requirements: dict[str, int] = {}
+
+    def add(plan: dict[str, int]) -> None:
+        for key, amount in plan.items():
+            requirements[key] = requirements.get(key, 0) + amount
+
+    for size in body.upload_sizes:
+        add(upload_requirements(size, body.storage_id or settings.storage_default))
     if body.edit:
         ids = body.video_ids
         if isinstance(body.edit, (ops.MergeParams, ops.CompositeParams)):
@@ -251,13 +268,27 @@ def storage_estimate(
                     [vid for vid in ids if vid not in body.edit.video_ids] + body.edit.video_ids
                 )
             )
+        if not ids:
+            raise APIError(404, "源视频不存在", code="source_video_not_found")
         for vid in ids:
             video = db.get(Video, vid)
             if video is None or video.deleted_at:
                 raise APIError(404, "源视频不存在或已删除", code="source_video_not_found")
-        required += (
-            sum(edit_bytes(db, body.edit, [vid]) for vid in dict.fromkeys(ids))
-            if body.batch
-            else edit_bytes(db, body.edit, ids)
-        )
-    return snapshot(db, settings, required)
+        groups = [[vid] for vid in dict.fromkeys(ids)] if body.batch else [ids]
+        for group in groups:
+            target = body.output.storage_id or settings.storage_default
+            if body.edit.op in ("animation", "extract_audio"):
+                target = "local"
+            elif body.output.mode == "replace" or body.edit.op == "embed_cover":
+                source = db.get(Video, group[0])
+                assert source is not None
+                target = location_of(source.file_path)
+            add(
+                job_requirements(
+                    settings,
+                    "edit",
+                    {"edit": body.edit.model_dump(), "output": {"storage_id": target}},
+                    edit_bytes(db, body.edit, group),
+                )
+            )
+    return snapshot(db, settings, requirements=requirements)

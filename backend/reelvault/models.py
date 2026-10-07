@@ -276,6 +276,8 @@ class ImportSource(Base):
 class Upload(Base):
     __tablename__ = "uploads"
 
+    storage_id: Mapped[str] = mapped_column(String(32), default="local")
+
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     filename: Mapped[str] = mapped_column(String(255))
     size: Mapped[int] = mapped_column(Integer)

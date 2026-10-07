@@ -21,13 +21,14 @@ from ..library import abs_path
 from ..media import ops
 from ..media.assets import AssetError, audio_asset, image_asset, lut_asset, subtitle_asset
 from ..models import EditPreset, Job, Video
-from ..storage import check_budget, job_bytes, lock_budget
+from ..storage import check_budget, job_bytes, job_requirements, lock_budget
 from .deps import get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["jobs"], dependencies=[Depends(require_auth)])
 
 
 class OutputOptions(BaseModel):
+    storage_id: str | None = Field(default=None, pattern=r"^(local|[a-f0-9]{32})$")
     mode: Literal["new", "replace"] = "new"
     title: str | None = Field(None, max_length=255)
 
@@ -365,8 +366,13 @@ async def retry_job(
     if "requested_edit" in params:
         params["edit"] = params.pop("requested_edit")
     params["storage_bytes"] = job_bytes(db, old.kind, params, list(old.video_ids))
+    params["storage_plan"] = job_requirements(
+        jobs.settings, old.kind, params, params["storage_bytes"]
+    )
     if params["storage_bytes"]:
-        check_budget(db, jobs.settings, params["storage_bytes"])
+        check_budget(
+            db, jobs.settings, params["storage_bytes"], requirements=params["storage_plan"]
+        )
     # Persist the complete retry before waking a worker; keep the failed record.
     new = Job(
         kind=old.kind,

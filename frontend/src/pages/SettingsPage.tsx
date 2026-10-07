@@ -24,6 +24,7 @@ import { promptText } from '../components/prompt'
 import UpdatePanel from '../components/UpdatePanel'
 import BackupPanel from '../components/BackupPanel'
 import HlsSettings from '../components/HlsSettings'
+import LocationsPanel from '../components/LocationsPanel'
 import StoragePanel from '../components/StoragePanel'
 import EncodingPanel from '../components/EncodingPanel'
 import ImportSettings from '../components/ImportSettings'
@@ -230,6 +231,7 @@ export default function SettingsPage() {
       <Paper withBorder p="md"><NotificationPanel /></Paper>
       <Paper withBorder p="md">
         <EncodingPanel />
+        <LocationsPanel />
         <StoragePanel />
           <HlsSettings />
       </Paper>

@@ -538,5 +538,29 @@
   "upload_size_invalid": {
     "zh": "文件大小无效",
     "en": "Invalid file size."
+  },
+  "storage_location_unavailable": {
+    "zh": "存储位置未连接或标识不匹配",
+    "en": "Storage is disconnected or its identity does not match."
+  },
+  "storage_location_limit": {
+    "zh": "最多支持 32 个附加存储位置",
+    "en": "At most 32 additional storage locations are supported."
+  },
+  "storage_location_invalid": {
+    "zh": "存储配置无效，请选择已存在且不重叠的空目录或已注册存储目录",
+    "en": "Invalid storage configuration. Select an existing, non-overlapping empty directory or a registered storage directory."
+  },
+  "storage_location_not_found": {
+    "zh": "存储位置不存在",
+    "en": "Storage location does not exist."
+  },
+  "storage_location_identity_mismatch": {
+    "zh": "挂载目录的存储标识不匹配，未改变配置",
+    "en": "The mounted directory has a different storage identity. Configuration was preserved."
+  },
+  "storage_location_in_use": {
+    "zh": "存储位置仍有视频或未完成任务，不能移除",
+    "en": "Storage still contains videos or unfinished tasks and cannot be removed."
   }
 }

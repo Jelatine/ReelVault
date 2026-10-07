@@ -18,7 +18,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from .config import Settings
 from .jobs.manager import JobManager
 from .library import VIDEO_EXTENSIONS, abs_path, stem_of, store_file
+from .locations import library_root
 from .models import ImportSource, RuntimeSetting, Video, new_id, utcnow
+from .storage import MIB, check_budget, lock_budget, upload_requirements
 
 log = logging.getLogger("reelvault.import")
 
@@ -94,7 +96,11 @@ class Importer:
             if root is None or not root.is_dir():
                 raise ValueError("未配置可用的导入目录 REELVAULT_IMPORT_DIR")
             root = root.resolve()
-            if root.is_relative_to(self.settings.data_dir.resolve()):
+            managed_roots = [
+                self.settings.data_dir.resolve(),
+                *(entry.path for entry in self.settings.storage_locations.values()),
+            ]
+            if any(root.is_relative_to(managed) for managed in managed_roots):
                 raise ValueError("导入目录不能位于 ReelVault 数据目录内")
             self.error = None
             imported = 0
@@ -113,9 +119,10 @@ class Importer:
                         d
                         for d in dirs
                         if not (Path(directory) / d).is_symlink()
-                        and not (Path(directory) / d)
-                        .resolve()
-                        .is_relative_to(self.settings.data_dir.resolve())
+                        and not any(
+                            (Path(directory) / d).resolve().is_relative_to(managed)
+                            for managed in managed_roots
+                        )
                     )
                     for name in sorted(files):
                         if watch and (not self.enabled or self._stopped):
@@ -143,8 +150,17 @@ class Importer:
                                     continue
                             elif watch and now - previous[2] < self.stable_seconds:
                                 continue
-                            if stat.st_size > shutil.disk_usage(self.settings.data_dir).free:
-                                raise OSError("磁盘空间不足，无法导入视频")
+                            # Hold the same intake lock as uploads until the snapshot
+                            # becomes a persisted ingest reservation.
+                            lock_budget(db)
+                            storage_id = self.settings.storage_default
+                            library_root(self.settings, storage_id)
+                            check_budget(
+                                db,
+                                self.settings,
+                                0,
+                                requirements=upload_requirements(stat.st_size, storage_id),
+                            )
                             snapshot = self.settings.tmp_dir / (
                                 f"import-{new_id()}{path.suffix.lower()}"
                             )
@@ -158,8 +174,10 @@ class Importer:
                                     or (after.st_size, after.st_mtime_ns) != signature
                                 ):
                                     self._seen.pop(key, None)
+                                    db.rollback()
                                     continue
                                 if snapshot.is_symlink() or snapshot.stat().st_size != stat.st_size:
+                                    db.rollback()
                                     continue
                                 video = store_file(
                                     db,
@@ -170,9 +188,15 @@ class Importer:
                                     folder_id=None,
                                     source_path=key,
                                     commit=False,
+                                    storage_id=storage_id,
                                 )
                                 db.add(ImportSource(path=key))
-                                self.jobs.submit(db, "ingest", {}, [video.id])
+                                self.jobs.submit(
+                                    db,
+                                    "ingest",
+                                    {"storage_bytes": 3 * stat.st_size + 32 * MIB},
+                                    [video.id],
+                                )
                             except Exception:
                                 db.rollback()
                                 if video is not None:
@@ -185,8 +209,10 @@ class Importer:
                             imported += 1
                             self.imported += 1
                         except FileNotFoundError:
+                            db.rollback()
                             self._seen.pop(key, None)
                         except Exception as exc:
+                            db.rollback()
                             self.error = f"{name}: {exc}"
                             log.exception("cannot import %s", path)
             self._seen = {k: v for k, v in self._seen.items() if k in present}

@@ -29,6 +29,7 @@ from ..library import (
     store_file,
     video_to_dict,
 )
+from ..locations import library_root
 from ..media import derive
 from ..media.ffmpeg import FFmpegError, ffmpeg_args, run_command
 from ..media.probe import probe
@@ -37,7 +38,7 @@ from ..metadata import MetadataPatch, update_metadata
 from ..models import Folder, Tag, Upload, Video, new_id, utcnow
 from ..pinyin_search import normalize_pinyin_query
 from ..search_syntax import parse_search
-from ..storage import check_budget, lock_budget, upload_bytes
+from ..storage import check_budget, lock_budget, upload_bytes, upload_requirements
 from .deps import FiniteNumber, get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["videos"], dependencies=[Depends(require_auth)])
@@ -80,6 +81,7 @@ def set_tags(db: Session, video: Video, names: list[str]) -> None:
 
 
 class UploadInit(BaseModel):
+    storage_id: str | None = Field(default=None, pattern=r"^(local|[a-f0-9]{32})$")
     filename: str = Field(min_length=1, max_length=255)
     size: int = Field(gt=0)
     folder_id: int | None = None
@@ -112,6 +114,7 @@ def _upload_dict(u: Upload, settings: Settings) -> dict[str, Any]:
         "filename": u.filename,
         "size": u.size,
         "received": u.received,
+        "storage_id": u.storage_id,
         "chunk_size": settings.upload_chunk_size,
         "folder_id": u.folder_id,
         "relative_path": u.relative_path,
@@ -136,8 +139,16 @@ def init_upload(
     if not folder_exists(db, body.folder_id):
         raise APIError(status.HTTP_400_BAD_REQUEST, "文件夹不存在", code="folder_not_found")
     lock_budget(db)
-    check_budget(db, settings, upload_bytes(body.size))
+    storage_id = body.storage_id or settings.storage_default
+    library_root(settings, storage_id)
+    check_budget(
+        db,
+        settings,
+        upload_bytes(body.size),
+        requirements=upload_requirements(body.size, storage_id),
+    )
     upload = Upload(
+        storage_id=storage_id,
         filename=body.filename,
         size=body.size,
         folder_id=body.folder_id,
@@ -181,9 +192,9 @@ async def upload_chunk(
         )
     path = _upload_path(settings, upload_id)
     received_bytes = path.stat().st_size if path.exists() else 0
-    check_budget(
-        db, settings, max(0, upload_bytes(upload.size) - received_bytes), exclude_upload=upload.id
-    )
+    plan = upload_requirements(upload.size, upload.storage_id)
+    plan["local"] = max(0, plan["local"] - received_bytes)
+    check_budget(db, settings, plan["local"], exclude_upload=upload.id, requirements=plan)
     written = 0
     async with aiofiles.open(path, "r+b" if path.exists() else "wb") as f:
         await f.seek(offset)
@@ -234,6 +245,7 @@ def complete_upload(
         original_name=upload.filename,
         folder_id=folder_id,
         commit=False,
+        storage_id=upload.storage_id,
     )
     try:
         set_tags(db, video, upload.tags)
