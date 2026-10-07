@@ -1477,5 +1477,16 @@
   "采集已关闭": "Scraping disabled",
   "指标采集默认关闭，管理员可按部署文档设置独立采集令牌。任务耗时统计包含暂停时间；排队期间取消不计入耗时。": "Scraping is disabled by default. Administrators can configure a separate scrape token using the deployment guide. Job duration includes pauses; jobs canceled while queued have no duration sample.",
   "登录失败": "Sign-in failed",
-  "升级已开始": "Upgrade started"
+  "升级已开始": "Upgrade started",
+  "生成兼容播放缓存": "Generate compatible playback cache",
+  "兼容播放缓存": "Compatible playback cache",
+  "大文件按需生成浏览器兼容副本，原文件保留。可使用 HLS 播放，或生成兼容缓存；分享前需要准备兼容缓存。": "Large videos get a browser-compatible copy on demand while keeping the original. Use HLS or generate this cache; prepare the cache before sharing.",
+  "兼容播放缓存已就绪": "Compatible playback cache is ready",
+  "清理兼容播放缓存": "Clear playback cache",
+  "清理后需要重新生成缓存，现有分享也会暂时无法播放。": "After clearing, regenerate the cache to play this video. Existing shares will also be temporarily unavailable.",
+  "此视频需要兼容播放缓存或 HLS，准备好后即可播放。": "Prepare a compatible playback cache or HLS to play this video.",
+  "播放缓存尚未就绪，请联系分享者生成兼容播放缓存。": "Playback cache is unavailable. Ask the owner to prepare a compatible playback cache.",
+  "播放缓存已就绪": "Playback cache is ready",
+  "源视频已变化，请重新生成播放缓存": "The source changed. Generate a new playback cache.",
+  "源视频已变化，播放缓存未保存": "The source changed; playback cache was not saved."
 }

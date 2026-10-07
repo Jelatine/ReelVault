@@ -45,6 +45,8 @@ import BookmarkPanel from '../components/BookmarkPanel'
 import { useBookmarks } from '../lib/bookmarks'
 import EditHistory from '../components/EditHistory'
 import HlsPanel from '../components/HlsPanel'
+import PlaybackCachePanel from '../components/PlaybackCachePanel'
+import { usePlaybackCache } from '../lib/playback-cache'
 import { useHls } from '../lib/hls'
 import PlaybackPanel from '../components/PlaybackPanel'
 import { usePlaybackPreferences, type LoopRange } from '../lib/playback'
@@ -194,6 +196,7 @@ export default function VideoPage() {
   const [loopKey, setLoopKey] = useState(video?.stream_url)
   if (loopKey !== video?.stream_url) { setLoopKey(video?.stream_url); setLoopRange(undefined) }
   const hls = useHls(video)
+  const playbackCache = usePlaybackCache(video)
   const [sourceMode, setSourceMode] = useState<boolean>()
   const [resumeSource, setResumeSource] = useState<{ position: number; playing: boolean; token: number }>()
   const [sourceKey, setSourceKey] = useState(video?.stream_url)
@@ -214,9 +217,10 @@ export default function VideoPage() {
     setSourceMode(useHls)
   }
   useEffect(() => {
-    if (sourceMode === undefined && hls.data?.enabled && hls.data.package && player.current
-      && player.current.state.paused && player.current.currentTime < 0.05) setSourceMode(true)
-  }, [hls.data, sourceMode])
+    if (sourceMode === undefined && hls.data?.enabled && hls.data.package
+      && (playbackCache.data?.ready === false || (player.current
+        && player.current.state.paused && player.current.currentTime < 0.05))) setSourceMode(true)
+  }, [hls.data, sourceMode, playbackCache.data?.ready])
   const usingHls = !!(sourceMode && hls.data?.enabled && hls.data.package)
 
   const seek = useCallback((t: number) => {
@@ -271,7 +275,7 @@ export default function VideoPage() {
           <Stack>
             <Box className="player-wrap" pos="relative" mx="auto" w="100%" maw={maxW}
               style={{ '--rv-transform': overlay.transform ?? 'none' } as React.CSSProperties}>
-              <Player key={`player:${video.stream_url}`} ref={player} video={video} onTimeUpdate={setTime}
+              {playbackCache.data?.ready === false && !usingHls ? <Alert color="blue">{tr('此视频需要兼容播放缓存或 HLS，准备好后即可播放。')}</Alert> : <Player key={`player:${video.stream_url}`} ref={player} video={video} onTimeUpdate={setTime}
                 bookmarks={markers.data?.bookmarks} chapters={markers.data?.chapters}
                 playbackRate={overlay.playbackRate} loopRange={loopRange}
                 hlsUrl={usingHls ? hls.data!.package!.url : undefined} resumeSource={resumeSource}
@@ -287,7 +291,7 @@ export default function VideoPage() {
                     const next = playlistNeighbors(collection.data.items, video.id).next
                     if (next) navigate(playlistUrl(next.id, collection.data.id))
                   }
-                }} />
+                }} />}
               {overlay.crop && video.width > 0 && (
                 <div
                   className="crop-box"
@@ -317,6 +321,7 @@ export default function VideoPage() {
               >{tr("截图")}</Button>
             </Group>
 
+            {ready && <PlaybackCachePanel video={video} data={playbackCache.data} error={playbackCache.error} refetch={playbackCache.refetch} />}
             {ready && <HlsPanel key={`hls:${video.stream_url}`} video={video} data={hls.data}
               queryError={hls.error} refetch={hls.refetch} usingHls={usingHls} switchSource={switchSource} />}
             {ready && <PlaybackPanel key={`playback:${video.stream_url}`} duration={video.duration} currentTime={time}

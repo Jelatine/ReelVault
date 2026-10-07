@@ -642,5 +642,13 @@
   "metrics_token_invalid": {
     "zh": "指标采集令牌无效",
     "en": "Invalid metrics scrape token."
+  },
+  "playback_cache_required": {
+    "zh": "请先在视频详情中生成兼容播放缓存",
+    "en": "Generate a compatible playback cache in the video details first."
+  },
+  "playback_cache_busy": {
+    "zh": "请先结束播放缓存生成任务",
+    "en": "Finish or cancel the playback cache task first."
   }
 }

@@ -37,13 +37,13 @@ function Visitor({ token }: { token: string }) {
     <Title order={2} style={{ overflowWrap: 'anywhere' }}>{query.data.title || tr('分享内容')}</Title>
     <Text size="sm" c="dimmed">{tr('只读访问 · 有效至 {{date}}', { date: formatDate(query.data.expires_at) })}</Text>
     {current ? <>
-      <video key={current.id} autoPlay={autoPlay} controls playsInline preload="metadata" controlsList={query.data.allow_download ? undefined : 'nodownload'}
+      {current.playback_ready === false ? <Alert color="blue">{tr('播放缓存尚未就绪，请联系分享者生成兼容播放缓存。')}</Alert> : <video key={current.stream_url} autoPlay={autoPlay} controls playsInline preload="metadata" controlsList={query.data.allow_download ? undefined : 'nodownload'}
         poster={current.poster_url ?? undefined} src={current.stream_url} style={{ width: '100%', maxHeight: '65vh', background: '#000' }}
         onError={() => setPlayError(true)} onLoadedData={() => setPlayError(false)} onEnded={() => {
           const index = query.data.items.findIndex(item => item.id === current.id)
           const next = query.data.items[index + 1]
           if (next) { setSelected(next.id); setAutoPlay(true); setPlayError(false) }
-        }} />
+        }} />}
       <Text fw={600} style={{ overflowWrap: 'anywhere' }}>{current.title}</Text>
       {current.download_url && <Button component="a" href={current.download_url} variant="light">{tr('下载原文件')}</Button>}
       {playError && <Alert color="red">{tr('视频暂时无法播放，请刷新或联系分享者。')}</Alert>}

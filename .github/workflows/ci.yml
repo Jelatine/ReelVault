@@ -76,6 +76,11 @@ jobs:
           npx playwright install --with-deps chromium
           npm run build
           npm run test:e2e
+      - name: Verify on-demand HEVC playback in Chromium
+        working-directory: frontend
+        env:
+          REELVAULT_PLAYABLE_EAGER_MAX_MB: "0"
+        run: npm run test:e2e -- playback-cache.spec.ts
       - name: Upload browser traces and report
         if: failure()
         uses: actions/upload-artifact@v4

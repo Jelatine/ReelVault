@@ -17,6 +17,7 @@ from ..errors import APIError
 from ..library import abs_path
 from ..media import derive
 from ..models import Collection, ShareGrant, ShareLink, Video, utcnow
+from ..playback_cache import cached_path, needs_copy, stream_path
 from ..sharing import (
     PRIVATE_HEADERS,
     cookie_name,
@@ -66,7 +67,10 @@ def describe(db: Session, share: ShareLink) -> dict[str, Any]:
 
 @router.post("/api/shares")
 def create_share(
-    body: ShareCreate, auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db)
+    body: ShareCreate,
+    auth: CurrentAuth = Depends(require_auth),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     if body.video_id:
         video = db.get(Video, body.video_id)
@@ -93,6 +97,10 @@ def create_share(
         password_hash=password_hash,
         allow_download=body.allow_download,
     )
+    # Preparing expensive media remains an authenticated owner action.
+    for item in shared_videos(db, share):
+        if needs_copy(item) and cached_path(settings, item) is None:
+            raise APIError(409, "请先在视频详情中生成兼容播放缓存", code="playback_cache_required")
     db.add(share)
     db.commit()
     return describe(db, share)
@@ -126,13 +134,23 @@ def revoke_share(
 
 @router.get("/api/public/shares/{token}")
 def view_share(
-    token: str, request: Request, response: Response, db: Session = Depends(get_db)
+    token: str,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     share = find_share(db, token)
     require_share(db, share, request)
     response.headers.update(PRIVATE_HEADERS)
     collection = db.get(Collection, share.collection_id) if share.collection_id else None
-    items = [public_video(video, share) for video in shared_videos(db, share)]
+    items = [
+        {
+            **public_video(video, share),
+            "playback_ready": not needs_copy(video) or cached_path(settings, video) is not None,
+        }
+        for video in shared_videos(db, share)
+    ]
     return {
         "title": collection.name if collection else items[0]["title"] if items else "",
         "expires_at": share.expires_at.isoformat(),
@@ -208,7 +226,7 @@ def share_media(
     video = shared_video(db, share, video_id)
     filename = None
     if resource == "stream":
-        path = abs_path(settings, video.playable_path or video.file_path)
+        path = stream_path(settings, video)
         media_type = mimetypes.guess_type(path.name)[0] or "video/mp4"
     elif resource == "poster.jpg":
         path = settings.derived_dir / video.id / derive.POSTER

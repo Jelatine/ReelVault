@@ -13,6 +13,6 @@ export interface ShareLink {
 export interface ShareTarget { video_id?: string; collection_id?: number }
 export interface SharedVideo {
   id: string; title: string; duration: number; width: number; height: number
-  stream_url: string; poster_url: string | null; download_url: string | null
+  playback_ready?: boolean; stream_url: string; poster_url: string | null; download_url: string | null
 }
 export interface PublicShare { title: string; expires_at: string; allow_download: boolean; items: SharedVideo[] }

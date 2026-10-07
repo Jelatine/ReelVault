@@ -35,6 +35,7 @@ from .api import (
     luts,
     observability,
     playback,
+    playback_cache,
     scenes,
     search,
     shares,
@@ -54,11 +55,12 @@ from .errors import install_error_handlers
 from .importer import Importer
 from .jobs.handlers import HANDLERS
 from .jobs.manager import JobManager
+from .library import abs_path
 from .maintenance import maintain
 from .media.encoding import detect_encoders
 from .media.ffmpeg import ffmpeg_version
 from .migrate import upgrade
-from .models import AuditEvent, HlsPackage, RuntimeSetting, Upload, User
+from .models import AuditEvent, HlsPackage, RuntimeSetting, Upload, User, Video
 from .observability import audit, prune_audit
 from .sharing import SharePrivacyMiddleware
 from .updates import Updater
@@ -130,6 +132,15 @@ def cleanup_stale_uploads(app: FastAPI, settings: Settings, max_age_days: int = 
     for directory in settings.derived_dir.glob("*/hls/*"):
         if directory not in keep:
             shutil.rmtree(directory, ignore_errors=True)
+    with app.state.sessionmaker() as db:
+        copies = {
+            abs_path(settings, v.playable_path)
+            for v in db.scalars(select(Video))
+            if v.playable_path
+        }
+    for f in settings.derived_dir.glob("*/playable-*.mp4"):
+        if f not in copies:
+            f.unlink(missing_ok=True)
     for f in settings.tmp_dir.glob("frame-*"):
         f.unlink(missing_ok=True)
     for f in settings.tmp_dir.glob("import-*"):
@@ -290,6 +301,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         duplicates.router,
         history.router,
         hls.router,
+        playback_cache.router,
         playback.router,
         scenes.router,
         search.router,

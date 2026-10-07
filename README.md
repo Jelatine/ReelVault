@@ -26,7 +26,7 @@
 - 进度条悬停缩略图（雪碧图 + WebVTT），均匀抽帧覆盖长视频、稀疏关键帧及不足一秒的短视频
 - 视频库卡片悬停自动播放预览片段
 - 按用户保存播放位置、播放次数和最近播放时间，支持续播
-- MKV / AVI / HEVC 等浏览器不支持的格式自动生成可播放副本（能无损封装时只做封装）
+- MKV / AVI / HEVC 等格式提供兼容播放副本；大于 256 MiB 时按需生成，可清理缓存或改用 HLS（能无损封装时只做封装）
 
 **编辑**（ffmpeg 后台任务，实时进度，可取消）
 - 剪辑：保留一个或多个片段并拼接，支持「精确（重编码）」和「快速（无损，按关键帧）」
@@ -369,11 +369,12 @@ GitHub Actions 会构建 `linux/amd64`、`linux/arm64` 镜像并推送到 `ghcr.
 
 后续计划（编辑能力、交互、评分/合集/全文搜索等）见 [TODO.md](TODO.md)。
 
+
 ## License
 
 MIT
 
-浏览器端到端测试：先安装后端依赖（`cd backend && uv sync --frozen --extra link-import`），在 `frontend/` 执行 `npm ci`、`npx playwright install chromium`、`npm run build`、`npm run test:e2e`。需要本机 ffmpeg；测试自动启动端口 18089 的临时后端并使用独立数据库，退出后清理。配置遵循 [Playwright webServer](https://playwright.dev/docs/test-webserver)，CI 安装方式见 [Playwright CI](https://playwright.dev/docs/ci)。失败报告位于 `frontend/playwright-report/`，截图与 trace 位于 `frontend/test-results/`。
+浏览器端到端测试：先安装后端依赖（`cd backend && uv sync --frozen --extra link-import`），在 `frontend/` 执行 `npm ci`、`npx playwright install chromium`、`npm run build`、`npm run test:e2e`。需要本机 ffmpeg；测试自动启动端口 18089 的临时后端并使用独立数据库，退出后清理。配置遵循 [Playwright webServer](https://playwright.dev/docs/test-webserver)，CI 安装方式见 [Playwright CI](https://playwright.dev/docs/ci)。按需 HEVC 专项运行 `REELVAULT_PLAYABLE_EAGER_MAX_MB=0 npm run test:e2e -- playback-cache.spec.ts`；CI 额外执行此专项，使用小型真实 HEVC 代替上传巨大文件。失败报告位于 `frontend/playwright-report/`，截图与 trace 位于 `frontend/test-results/`。
 
 
 备份与恢复：设置页的「导出数据库与配置」生成 ZIP，包含 SQLite 一致性快照、当前配置和 SHA256 校验清单，支持数据库使用 WAL 时在线导出。实现采用 [SQLite backup API](https://docs.python.org/3/library/sqlite3.html#sqlite3.Connection.backup)。包内包含密码哈希、设备会话记录和配置凭据，请保存在受保护的位置；服务端备份文件权限为 0600。
@@ -517,6 +518,16 @@ REELVAULT_CONFIG_FILE=/path/data/restored-config.json python -m reelvault
 播放器设置菜单的倍速、音量/静音以及「自动播放下一项」开关按账号保存在此浏览器，刷新或换视频后恢复，不随账号同步到其他设备；编辑器变速预览不改变常用倍速。清除浏览器存储后恢复默认值；浏览器拒绝写入存储时，仅在当前页面会话内生效。
 
 「同文件夹播放列表」列出当前目录的全部就绪视频（不包括子文件夹或回收站），按添加时间及 ID 顺序播放；未分类视频也能组成列表。合集按人工排序播放。两种列表都支持搜索选项、上一项/下一项和结束后续播，最后一项停止；列表载入失败或当前视频已移出列表时停止续播。关闭续播开关仍可手动切换，浏览器的自动播放策略可能要求先进行一次点击播放。
+
+### 兼容播放缓存
+
+浏览器不兼容的 MKV / AVI / HEVC 等视频，原文件不超过 256 MiB 时沿用入库时预生成兼容副本；更大的视频只生成封面、预览及缩略图，首次需要播放时在详情页点击「生成兼容播放缓存」。兼容的原文件始终直接播放，不会额外转码。可配置 `REELVAULT_PLAYABLE_EAGER_MAX_MB`（0–102400，默认 256）；设为 `0` 将所有需要兼容副本的视频改为按需生成。已有缓存保留，升级不会自动删除。
+
+按需生成接入任务队列、硬件编码与软件回退，支持暂停、继续、取消和失败重试；重复请求复用同一任务。提交预留主存储空间，完成前再次检查预算，临时文件成功后才发布；失败、取消或源文件变化不会替换原文件或发布半成品。缓存按源文件名、大小与修改时间检查，变化后需要重建。上传尚未探测编码时仍保留保守的空间预估；入库探测后，大文件不再预留整段兼容副本的生成空间。
+
+详情页显示缓存大小并提供「清理兼容播放缓存」。清理只删除该视频派生目录中的副本，原文件下载、预览和缩略图保留；正在生成时拒绝清理。开启下述 HLS 后也可直接生成并使用 HLS，无需另存整段兼容 MP4。HLS 与兼容 MP4 为独立缓存，清理其中一种不会删除另一种。
+
+创建单视频或合集分享前，分享范围内需要兼容副本的视频须先准备好兼容缓存。访客不会触发昂贵的转码；清理已有分享的缓存后，访客页会提示联系分享者，重新生成后恢复播放，允许的原文件下载继续可用。访客页目前使用兼容 MP4，不使用管理员的 HLS 地址。备份保存缓存引用与源签名；恢复时仍需要同时保留或迁移对应媒体文件。重启清理未提交的缓存文件，保留数据库引用的已完成缓存。
 
 ### HLS 自适应播放
 

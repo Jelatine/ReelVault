@@ -28,6 +28,7 @@ from ..media.subtitles import plan_subtitle
 from ..media.timing import snap_cut, timing_index
 from ..media.watermark import plan_watermark
 from ..models import Job, SceneAnalysis, Video, new_id, utcnow
+from ..playback_cache import remove_copy
 from ..storage import MIB, check_budget
 from .duplicates import duplicates
 from .links import link_import
@@ -49,6 +50,7 @@ async def ingest(ctx: JobContext, job: Job) -> None:
         cover_time = video.cover_time
         custom_cover = bool((video.meta or {}).get("custom_cover"))
         version = video.asset_version
+        old_playable = abs_path(s, video.playable_path) if video.playable_path else None
 
     try:
         ctx.set_progress(0, "分析视频")
@@ -59,7 +61,10 @@ async def ingest(ctx: JobContext, job: Job) -> None:
             assert video is not None
             apply_media_info(video, info, src.stat().st_size)
             required = 32 * MIB
-            if not info.browser_playable:
+            eager = (
+                not info.browser_playable and src.stat().st_size <= s.playable_eager_max_mb * MIB
+            )
+            if eager:
                 rate = (
                     max(info.bitrate, info.width * info.height * (info.fps or 30) * 0.5) + 256_000
                 )
@@ -80,7 +85,7 @@ async def ingest(ctx: JobContext, job: Job) -> None:
             db.commit()
 
         out = derived_dir(s, video_id)
-        steps = 4 if info.browser_playable else 5
+        steps = 5 if eager else 4
 
         ctx.stage(1, steps, "生成封面")
         if not custom_cover:
@@ -113,7 +118,7 @@ async def ingest(ctx: JobContext, job: Job) -> None:
         _update(ctx, video_id, has_sprite=True)
 
         playable: str | None = None
-        if not info.browser_playable:
+        if eager:
             cb = ctx.stage(4, steps, "转码为浏览器可播放格式")
             target = out / derive.PLAYABLE
             playable_encoding = await derive.make_playable(
@@ -132,7 +137,18 @@ async def ingest(ctx: JobContext, job: Job) -> None:
                     stored.params = {**stored.params, "playable_encoding": playable_encoding}
                     db.commit()
             playable = rel_path(s, target)
-        _update(ctx, video_id, playable_path=playable, status="ready", error=None)
+        with ctx.db() as db:
+            current = db.get(Video, video_id)
+            assert current is not None
+            current.playable_path, current.status, current.error = playable, "ready", None
+            current.meta = {
+                k: v for k, v in (current.meta or {}).items() if k != "playable_signature"
+            }
+            if playable:
+                current.meta = {**current.meta, "playable_signature": source_signature(src)}
+            db.commit()
+        if old_playable and old_playable != (out / derive.PLAYABLE if playable else None):
+            remove_copy(s, video_id, old_playable)
     except Exception as e:
         _update(ctx, video_id, status="error", error=str(e)[:2000])
         raise
@@ -596,11 +612,64 @@ async def hls(ctx: JobContext, job: Job) -> None:
             shutil.rmtree(target, ignore_errors=True)
 
 
+async def playable(ctx: JobContext, job: Job) -> None:
+    source, info, video = (await _load_sources(ctx, job.video_ids))[0]
+    sig = source_signature(source)
+    if sig != job.params["signature"]:
+        raise RuntimeError("源视频已变化，请重新生成播放缓存")
+    temp = ctx.settings.tmp_dir / f"job-{job.id}"
+    temp.mkdir(parents=True, exist_ok=True)
+    target = derived_dir(ctx.settings, video.id) / f"playable-{job.id}.mp4"
+    committed = False
+    try:
+        encoding = await derive.make_playable(
+            ctx.settings.ffmpeg,
+            source,
+            info,
+            temp / derive.PLAYABLE,
+            ctx.handle,
+            ctx.stage(0, 1, "转码为浏览器可播放格式"),
+            encoding=ctx.manager.encoding,
+            encoder=ctx.settings.encoder,
+        )
+        ctx.check_canceled()
+        with ctx.db() as db:
+            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            current = db.get(Video, video.id)
+            if (
+                current is None
+                or current.deleted_at
+                or current.status != "ready"
+                or current.file_path != video.file_path
+                or source_signature(source) != sig
+            ):
+                raise RuntimeError("源视频已变化，播放缓存未保存")
+            size = (temp / derive.PLAYABLE).stat().st_size
+            check_budget(db, ctx.settings, size, exclude_job=job.id)
+            old = abs_path(ctx.settings, current.playable_path) if current.playable_path else None
+            (temp / derive.PLAYABLE).rename(target)
+            current.playable_path = rel_path(ctx.settings, target)
+            current.meta = {**(current.meta or {}), "playable_signature": sig}
+            current.asset_version += 1
+            stored = db.get(Job, job.id)
+            if stored:
+                stored.params = {**stored.params, "playable_encoding": encoding}
+            db.commit()
+            committed = True
+        remove_copy(ctx.settings, video.id, old)
+        ctx.set_progress(1, "播放缓存已就绪")
+    finally:
+        shutil.rmtree(temp, ignore_errors=True)
+        if not committed:
+            target.unlink(missing_ok=True)
+
+
 HANDLERS: dict[str, Handler] = {
     "link_import": link_import,
     "ingest": ingest,
     "scenes": scenes,
     "hls": hls,
+    "playable": playable,
     "edit": edit,
     "duplicates": duplicates,
 }

@@ -38,6 +38,7 @@ from ..metadata import MetadataPatch, update_metadata
 from ..models import Folder, Tag, Upload, Video, new_id, utcnow
 from ..observability import audit_request
 from ..pinyin_search import normalize_pinyin_query
+from ..playback_cache import stream_path
 from ..search_syntax import parse_search
 from ..storage import check_budget, lock_budget, upload_bytes, upload_requirements
 from .deps import FiniteNumber, get_jobs, get_settings
@@ -672,7 +673,7 @@ def stream(
     video_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
 ) -> FileResponse:
     video = get_video(db, video_id, allow_deleted=True)
-    path = abs_path(settings, video.playable_path or video.file_path)
+    path = stream_path(settings, video)
     if not path.exists():
         raise APIError(status.HTTP_404_NOT_FOUND, "视频文件丢失", code="video_file_missing")
     media_type = mimetypes.guess_type(path.name)[0] or "video/mp4"

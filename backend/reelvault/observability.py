@@ -15,7 +15,7 @@ from .config import Settings
 from .models import AuditEvent, Job, JobMetric, utcnow
 from .storage import snapshot
 
-KINDS = ("ingest", "edit", "hls", "scenes", "duplicates", "link_import", "other")
+KINDS = ("ingest", "edit", "hls", "scenes", "duplicates", "link_import", "playable", "other")
 STATES = ("queued", "running", "paused", "succeeded", "failed", "canceled")
 TERMINAL = STATES[3:]
 BUCKETS = (1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600)

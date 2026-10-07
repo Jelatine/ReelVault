@@ -361,6 +361,20 @@ async def retry_job(
         if old.kind == "ingest":
             video.status, video.error = "processing", None
     params = copy.deepcopy(old.params)
+    if old.kind == "playable":
+        from ..playback_cache import cached_path, estimate, needs_copy
+        from .playback_cache import active
+        from .scenes import ready_video, signature
+
+        video = ready_video(db, old.video_ids[0])
+        if active(db, jobs, video.id):
+            raise APIError(409, "请先结束播放缓存生成任务", code="playback_cache_busy")
+        if not needs_copy(video) or cached_path(jobs.settings, video):
+            raise APIError(
+                409, "该任务已保存输出，请查看结果，避免重复修改", code="job_output_already_saved"
+            )
+        params["signature"] = signature(jobs.settings, video)
+        params["storage_bytes"] = estimate(video)
     if old.kind == "link_import":
         from ..link_download import downloader_command
         from ..storage import MIB

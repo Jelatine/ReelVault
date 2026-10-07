@@ -15,6 +15,8 @@ def seed(client, settings, title="private"):
             title=title,
             file_path="library/test.mp4",
             status="ready",
+            container="mp4",
+            video_codec="h264",
             description="private notes",
             custom_fields={"private": "value"},
             meta={"gps": "private"},
@@ -62,6 +64,7 @@ def test_password_grants_do_not_authenticate_library_and_apply_to_all_media(clie
         "width",
         "height",
         "stream_url",
+        "playback_ready",
         "poster_url",
         "download_url",
     }
@@ -250,7 +253,13 @@ def test_expired_visitor_grant_and_missing_disk_cannot_access_media(client, sett
     key, entry = register_root(settings, root, "share drive")
     settings.storage_locations[key] = entry
     with client.app.state.sessionmaker() as db:
-        video = Video(title="external", file_path=f"volumes/{key}/video.mp4", status="ready")
+        video = Video(
+            title="external",
+            file_path=f"volumes/{key}/video.mp4",
+            status="ready",
+            container="mp4",
+            video_codec="h264",
+        )
         db.add(video)
         db.commit()
         vid = video.id
