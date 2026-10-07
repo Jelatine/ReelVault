@@ -11,7 +11,7 @@ import aiofiles
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import case, column, func, literal_column, or_, select, table, text
+from sqlalchemy import case, column, func, literal, literal_column, or_, select, table, text
 from sqlalchemy.orm import Session
 
 from ..auth import require_auth
@@ -35,6 +35,7 @@ from ..media.probe import probe
 from ..media.timing import timing_index
 from ..metadata import MetadataPatch, update_metadata
 from ..models import Folder, Tag, Upload, Video, new_id, utcnow
+from ..pinyin_search import normalize_pinyin_query
 from ..search_syntax import parse_search
 from .deps import FiniteNumber, get_jobs, get_settings
 
@@ -350,10 +351,13 @@ def list_videos(
         stmt = stmt.where(Video.container == format)
     has_match = False
     short_rank: Any = None
+    pinyin_match: Any = literal(False)
     if terms:
+        fields = ("title", "description", "original_name", "tags")
+        pinyin_fields = ("title_pinyin", "title_initials")
         search = table(
             "video_search",
-            *(column(c) for c in ("video_id", "title", "description", "original_name", "tags")),
+            *(column(c) for c in ("video_id", *fields, *pinyin_fields)),
         )
         stmt = stmt.join(search, search.c.video_id == Video.id)
         short_rank = sum(
@@ -361,23 +365,52 @@ def list_videos(
             for term in terms
             for c, weight in (("title", 8), ("tags", 4), ("original_name", 3), ("description", 1))
         )
-        long_terms = [term for term in terms if len(term) >= 3]
+        normalized = [(term, normalize_pinyin_query(term)) for term in terms]
+        pinyin_checks = [
+            or_(*(func.instr(search.c[c], phonetic) > 0 for c in pinyin_fields))
+            & ~or_(
+                *(
+                    func.instr(func.reelvault_casefold(search.c[c]), term.casefold()) > 0
+                    for c in fields
+                )
+            )
+            for term, phonetic in normalized
+            if phonetic is not None
+        ]
+        if pinyin_checks:
+            pinyin_match = or_(*pinyin_checks)
+        short_rank += sum(
+            case((func.instr(search.c[c], phonetic) > 0, weight), else_=0)
+            for _, phonetic in normalized
+            if phonetic is not None
+            for c, weight in (("title_pinyin", 2), ("title_initials", 1))
+        )
+        long_terms = [
+            (term, phonetic)
+            for term, phonetic in normalized
+            if len(term) >= 3 and (phonetic is None or len(phonetic) >= 3)
+        ]
         if long_terms:
-            match = " AND ".join('"' + term.replace('"', '""') + '"' for term in long_terms)
+            expressions = []
+            for term, phonetic in long_terms:
+                quoted_term = '"' + term.replace('"', '""') + '"'
+                original = "{title description original_name tags}:" + quoted_term
+                if phonetic is not None:
+                    original = (
+                        "(" + original + ' OR {title_pinyin title_initials}:"' + phonetic + '")'
+                    )
+                expressions.append(original)
+            match = " AND ".join(expressions)
             stmt = stmt.where(text("video_search MATCH :search_query")).params(search_query=match)
             has_match = True
         # Trigram MATCH cannot match one/two-character words. Search the FTS
         # document itself for those, retaining Chinese short-word support.
-        for term in (t for t in terms if len(t) < 3):
+        for term, phonetic in (item for item in normalized if item not in long_terms):
             escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            stmt = stmt.where(
-                or_(
-                    *(
-                        search.c[c].like(f"%{escaped}%", escape="\\")
-                        for c in ("title", "description", "original_name", "tags")
-                    )
-                )
-            )
+            options = [search.c[c].like(f"%{escaped}%", escape="\\") for c in fields]
+            if phonetic is not None:
+                options.extend(search.c[c].like(f"%{phonetic}%") for c in pinyin_fields)
+            stmt = stmt.where(or_(*options))
     if folder == "root":
         stmt = stmt.where(Video.folder_id.is_(None))
     elif folder != "all":
@@ -400,28 +433,40 @@ def list_videos(
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     col = SORT_COLUMNS[sort]
     if sort == "relevance" and has_match:
-        stmt = stmt.order_by(literal_column("bm25(video_search, 0, 8, 1, 3, 4)"), Video.id)
+        stmt = stmt.order_by(
+            pinyin_match.asc(), literal_column("bm25(video_search, 0, 8, 1, 3, 4, 2, 1)"), Video.id
+        )
     elif sort == "relevance" and short_rank is not None:
-        stmt = stmt.order_by(short_rank.desc(), Video.id)
+        stmt = stmt.order_by(pinyin_match.asc(), short_rank.desc(), Video.id)
     else:
         stmt = stmt.order_by(col.asc() if order == "asc" else col.desc(), Video.id)
     stmt = stmt.offset((page - 1) * page_size).limit(page_size)
     items = []
     if has_match:
-        excerpts = stmt.add_columns(literal_column("snippet(video_search, -1, '', '', '…', 32)"))
-        for video, excerpt in db.execute(excerpts):
-            items.append({**video_to_dict(video), "search_excerpt": excerpt})
+        excerpts = stmt.add_columns(
+            literal_column("snippet(video_search, -1, '', '', '…', 32)"), pinyin_match
+        )
+        for video, excerpt, phonetic in db.execute(excerpts):
+            items.append(
+                {
+                    **video_to_dict(video),
+                    "search_excerpt": video.title if phonetic else excerpt,
+                    "search_pinyin": bool(phonetic),
+                }
+            )
     else:
-        for video in db.scalars(stmt).all():
+        for video, phonetic in db.execute(stmt.add_columns(pinyin_match)):
             item = video_to_dict(video)
+            if phonetic:
+                item.update(search_excerpt=video.title, search_pinyin=True)
             if terms:
-                fields = [
+                excerpt_fields = [
                     video.title,
                     " ".join(t.name for t in video.tags),
                     video.original_name,
                     video.description,
                 ]
-                for value in fields:
+                for value in excerpt_fields:
                     matches = [value.lower().find(term.lower()) for term in terms]
                     positions = [position for position in matches if position >= 0]
                     if positions:

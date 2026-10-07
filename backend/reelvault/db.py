@@ -8,6 +8,8 @@ from fastapi import Request
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
+from .pinyin_search import register_pinyin
+
 
 class Base(DeclarativeBase):
     pass
@@ -29,6 +31,7 @@ def make_engine(path: Path) -> Engine:
         cur.execute("PRAGMA synchronous=NORMAL")
         cur.close()
         dbapi_conn.create_function("reelvault_device", 2, device_key, deterministic=True)
+        register_pinyin(dbapi_conn)
 
     return engine
 

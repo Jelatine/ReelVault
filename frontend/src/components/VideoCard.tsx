@@ -93,7 +93,8 @@ export default function VideoCard({ video, highlight, selected, selectable, onTo
           }}>
           <Highlight component="span" highlight={highlight?.split(/\s+/) ?? []}>{video.title}</Highlight>
         </Text>
-        {highlight && video.search_excerpt && (
+        {video.search_pinyin && <Text size="xs" c="dimmed">{tr('标题拼音匹配')}</Text>}
+        {highlight && video.search_excerpt && !video.search_pinyin && (
           <Highlight size="xs" c="dimmed" lineClamp={2} highlight={highlight.split(/\s+/)}>{video.search_excerpt}</Highlight>
         )}
         <VideoRating video={video} />

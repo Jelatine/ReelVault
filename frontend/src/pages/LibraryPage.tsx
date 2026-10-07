@@ -450,7 +450,8 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
                         <Highlight component="span" highlight={highlights}>{v.title}</Highlight>
                       </Text>
                     </Group>
-                    {highlights.length > 0 && v.search_excerpt && <Highlight size="xs" c="dimmed" lineClamp={2} highlight={highlights}>{v.search_excerpt}</Highlight>}
+                    {v.search_pinyin && <Text size="xs" c="dimmed">{tr('标题拼音匹配')}</Text>}
+                    {highlights.length > 0 && v.search_excerpt && !v.search_pinyin && <Highlight size="xs" c="dimmed" lineClamp={2} highlight={highlights}>{v.search_excerpt}</Highlight>}
                   </Table.Td>
                   <Table.Td><VideoRating video={v} /></Table.Td>
                   <Table.Td>{formatDuration(v.duration)}</Table.Td>

@@ -10,6 +10,7 @@ export interface Video {
   title: string
   captured_at: string | null
   search_excerpt?: string
+  search_pinyin?: boolean
   rating: number
   favorite: boolean
   description: string

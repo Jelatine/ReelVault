@@ -1,8 +1,9 @@
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, event, pool
 
 from reelvault import models  # noqa: F401  (register tables)
 from reelvault.db import Base
+from reelvault.pinyin_search import register_pinyin
 
 config = context.config
 target_metadata = Base.metadata
@@ -23,6 +24,7 @@ def run_migrations() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    event.listen(engine, "connect", lambda connection, record: register_pinyin(connection))
     with engine.connect() as conn:
         context.configure(connection=conn, target_metadata=target_metadata, render_as_batch=True)
         with context.begin_transaction():
