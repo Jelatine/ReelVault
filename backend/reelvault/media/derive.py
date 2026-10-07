@@ -16,7 +16,6 @@ PREVIEW_SEGMENT_SECONDS = 1.0
 SPRITE_THUMB_WIDTH = 160
 SPRITE_COLUMNS = 10
 SPRITE_MAX_THUMBS = 100
-SPRITE_KEYFRAME_ONLY_AFTER = 600  # seconds
 
 POSTER = "poster.jpg"
 PREVIEW = "preview.mp4"
@@ -143,12 +142,15 @@ async def make_sprite(
     th = scaled_height(info, tw)
     rows = math.ceil(count / SPRITE_COLUMNS)
     cols = min(SPRITE_COLUMNS, count)
-    vf = f"fps=1/{interval:.4f},scale={tw}:{th},setsar=1,tile={cols}x{rows}"
-    # Decoding only keyframes is much faster for long videos, but with sparse keyframes
-    # the tail of a short clip would come out blank.
-    fast = ["-skip_frame", "nokey"] if info.duration > SPRITE_KEYFRAME_ONLY_AFTER else []
+    # Sample decoded frames uniformly: sparse keyframes may omit entire scenes or even
+    # produce no image. One interval of cloned tail frames completes the final tile,
+    # including clips shorter than the sampling interval. Only indexed cells are used.
+    vf = (
+        f"tpad=stop_mode=clone:stop_duration={interval:.6f},"
+        f"fps=1/{interval:.6f}:start_time=0,scale={tw}:{th},setsar=1,tile={cols}x{rows}"
+    )
     args = [
-        *fast, "-i", str(src),
+        "-i", str(src),
         "-map", f"0:{info.video_index}", "-an", "-vf", vf,
         "-frames:v", "1", *JPEG, str(out_dir / SPRITE),
     ]  # fmt: skip
