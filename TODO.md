@@ -108,7 +108,7 @@
 
 - [x] `deploy/install.sh` 已在 Ubuntu 22.04/24.04 GitHub 托管虚拟机完整验证（安装、重复安装、一键升级、systemd 重启及失败回滚）。
 - [ ] 超过 10 分钟的视频生成进度条缩略图时只解码关键帧，关键帧稀疏的视频缩略图可能不够准确。
-- [ ] GHCR 中残留测试镜像 `0.1.0-rc.1`，需要在 GitHub Packages 页面手动删除。
+- [x] GHCR 中残留测试镜像 `0.1.0-rc.1` 已清理；其余 9 个 tag 保留，旧测试 tag 的 manifest 返回 404，`latest` 返回 200。
 - [ ] QSV、VAAPI、NVENC 编码仍需在对应 GPU 与驱动上实机验证（已完成命令参数、自动选择与真实软件回退测试；VideoToolbox H.264/H.265 已通过 macOS 实机验证）。
 - [ ] 对 HEVC 等浏览器无法播放的格式会生成一份 H.264 副本，大文件会额外占用磁盘，可考虑改为按需生成或使用 HLS。
 
@@ -277,3 +277,5 @@
 - 本地验证：后端完整 355 项通过、1 项硬件测试跳过；最后补充请求消费竞态和新增 Python 版本文件回滚后，配置同步/升级/备份 40 项复验通过。前端完整 111 项、1341/132/56 翻译审计通过；Chromium 新增专项验证首次安装说明、同步进度、回滚未确认及手机英文布局，截图已检查。Ruff/格式、mypy、oxlint、TypeScript、生产构建、安装脚本语法、隔离辅助程序拒绝非 root 及发布包内容/摘要核对通过。CI 新增 Ubuntu 22.04/24.04 真实 systemd 安装、重复安装、在线升级/自动重启、依赖/摘要失败与配置确认失败回滚、环境/drop-in/媒体/元数据保留及 root 侧非法单元拒绝。v0.2.4 发布与 CI 全部成功。
 
 - 2026-10-07：提交 788e137 的 [GitHub CI 37580047332](https://github.com/Jelatine/ReelVault/actions/runs/37580047332) 全部成功。Ubuntu 22.04.5 与 24.04.5 托管虚拟机均真实运行安装脚本与受限 root/path 辅助服务，验证初次/重复安装、主服务 NoNewPrivileges、同步发布单元、实际 daemon-reload、退出 75 后自动重启、更新后的 RestartSec 生效、依赖与 SHA256 失败，以及配置已应用/重载后注入确认失败导致程序和服务配置回滚。环境/drop-in、原媒体摘要、标题/评分与升级前备份保留，root 侧拒绝 User=root 的非法单元；完整 Chromium 36 条通过，Docker 构建与启动检查通过。systemd 同步和 Ubuntu 安装验证两项已勾选；硬件编码验证仍待对应设备。
+
+- 2026-10-07：GHCR 遗留测试镜像已清理。当前本地 gh 凭据没有 read:packages，使用仓库现有 Actions 包权限执行受限工作流，仅允许 Jelatine/ReelVault 的固定包与 0.1.0-rc.1。只读任务 [37584148796](https://github.com/Jelatine/ReelVault/actions/runs/37584148796) 确认版本 1336964254、摘要 sha256:df86f288738b31d75e723a626571de8a2ad25ff3ff5a18c0ae52577ed6f329e2 只持有测试 tag；删除任务 [37604698851](https://github.com/Jelatine/ReelVault/actions/runs/37604698851) 返回 deleted_and_verified，原有其余 9 个 tag 的版本与摘要一致，未删除未标记的 manifest。另直接请求 GHCR 验证旧测试 tag HEAD 返回 404、latest 返回 200。5 项本地/工作流守卫测试通过，覆盖只读/已不存在、额外别名与多目标拒绝、目标变化拒绝、分页及稳定 tag/未标记 manifest 保留。清理与发布共享并发组，清理默认只读。实现提交 f44eac3 的完整主分支 CI 已成功。
