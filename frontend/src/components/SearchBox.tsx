@@ -24,9 +24,20 @@ export default function SearchBox({ inputRef }: { inputRef: RefObject<HTMLInputE
   const location = useLocation()
   const [params] = useSearchParams()
   const [search, setSearch] = useState(params.get('q') ?? '')
+  const [draftRevision, setDraftRevision] = useState(0)
+  const [pendingSearches, setPendingSearches] = useState<Record<string, number>>({})
+  const [latestSearchURL, setLatestSearchURL] = useState<string | null>(null)
   const url = location.pathname + location.search
   const [previousURL, setPreviousURL] = useState(url)
-  if (previousURL !== url) { setPreviousURL(url); setSearch(params.get('q') ?? '') }
+  if (previousURL !== url) {
+    setPreviousURL(url)
+    const submittedRevision = pendingSearches[url]
+    // A delayed search navigation must not erase text entered after submission.
+    // External navigation (including browser Back) still restores the URL query.
+    if (submittedRevision === undefined || submittedRevision === draftRevision) setSearch(params.get('q') ?? '')
+    if (submittedRevision === undefined || latestSearchURL === url) setPendingSearches({})
+    else setPendingSearches(current => { const next = { ...current }; delete next[url]; return next })
+  }
   const [focused, setFocused] = useState(false)
   const [composing, setComposing] = useState(false)
   const composition = useRef(false)
@@ -57,6 +68,9 @@ export default function SearchBox({ inputRef }: { inputRef: RefObject<HTMLInputE
     if (value.trim()) { next.set('q', value.trim()); if (value.trim().length <= 512) remember.mutate(value.trim()) }
     else next.delete('q')
     next.delete('page')
+    const searchURL = '/library' + (next.size ? `?${next.toString()}` : '')
+    setPendingSearches(current => ({ ...current, [searchURL]: draftRevision }))
+    setLatestSearchURL(searchURL)
     combobox.closeDropdown()
     navigate({ pathname: '/library', search: next.toString() })
   }
@@ -91,7 +105,7 @@ export default function SearchBox({ inputRef }: { inputRef: RefObject<HTMLInputE
           onFocus={() => { setFocused(true); if (!composition.current) combobox.openDropdown() }}
           onBlur={() => { setFocused(false); combobox.closeDropdown() }}
           onClick={() => { if (!composition.current) combobox.openDropdown() }}
-          onChange={(event) => { setSearch(event.currentTarget.value); combobox.resetSelectedOption(); if (!composition.current) combobox.openDropdown(); remember.reset(); remove.reset() }}
+          onChange={(event) => { setDraftRevision(revision => revision + 1); setSearch(event.currentTarget.value); combobox.resetSelectedOption(); if (!composition.current) combobox.openDropdown(); remember.reset(); remove.reset() }}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) { event.preventDefault(); return }
             if (event.key === 'Delete' && combobox.dropdownOpened && !search.trim()) {

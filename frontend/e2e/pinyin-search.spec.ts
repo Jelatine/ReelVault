@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 
 test('中文标题拼音全拼首字母、原文排序、组合保存、手机英文和标题动态更新', async ({ page }, testInfo) => {
   test.setTimeout(180_000)
+  const savedName = `拼音日落高分-${testInfo.retry}`
   await page.goto('/login')
   await page.getByRole('textbox', { name: '用户名', exact: true }).fill('e2e-admin')
   await page.getByLabel(/^密码/).fill('e2e-secret123')
@@ -35,9 +36,9 @@ test('中文标题拼音全拼首字母、原文排序、组合保存、手机�
   await page.getByRole('radio', { name: '列表', exact: true }).press('Space', { timeout: 15_000 })
   await expect(page.locator(`main tr[data-video-id="${ids[0]}"]`)).toContainText('标题拼音匹配')
   await page.getByRole('button', { name: '保存为智能文件夹', exact: true }).click()
-  await page.getByRole('textbox', { name: '智能文件夹名称', exact: true }).fill('拼音日落高分')
+  await page.getByRole('textbox', { name: '智能文件夹名称', exact: true }).fill(savedName)
   await page.getByRole('button', { name: '保存', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '拼音日落高分', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: savedName, exact: true })).toBeVisible()
   await page.request.patch(`/api/videos/${ids[0]}`, { headers, data: { title: '重庆音乐 2024' } })
   await expect(page.locator('main [data-video-id]')).toHaveCount(0)
   await page.setViewportSize({ width: 390, height: 844 })
