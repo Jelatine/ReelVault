@@ -28,6 +28,7 @@ import HlsSettings from '../components/HlsSettings'
 import LocationsPanel from '../components/LocationsPanel'
 import SharePanel from '../components/SharePanel'
 import TwoFactorPanel from '../components/TwoFactorPanel'
+import ObservabilityPanel from '../components/ObservabilityPanel'
 import LinkImportSettings from '../components/LinkImport'
 import StoragePanel from '../components/StoragePanel'
 import EncodingPanel from '../components/EncodingPanel'
@@ -243,6 +244,7 @@ export default function SettingsPage() {
         <SharePanel />
         <TwoFactorPanel />
         <LinkImportSettings />
+        <ObservabilityPanel />
           <HlsSettings />
       </Paper>
       <SimpleGrid cols={{ base: 1, md: 2 }}>

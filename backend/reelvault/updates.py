@@ -165,7 +165,9 @@ class Updater:
         current_version: str = __version__,
         busy: Callable[[], int] | None = None,
         request_restart: Callable[[], None] | None = None,
+        audit_event: Callable[[str, str, str, dict[str, Any]], None] | None = None,
     ) -> None:
+        self.audit_event = audit_event
         self.settings = settings
         self.app_dir = (app_dir or PACKAGE_DIR.parent).resolve()
         self.current_version = current_version
@@ -316,7 +318,7 @@ class Updater:
     def _set(self, phase: str, message: str = "", error: str | None = None) -> None:
         self.state.phase, self.state.message, self.state.error = phase, message, error
 
-    async def start_upgrade(self) -> None:
+    async def start_upgrade(self, *, actor: str = "system", peer: str = "") -> None:
         blocker = self.auto_upgrade_blocker()
         if blocker:
             raise UpdateError(blocker)
@@ -327,11 +329,22 @@ class Updater:
         await self.check()
         if not self.update_available or self.state.latest is None:
             raise UpdateError(self.state.check_error or "已经是最新版本")
+        if self._lock.locked() or self.state.phase not in ("idle", "failed"):
+            raise UpdateError("升级正在进行中")
         latest = self.state.latest
+        if self.busy():
+            raise UpdateError("有正在运行或排队的任务，请等待完成后再升级")
+        if self.audit_event:
+            self.audit_event(
+                "upgrade_started",
+                actor,
+                peer,
+                {"from_version": self.current_version, "to_version": latest.version},
+            )
         self._set("downloading", f"正在下载 v{latest.version}")
-        asyncio.create_task(self._upgrade(latest), name="upgrade")
+        asyncio.create_task(self._upgrade(latest, actor, peer), name="upgrade")
 
-    async def _upgrade(self, release: ReleaseInfo) -> None:
+    async def _upgrade(self, release: ReleaseInfo, actor: str = "system", peer: str = "") -> None:
         async with self._lock:
             try:
                 await asyncio.to_thread(self._upgrade_sync, release)
@@ -343,11 +356,38 @@ class Updater:
                     else "升级失败，已恢复到原版本"
                 )
                 self._set("failed", message, str(e))
+                self._audit_outcome(
+                    "upgrade_failed",
+                    release,
+                    actor,
+                    peer,
+                    "unconfirmed" if isinstance(e, RollbackError) else "old_version_preserved",
+                )
                 return
+            self._audit_outcome("upgrade_applied", release, actor, peer, "restart_pending")
             self._set("restarting", f"已升级到 v{release.version}，正在重启")
             log.info("upgraded to %s, restarting", release.version)
             await asyncio.sleep(0.5)
             self.request_restart()
+
+    def _audit_outcome(
+        self, event: str, release: ReleaseInfo, actor: str, peer: str, outcome: str
+    ) -> None:
+        if self.audit_event:
+            try:
+                self.audit_event(
+                    event,
+                    actor,
+                    peer,
+                    {
+                        "from_version": self.current_version,
+                        "to_version": release.version,
+                        "outcome": outcome,
+                    },
+                )
+            except Exception:
+                # An audit write failure must not misreport an applied upgrade as rolled back.
+                log.exception("cannot record upgrade outcome")
 
     def _upgrade_sync(self, release: ReleaseInfo) -> None:
         name = f"reelvault-{release.version}.tar.gz"

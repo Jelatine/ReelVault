@@ -95,6 +95,18 @@ class Settings(BaseSettings):
     # Login rate limiting per client IP.
     login_max_failures: int = 5
     login_lock_minutes: int = 5
+    audit_retention_days: int = Field(90, ge=1, le=3650)
+    audit_max_events: int = Field(10000, ge=100, le=1000000)
+    metrics_token: str = Field("", repr=False, exclude=True)
+
+    @field_validator("metrics_token")
+    @classmethod
+    def valid_metrics_token(cls, value: str) -> str:
+        if value and (not 32 <= len(value) <= 256 or any(not 33 <= ord(c) <= 126 for c in value)):
+            raise ValueError(
+                "Metrics token requires 32-256 printable ASCII characters, without spaces"
+            )
+        return value
 
     # Directory holding the built frontend; auto-detected when unset.
     static_dir: Path | None = None

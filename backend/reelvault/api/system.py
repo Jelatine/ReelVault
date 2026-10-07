@@ -192,9 +192,11 @@ async def update_check(updater: Updater = Depends(get_updater)) -> dict[str, Any
 
 
 @router.post("/api/system/update/apply", dependencies=[Depends(require_auth)])
-async def update_apply(updater: Updater = Depends(get_updater)) -> dict[str, Any]:
+async def update_apply(request: Request, updater: Updater = Depends(get_updater)) -> dict[str, Any]:
     try:
-        await updater.start_upgrade()
+        await updater.start_upgrade(
+            actor=request.state.auth.username, peer=request.client.host if request.client else ""
+        )
     except UpdateError as e:
         raise APIError(status.HTTP_409_CONFLICT, str(e), code="upgrade_conflict") from e
     return updater.status()

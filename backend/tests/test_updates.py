@@ -171,6 +171,7 @@ def run_upgrade(
     busy: int = 0,
     unit: str | None = None,
     systemd: bool = False,
+    audit_records: list | None = None,
 ) -> tuple[Updater, Path, list[bool]]:
     app = make_app_dir(tmp_path, "0.1.0")
     dist = make_release(tmp_path, "0.2.0", corrupt_sha=corrupt_sha, unit=unit)
@@ -200,6 +201,9 @@ def run_upgrade(
         current_version="0.1.0",
         busy=lambda: busy,
         request_restart=lambda: restarted.append(True),
+        audit_event=(lambda event, actor, peer, details: audit_records.append((event, details)))
+        if audit_records is not None
+        else None,
     )
 
     async def go() -> None:
@@ -363,3 +367,94 @@ def test_existing_systemd_install_requires_bootstrap_and_explicit_opt_out(
     assert "install.sh" in (updater.auto_upgrade_blocker() or "")
     settings.systemd_sync = False
     assert updater.auto_upgrade_blocker() is None
+
+
+@pytest.mark.parametrize("uv,outcome", [("true", "upgrade_applied"), ("false", "upgrade_failed")])
+def test_upgrade_audits_start_and_final_result_without_credentials(
+    tmp_path, monkeypatch, uv, outcome
+):
+    records = []
+    updater, _, _ = run_upgrade(tmp_path, monkeypatch, uv=uv, audit_records=records)
+    assert [event for event, _ in records] == ["upgrade_started", outcome]
+    assert records[0][1] == {"from_version": "0.1.0", "to_version": "0.2.0"}
+    assert records[-1][1]["outcome"] == (
+        "restart_pending" if outcome == "upgrade_applied" else "old_version_preserved"
+    )
+
+
+def test_concurrent_upgrade_checks_only_start_one_audited_upgrade(tmp_path, monkeypatch):
+    from reelvault.updates import ReleaseInfo
+
+    records, executions = [], []
+    updater = Updater(
+        Settings(data_dir=tmp_path),
+        current_version="0.1.0",
+        audit_event=lambda *args: records.append(args),
+    )
+    monkeypatch.setattr(updater, "auto_upgrade_blocker", lambda: None)
+
+    async def run():
+        ready = asyncio.Event()
+        arrived = 0
+
+        async def check():
+            nonlocal arrived
+            arrived += 1
+            if arrived == 2:
+                ready.set()
+            await ready.wait()
+            updater.state.latest = ReleaseInfo(
+                version="0.2.0",
+                tag="v0.2.0",
+                name="fixture",
+                url="url",
+                notes="",
+                published_at=None,
+                prerelease=False,
+            )
+            return updater.status()
+
+        async def upgrade_once(*args):
+            executions.append(args)
+
+        monkeypatch.setattr(updater, "check", check)
+        monkeypatch.setattr(updater, "_upgrade", upgrade_once)
+        results = await asyncio.gather(
+            updater.start_upgrade(), updater.start_upgrade(), return_exceptions=True
+        )
+        await asyncio.sleep(0)
+        assert sum(isinstance(result, UpdateError) for result in results) == 1
+
+    asyncio.run(run())
+    assert len(executions) == len(records) == 1 and records[0][0] == "upgrade_started"
+
+
+def test_upgrade_rechecks_new_work_after_release_check(tmp_path, monkeypatch):
+    from reelvault.updates import ReleaseInfo
+
+    busy, records = [0], []
+    updater = Updater(
+        Settings(data_dir=tmp_path),
+        current_version="0.1.0",
+        busy=lambda: busy[0],
+        audit_event=lambda *args: records.append(args),
+    )
+    monkeypatch.setattr(updater, "auto_upgrade_blocker", lambda: None)
+
+    async def check():
+        busy[0] = 1
+        updater.state.latest = ReleaseInfo(
+            version="0.2.0",
+            tag="v0.2.0",
+            name="fixture",
+            url="url",
+            notes="",
+            published_at=None,
+            prerelease=False,
+        )
+        return updater.status()
+
+    monkeypatch.setattr(updater, "check", check)
+    with pytest.raises(UpdateError, match="任务"):
+        asyncio.run(updater.start_upgrade())
+    assert not records and updater.state.phase == "idle"

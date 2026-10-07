@@ -36,6 +36,7 @@ from ..media.probe import probe
 from ..media.timing import timing_index
 from ..metadata import MetadataPatch, update_metadata
 from ..models import Folder, Tag, Upload, Video, new_id, utcnow
+from ..observability import audit_request
 from ..pinyin_search import normalize_pinyin_query
 from ..search_syntax import parse_search
 from ..storage import check_budget, lock_budget, upload_bytes, upload_requirements
@@ -557,22 +558,26 @@ def _purge(db: Session, settings: Settings, video: Video) -> None:
 @router.delete("/videos/{video_id}")
 def delete_video(
     video_id: str,
+    request: Request,
     permanent: bool = False,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, bool]:
     video = get_video(db, video_id, allow_deleted=True)
     if permanent or video.deleted_at is not None:
+        audit_request(db, request, "video_purge", video.id)
         _purge(db, settings, video)
     else:
+        audit_request(db, request, "video_trash", video.id)
         video.deleted_at = utcnow()
     db.commit()
     return {"ok": True}
 
 
 @router.post("/videos/{video_id}/restore")
-def restore_video(video_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+def restore_video(video_id: str, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     video = get_video(db, video_id, allow_deleted=True)
+    audit_request(db, request, "video_restore", video.id)
     video.deleted_at = None
     if not folder_exists(db, video.folder_id):
         video.folder_id = None
@@ -582,10 +587,11 @@ def restore_video(video_id: str, db: Session = Depends(get_db)) -> dict[str, Any
 
 @router.post("/trash/empty")
 def empty_trash(
-    db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
 ) -> dict[str, int]:
     videos = db.scalars(select(Video).where(Video.deleted_at.is_not(None))).all()
     for v in videos:
+        audit_request(db, request, "video_purge", v.id)
         _purge(db, settings, v)
     db.commit()
     return {"deleted": len(videos)}
@@ -601,6 +607,7 @@ class BatchBody(BaseModel):
 @router.post("/videos/batch")
 def batch(
     body: BatchBody,
+    request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, int]:
@@ -613,10 +620,14 @@ def batch(
             case "move":
                 v.folder_id = body.folder_id
             case "delete":
+                if v.deleted_at is None:
+                    audit_request(db, request, "video_trash", v.id)
                 v.deleted_at = v.deleted_at or now
             case "restore":
+                audit_request(db, request, "video_restore", v.id)
                 v.deleted_at = None
             case "purge":
+                audit_request(db, request, "video_purge", v.id)
                 _purge(db, settings, v)
             case "add_tags":
                 set_tags(db, v, [t.name for t in v.tags] + body.tags)

@@ -12,11 +12,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from .config import Settings
 from .library import delete_video_files
 from .models import Job, Video, utcnow
+from .observability import audit, prune_audit
 
 log = logging.getLogger("reelvault.maintenance")
 
 
 def purge_expired_trash(settings: Settings, sessions: sessionmaker[Session]) -> int:
+    with sessions() as db:
+        prune_audit(db, settings)
+        db.commit()
     if settings.trash_retention_days == 0:
         return 0
     cutoff = utcnow() - timedelta(days=settings.trash_retention_days)
@@ -37,6 +41,7 @@ def purge_expired_trash(settings: Settings, sessions: sessionmaker[Session]) -> 
             except OSError:
                 log.exception("cannot purge expired video %s", video.id)
                 continue
+            audit(db, settings, "trash_retention", target=video.id)
             db.delete(video)
             deleted += 1
         db.commit()

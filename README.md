@@ -590,3 +590,40 @@ docker build --build-arg REELVAULT_LINK_IMPORT_EXTRA=1 -t reelvault:link-import 
 一次仅导入一个视频，播放列表取首项，不下载直播。提交时固定目标存储并预留下载及处理空间；下载完成后进入现有入库任务，生成海报和播放资源。任务中心支持暂停、继续、取消与失败重试；暂停时间不计入运行超时。失败保留表单内容，取消或失败清理临时下载文件。关闭功能仅阻止新提交与重试，已提交任务请在任务中心取消。
 
 默认只访问公开 HTTP/HTTPS 地址，拒绝 URL 中的账号密码、本机、内网和保留地址；下载代理对重定向和每次连接重新检查目的地址，并限制流量。确需导入可信内网来源时，部署管理员可设置 `REELVAULT_LINK_IMPORT_ALLOW_PRIVATE=true`；此权限不在网页中开放。大小上限默认 1024 MiB，运行超时默认 30 分钟，可通过设置页持久化，也可在首次启动前设置 `REELVAULT_LINK_IMPORT_ENABLED`、`REELVAULT_LINK_IMPORT_MAX_MB`、`REELVAULT_LINK_IMPORT_TIMEOUT_MINUTES`。
+
+### 审计日志与 Prometheus 指标
+
+「设置 → 审计与指标」按时间查看登录成功、失败和限流、退出、视频移入回收站/恢复/彻底删除、重复整理删除、到期清理及升级结果，支持事件筛选、刷新和分页。记录包含操作人、客户端来源、对象 ID 和时间，不记录密码、验证码、Cookie、下载 URL 或采集令牌。登录失败中的操作人是请求提交的用户名，未经身份验证；客户端来源使用框架解析的请求地址，不自行读取 `X-Forwarded-For`。升级区分开始、程序已应用等待重启、失败和新版本启动；回滚未确认不会显示已恢复。
+
+审计默认保留 90 天、最多 10000 条，每次写入、启动及每小时维护清理过期记录；可通过 `REELVAULT_AUDIT_RETENTION_DAYS`（1–3650）和 `REELVAULT_AUDIT_MAX_EVENTS`（100–1000000）调整。审计与对应的视频记录变更同一事务提交。元数据备份包含审计历史与任务累计指标。
+
+Prometheus 采集默认关闭。部署管理员设置 `REELVAULT_METRICS_TOKEN` 为 32–256 个无空白 ASCII 字符的独立随机令牌，并重启服务；采集端以 `Authorization: Bearer <令牌>` 请求 `/api/system/metrics`。令牌不能通过 URL 查询参数或登录 Cookie 代替，不在设置页、指标或元数据备份中返回；恢复备份后需重新配置。公网采集应使用 HTTPS。
+
+示例 Prometheus 配置，将相同令牌放入采集端的只读凭据文件：
+
+```yaml
+scrape_configs:
+  - job_name: reelvault
+    scheme: https
+    metrics_path: /api/system/metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/reelvault-token
+    static_configs:
+      - targets: ['reelvault.example.com:443']
+```
+
+指标采用 [Prometheus 文本格式](https://prometheus.io/docs/instrumenting/exposition_formats/)：
+
+| 指标 | 含义 |
+| --- | --- |
+| `reelvault_jobs{kind,status}` | 当前任务数；`queued` 为队列长度，`paused` 与 `running` 分开 |
+| `reelvault_jobs_completed_total{kind,status}` | 本功能安装后累计成功、失败和取消次数 |
+| `reelvault_job_duration_seconds{kind,status}` | 从任务开始到结束的墙钟耗时直方图，包含暂停与中断至恢复判定时间；排队取消不产生耗时样本 |
+| `reelvault_storage_online{location}` | 位置是否在线；断盘时为 0，并省略该位置的磁盘字节指标 |
+| `reelvault_storage_free_bytes` / `reelvault_storage_total_bytes` | 文件系统空闲和总容量 |
+| `reelvault_storage_reserved_bytes` / `reelvault_storage_available_bytes` | 未完成上传/任务预算，以及扣除预算后的可用空间 |
+
+磁盘指标带稳定位置 ID；同一文件系统上的目录共享容量和预算，不应相加。任务种类与状态标签限定为固定集合，不使用用户名、视频标题、URL 或每个任务的 ID。累计指标独立持久化，删除任务记录、重启或升级不会减少计数；恢复旧备份可能重新设定累计基线。历史任务不回填，新任务和升级时尚未结束的任务从启用版本起统计。
+
+常用查询：队列长度 `sum(reelvault_jobs{status="queued"})`；15 分钟任务 P95 `histogram_quantile(0.95, sum by (kind, le) (rate(reelvault_job_duration_seconds_bucket[15m])))`；主磁盘可用空间 `reelvault_storage_available_bytes{location="local"}`。

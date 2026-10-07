@@ -19,6 +19,7 @@ from ..locations import library_root, location_of
 from ..media.encoding import EncoderRuntime
 from ..media.ffmpeg import Canceled, ProcessHandle
 from ..models import Job, Video, utcnow
+from ..observability import record_job
 from ..storage import check_budget, job_bytes, job_requirements, lock_budget
 
 log = logging.getLogger("reelvault.jobs")
@@ -145,6 +146,7 @@ class JobManager:
                 job.error = "服务重启，任务被中断"
                 job.finished_at = utcnow()
                 job.eta_seconds = None
+                record_job(db, job)
             db.commit()
         self._wake.set()
         for i in range(max(1, self.settings.workers)):
@@ -333,6 +335,7 @@ class JobManager:
             job.status = "canceled"
             job.finished_at = utcnow()
             job.message = "已取消"
+            record_job(db, job)
             db.commit()
             self.publish(job)
             self.enqueue(job.id)
@@ -470,6 +473,7 @@ class JobManager:
             if status == "succeeded":
                 final.progress = 1.0
             final.finished_at = utcnow()
+            record_job(db, final)
             db.commit()
             self.publish(final)
 

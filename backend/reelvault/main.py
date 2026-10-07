@@ -10,6 +10,7 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
@@ -32,6 +33,7 @@ from .api import (
     links,
     locations,
     luts,
+    observability,
     playback,
     scenes,
     search,
@@ -56,7 +58,8 @@ from .maintenance import maintain
 from .media.encoding import detect_encoders
 from .media.ffmpeg import ffmpeg_version
 from .migrate import upgrade
-from .models import HlsPackage, RuntimeSetting, Upload, User
+from .models import AuditEvent, HlsPackage, RuntimeSetting, Upload, User
+from .observability import audit, prune_audit
 from .sharing import SharePrivacyMiddleware
 from .updates import Updater
 
@@ -198,13 +201,55 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 else:
                     os.kill(os.getpid(), signal.SIGTERM)
 
+            def upgrade_audit(event: str, actor: str, peer: str, details: dict[str, Any]) -> None:
+                with app.state.sessionmaker() as db:
+                    audit(
+                        db,
+                        settings,
+                        event,
+                        actor=actor,
+                        peer=peer,
+                        target=details.get("to_version"),
+                        details=details,
+                    )
+                    db.commit()
+
             updater = Updater(
                 settings,
                 busy=lambda: len(manager.running) + manager.pending_count(include_paused=True),
                 request_restart=request_restart,
+                audit_event=upgrade_audit,
             )
             app.state.updater = updater
             updater.start()
+            with app.state.sessionmaker() as db:
+                prune_audit(db, settings)
+                applied = db.scalar(
+                    select(AuditEvent)
+                    .where(AuditEvent.event == "upgrade_applied")
+                    .order_by(AuditEvent.id.desc())
+                    .limit(1)
+                )
+                if applied and applied.details.get("to_version") == __version__:
+                    confirmed = db.scalar(
+                        select(AuditEvent.id)
+                        .where(
+                            AuditEvent.event == "upgrade_restarted",
+                            AuditEvent.details["applied_event_id"].as_integer() == applied.id,
+                        )
+                        .limit(1)
+                    )
+                    if confirmed is None:
+                        audit(
+                            db,
+                            settings,
+                            "upgrade_restarted",
+                            actor=applied.actor,
+                            peer=applied.peer,
+                            target=__version__,
+                            details={"applied_event_id": applied.id, "to_version": __version__},
+                        )
+                db.commit()
             log.info("ReelVault %s ready, data dir %s", __version__, settings.data_dir)
             try:
                 yield
@@ -233,6 +278,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         auth_api.router,
         two_factor.router,
         links.router,
+        observability.router,
         assets.router,
         auto_groups.router,
         bookmarks.router,

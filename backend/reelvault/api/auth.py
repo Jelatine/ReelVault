@@ -12,6 +12,7 @@ from ..config import Settings
 from ..db import get_db
 from ..errors import APIError
 from ..models import AuthSession, TwoFactor, User, utcnow
+from ..observability import audit
 from ..storage import lock_budget
 from ..two_factor import consume
 from .deps import get_settings
@@ -80,6 +81,13 @@ def setup(
     user = User(username=body.username.strip(), password_hash=A.hash_password(body.password))
     db.add(user)
     db.commit()
+    audit(
+        db,
+        settings,
+        "login_success",
+        actor=user.username,
+        peer=request.client.host if request.client else "",
+    )
     _, token = A.create_session(db, settings, user, request, True, "初始化设备")
     A.set_session_cookie(response, settings, token, remember=True)
     return {"username": user.username}
@@ -95,25 +103,43 @@ def login(
 ) -> dict[str, Any]:
     limiter: A.LoginLimiter = request.app.state.login_limiter
     ip = A.client_ip(request)
-    limiter.check(ip)
-    lock_budget(db)
-    limiter.check(ip)
+    peer = request.client.host if request.client else ""
+
+    def failure(event: str, reason: str) -> None:
+        audit(
+            db, settings, event, actor=body.username.strip(), peer=peer, details={"reason": reason}
+        )
+        db.commit()
+
+    try:
+        limiter.check(ip)
+        lock_budget(db)
+        limiter.check(ip)
+    except APIError:
+        failure("login_limited", "password_rate_limit")
+        raise
     user = db.scalar(select(User).where(User.username == body.username.strip()))
     if user is None or not A.verify_password(user.password_hash, body.password):
         limiter.fail(ip)
+        failure("login_failure", "credentials")
         raise APIError(status.HTTP_401_UNAUTHORIZED, "用户名或密码错误", code="invalid_credentials")
     factor = db.get(TwoFactor, user.id)
     if factor is not None and factor.enabled_at:
-        peer = request.client.host if request.client else "unknown"
-        request.app.state.totp_limiter.check(peer)
         try:
+            request.app.state.totp_limiter.check(peer)
             consume(factor, settings.data_dir, body.code)
         except APIError as error:
             if error.code == "totp_invalid":
                 request.app.state.totp_limiter.fail(peer)
+            if error.code != "totp_required":
+                failure(
+                    "login_limited" if error.status_code == 429 else "login_failure",
+                    error.code or "second_factor",
+                )
             raise
     limiter.success(ip)
     device = body.device_name.strip() or "未命名设备"
+    audit(db, settings, "login_success", actor=user.username, peer=peer)
     sess, token = A.create_session(db, settings, user, request, body.remember, device)
     A.set_session_cookie(response, settings, token, remember=body.remember)
     return {"username": user.username, "session_id": sess.id, "remember": sess.remember}
@@ -128,6 +154,14 @@ def logout(
 ) -> dict[str, bool]:
     sess = A.lookup_session(db, request.cookies.get(A.COOKIE_NAME))
     if sess is not None:
+        user = db.get(User, sess.user_id)
+        audit(
+            db,
+            settings,
+            "logout",
+            actor=user.username if user else "unknown",
+            peer=request.client.host if request.client else "",
+        )
         db.delete(sess)
         db.commit()
     A.clear_session_cookie(response, settings)

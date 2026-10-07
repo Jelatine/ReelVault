@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from ..media.duplicates import (
     visual_similarity,
 )
 from ..models import CollectionItem, DuplicateMatch, Job, Video, VideoFingerprint, utcnow
+from ..observability import audit_request
 from .deps import get_jobs, get_settings
 from .scenes import ready_video
 
@@ -213,6 +214,7 @@ def merge_information(db: Session, target: Video, sources: list[Video]) -> list[
 @router.post("/resolve")
 async def resolve(
     body: ResolveBody,
+    request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
@@ -274,6 +276,7 @@ async def resolve(
         skipped = merge_information(db, target, sources) if body.merge else []
         now = utcnow()
         for source in sources:
+            audit_request(db, request, "video_trash", source.id)
             source.deleted_at = now
         db.commit()
         return {

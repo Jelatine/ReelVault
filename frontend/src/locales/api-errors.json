@@ -630,5 +630,17 @@
   "link_import_url_invalid": {
     "zh": "下载链接无效或来源地址不允许",
     "en": "The download URL is invalid, unavailable or uses a blocked address."
+  },
+  "audit_event_invalid": {
+    "zh": "审计事件类型无效",
+    "en": "Invalid audit event type."
+  },
+  "metrics_disabled": {
+    "zh": "指标采集尚未启用",
+    "en": "Metrics scraping is disabled."
+  },
+  "metrics_token_invalid": {
+    "zh": "指标采集令牌无效",
+    "en": "Invalid metrics scrape token."
   }
 }

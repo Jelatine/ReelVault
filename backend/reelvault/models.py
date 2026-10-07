@@ -97,6 +97,31 @@ class AuthSession(Base):
     rotated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event: Mapped[str] = mapped_column(String(32), index=True)
+    actor: Mapped[str] = mapped_column(String(64), default="system")
+    peer: Mapped[str] = mapped_column(String(64), default="")
+    target: Mapped[str | None] = mapped_column(String(64))
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+
+
+class JobMetric(Base):
+    """Bounded cumulative totals survive deletion of individual job records."""
+
+    __tablename__ = "job_metrics"
+    kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), primary_key=True)
+    completed: Mapped[int] = mapped_column(BigInteger, default=0)
+    duration_count: Mapped[int] = mapped_column(BigInteger, default=0)
+    duration_sum: Mapped[float] = mapped_column(Float, default=0)
+    buckets: Mapped[list[int]] = mapped_column(JSON, default=list)
+
+
 class Folder(Base):
     __tablename__ = "folders"
 
@@ -325,6 +350,7 @@ class Job(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    metrics_recorded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
 class SceneAnalysis(Base):
