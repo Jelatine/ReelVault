@@ -20,7 +20,7 @@ test('组合搜索语法、引号标签、保存规则、错误提示与手机�
     ids.push(video.id)
   }
   const query = 'tag:语法旅行 rating:>=4 duration:>1s 2024'
-  const search = page.getByRole('textbox', { name: '搜索视频', exact: true })
+  const search = page.getByRole('combobox', { name: '搜索视频', exact: true })
   await search.fill(query); await search.press('Enter')
   await expect(page.locator('main [data-video-id]')).toHaveCount(1)
   await expect(page.locator(`main [data-video-id="${ids[0]}"]`)).toBeVisible()

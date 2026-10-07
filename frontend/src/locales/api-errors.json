@@ -518,5 +518,13 @@
   "search_syntax_invalid": {
     "en": "Invalid search condition: {{token}}. Check tag, rating or duration syntax.",
     "zh": "搜索条件无效：{{token}}。请检查标签、评分或时长语法。"
+  },
+  "recent_search_not_found": {
+    "en": "This recent search no longer exists.",
+    "zh": "最近搜索不存在"
+  },
+  "search_query_empty": {
+    "en": "Enter a search query.",
+    "zh": "搜索内容不能为空"
   }
 }

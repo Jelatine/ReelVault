@@ -9,7 +9,6 @@ import {
   Group,
   Menu,
   Text,
-  TextInput,
   Tooltip,
   useComputedColorScheme,
   useMantineColorScheme,
@@ -23,16 +22,14 @@ import {
   IconLogout,
   IconMoon,
   IconMovie,
-  IconSearch,
   IconSettings,
   IconSun,
   IconUpload,
   IconFolderUp,
   IconUser,
-  IconHelp,
 } from '@tabler/icons-react'
-import { useEffect, useRef, useState } from 'react'
-import { Link, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { Link, Outlet, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { VIDEO_ACCEPT, VIDEO_EXTENSIONS } from '../lib/constants'
 import { useJobs, useUpdateStatus } from '../lib/queries'
@@ -45,21 +42,15 @@ import MobileNavigation from './MobileNavigation'
 import { OfflineNotice } from './PwaPanel'
 import LanguageSelect from './LanguageSelect'
 import { shortcutBlocked } from '../lib/shortcuts'
-import SearchHelp from './SearchHelp'
+import SearchBox from './SearchBox'
 
 export default function AppLayout() {
   useTranslation()
 
   const [opened, { toggle, close }] = useDisclosure()
   const { user, logout } = useAuth()
-  const navigate = useNavigate()
   const qc = useQueryClient()
   const [params] = useSearchParams()
-  const [search, setSearch] = useState(params.get('q') ?? '')
-  const [searchQuery, setSearchQuery] = useState(params.get('q') ?? '')
-  if (searchQuery !== (params.get('q') ?? '')) {
-    setSearchQuery(params.get('q') ?? ''); setSearch(params.get('q') ?? '')
-  }
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   const searchInput = useRef<HTMLInputElement>(null)
@@ -120,15 +111,6 @@ export default function AppLayout() {
     return () => window.removeEventListener('paste', paste)
   })
 
-  const submitSearch = (e: React.FormEvent) => {
-    e.preventDefault()
-    const next = new URLSearchParams(params)
-    if (search.trim()) next.set('q', search.trim())
-    else next.delete('q')
-    next.delete('page')
-    navigate({ pathname: '/library', search: next.toString() })
-  }
-
   return (
     <AppShell
       header={{ height: 60 }}
@@ -156,21 +138,7 @@ export default function AppLayout() {
               </Text>
             </Group>
           </Group>
-          <form onSubmit={submitSearch} style={{ flex: 1, minWidth: 0, maxWidth: 480 }}>
-            <TextInput
-              ref={searchInput}
-              aria-label={tr("搜索视频")}
-              placeholder={tr("搜索视频")}
-              leftSection={<IconSearch size={16} />}
-              rightSectionPointerEvents="all"
-              rightSection={<ActionIcon type="button" variant="subtle" aria-label={tr('搜索语法说明')}
-                onClick={() => modals.open({ title: tr('搜索语法说明'), children: <SearchHelp /> })}>
-                <IconHelp size={18} />
-              </ActionIcon>}
-              value={search}
-              onChange={(e) => setSearch(e.currentTarget.value)}
-            />
-          </form>
+          <SearchBox inputRef={searchInput} />
           <Group gap="xs" wrap="nowrap">
             <Tooltip label={tr("上传文件夹（保留目录结构）")}>
               <ActionIcon variant="default" size="lg" visibleFrom="sm" aria-label={tr("上传文件夹")} onClick={() => folderInput.current?.click()}>

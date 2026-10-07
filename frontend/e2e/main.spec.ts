@@ -1134,7 +1134,7 @@ test('全局快捷键搜索上传、卡片方向导航、打开、删除保护�
   await page.keyboard.press('ArrowUp')
   await expect(card(1)).toBeFocused()
   await page.keyboard.press('/')
-  const search = page.getByRole('textbox', { name: '搜索视频', exact: true })
+  const search = page.getByRole('combobox', { name: '搜索视频', exact: true })
   await expect(search).toBeFocused()
   let choosers = 0
   page.on('filechooser', () => { choosers++ })
@@ -1243,6 +1243,6 @@ test('首页仪表盘个人续播、编辑结果、收藏、存储和旧筛选�
   await page.setViewportSize({ width: 1280, height: 720 })
   await page.goto('/?favorite=true&q=首页')
   await expect(page).toHaveURL(/\/library\?favorite=true&q=/)
-  await expect(page.getByRole('textbox', { name: '搜索视频', exact: true })).toHaveValue('首页')
+  await expect(page.getByRole('combobox', { name: '搜索视频', exact: true })).toHaveValue('首页')
   await expect(page.locator(`[data-video-id="${source.id}"]`)).toBeVisible()
 })

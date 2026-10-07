@@ -20,7 +20,7 @@ test('中文标题拼音全拼首字母、原文排序、组合保存、手机�
     if (index === 0) await page.request.patch(`/api/videos/${video.id}/metadata`, { headers, data: { captured_at: '2024-06-01T00:00:00Z' } })
     ids.push(video.id)
   }
-  const search = page.getByRole('textbox', { name: '搜索视频', exact: true })
+  const search = page.getByRole('combobox', { name: '搜索视频', exact: true })
   await search.fill('lvxingriluo'); await search.press('Enter')
   await expect(page.locator('main [data-video-id]')).toHaveCount(2)
   await expect(page.locator('main [data-video-id]').first()).toHaveAttribute('data-video-id', ids[1])
@@ -53,7 +53,7 @@ test('中文标题拼音全拼首字母、原文排序、组合保存、手机�
   await expect(page.getByRole('dialog')).toContainText('separate syllables and initials')
   await expect(page.getByRole('dialog')).toContainText('unusual names may need their original spelling')
   await page.keyboard.press('Escape')
-  const englishSearch = page.getByRole('textbox', { name: 'Search videos', exact: true })
+  const englishSearch = page.getByRole('combobox', { name: 'Search videos', exact: true })
   await englishSearch.fill('chong qing yin yue'); await englishSearch.press('Enter')
   await expect(page.locator(`main [data-video-id="${ids[0]}"]`)).toBeVisible()
   await page.request.patch(`/api/videos/${ids[1]}`, { headers, data: { title: 'CAFÉ旅行' } })

@@ -182,6 +182,16 @@ class SmartFolder(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
 
+class RecentSearch(Base):
+    __tablename__ = "recent_searches"
+    __table_args__ = (UniqueConstraint("user_id", "query"), {"sqlite_autoincrement": True})
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    query: Mapped[str] = mapped_column(String(512))
+    used_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class Collection(Base):
     __tablename__ = "collections"
 
