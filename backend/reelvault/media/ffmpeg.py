@@ -33,11 +33,12 @@ class ProcessHandle:
     _resumed: asyncio.Event = field(default_factory=asyncio.Event)
 
     def _signal(self, signal_number: int) -> None:
-        if self.process and self.process.returncode is None:
+        if self.process:
             with contextlib.suppress(ProcessLookupError):
                 if self.process_group:
+                    # A wrapper may have exited while descendants still own the pipes.
                     os.killpg(self.process.pid, signal_number)
-                else:
+                elif self.process.returncode is None:
                     self.process.send_signal(signal_number)
 
     def pause(self) -> None:
@@ -86,61 +87,99 @@ async def run_command(
     track = on_progress is not None and duration > 0
     if cwd is not None and "/" in args[0] and not Path(args[0]).is_absolute():
         args = [str(Path(args[0]).resolve()), *args[1:]]
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=cwd,
+    launch = asyncio.create_task(
+        asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+            start_new_session=True,
+        )
     )
+    try:
+        # Cancellation during process creation must still acquire and reap the child.
+        proc = await asyncio.shield(launch)
+    except asyncio.CancelledError as cancellation:
+        try:
+            proc = await launch
+        except Exception:
+            raise cancellation from None
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        await proc.communicate()
+        raise
+
     if handle:
         handle.process = proc
+        handle.process_group = True
         if handle.canceled:
             handle.cancel()
         elif handle.paused:
             handle.pause()
     assert proc.stdout and proc.stderr
 
-    stderr_tail: list[str] = []
+    stderr_tail = bytearray()
     stdout_chunks: list[bytes] = []
 
     async def read_stderr() -> None:
         assert proc.stderr
-        async for line in proc.stderr:
-            stderr_tail.append(line.decode(errors="replace"))
-            if len(stderr_tail) > 40:
-                del stderr_tail[0]
+        # readlines has a 64 KiB limit; a long diagnostic used to abandon the child.
+        while chunk := await proc.stderr.read(8192):
+            stderr_tail.extend(chunk)
+            del stderr_tail[:-16384]
 
     async def read_stdout() -> None:
         assert proc.stdout
         if not track:
             stdout_chunks.append(await proc.stdout.read())
             return
-        async for raw in proc.stdout:
-            line = raw.decode(errors="replace").strip()
-            if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
-                value = line.split("=", 1)[1]
-                if value.isdigit() and on_progress:
-                    on_progress(min(1.0, int(value) / 1_000_000 / duration))
+        pending = b""
+        dropping = False
+        while chunk := await proc.stdout.read(8192):
+            pending += chunk
+            while b"\n" in pending:
+                raw, pending = pending.split(b"\n", 1)
+                if dropping:
+                    dropping = False
+                    continue
+                line = raw.decode(errors="replace").strip()
+                if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
+                    value = line.split("=", 1)[1]
+                    if value.isdigit() and on_progress:
+                        on_progress(min(1.0, int(value) / 1_000_000 / duration))
+            if len(pending) > 8192:
+                pending = b""
+                dropping = True
 
+    readers = [asyncio.create_task(read_stderr()), asyncio.create_task(read_stdout())]
     try:
-        await asyncio.gather(read_stderr(), read_stdout())
+        await asyncio.gather(*readers)
         code = await proc.wait()
-    except asyncio.CancelledError:
-        if proc.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-        await proc.wait()
+    except BaseException:
+        # Clean up on parser/callback failures as well as task cancellation. Kill the
+        # whole session, including children that inherit stdout/stderr from wrappers.
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        for reader in readers:
+            reader.cancel()
+        await asyncio.gather(*readers, return_exceptions=True)
+        await proc.communicate()
         raise
+    finally:
+        if handle and handle.process is proc:
+            handle.process = None
+            handle.process_group = False
     if handle:
-        handle.process = None
         if handle.canceled:
             raise Canceled()
         await handle.checkpoint()
+    tail = stderr_tail.decode(errors="replace")
+
     if code != 0:
-        tail = "".join(stderr_tail).strip()
+        tail = tail.strip()
         raise FFmpegError(tail[-2000:] or f"{args[0]} exited with code {code}")
-    return RunResult(stdout=b"".join(stdout_chunks), stderr="".join(stderr_tail))
+    return RunResult(stdout=b"".join(stdout_chunks), stderr=tail)
 
 
 def ffmpeg_args(ffmpeg: str, args: list[str], *, progress: bool = True) -> list[str]:

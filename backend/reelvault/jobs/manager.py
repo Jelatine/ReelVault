@@ -130,10 +130,12 @@ class JobManager:
         self.subscribers: set[asyncio.Queue[str]] = set()
         self._tasks: list[asyncio.Task[None]] = []
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._stopping = False
 
     # ------------------------------------------------------------ lifecycle
 
     async def start(self) -> None:
+        self._stopping = False
         self._loop = asyncio.get_running_loop()
         with self.sessionmaker() as db:
             for job in db.scalars(
@@ -153,6 +155,7 @@ class JobManager:
             self._tasks.append(asyncio.create_task(self._worker(i), name=f"job-worker-{i}"))
 
     async def stop(self) -> None:
+        self._stopping = True
         for ctx in list(self.running.values()):
             ctx.handle.cancel()
         for t in self._tasks:
@@ -373,7 +376,7 @@ class JobManager:
     # ------------------------------------------------------------ worker
 
     async def _worker(self, n: int) -> None:
-        while True:
+        while not self._stopping:
             # Selection and claiming are synchronous on the event loop.
             self._wake.clear()
             busy_ids = {vid for ctx in self.running.values() for vid in ctx.video_ids}

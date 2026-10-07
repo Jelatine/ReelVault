@@ -141,6 +141,15 @@ def cleanup_stale_uploads(app: FastAPI, settings: Settings, max_age_days: int = 
     for f in settings.derived_dir.glob("*/playable-*.mp4"):
         if f not in copies:
             f.unlink(missing_ok=True)
+    # A crash during an output transfer can leave a staging file on its target disk.
+    roots = [settings.library_dir, settings.exports_dir]
+    roots += [entry.path / "library" for entry in settings.storage_locations.values()]
+    for root in roots:
+        try:
+            for staged in root.glob(".reelvault-transfer-*.part"):
+                staged.unlink(missing_ok=True)
+        except OSError:
+            log.warning("could not clean interrupted transfers on an unavailable storage location")
     for f in settings.tmp_dir.glob("frame-*"):
         f.unlink(missing_ok=True)
     for f in settings.tmp_dir.glob("import-*"):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 import shutil
@@ -26,6 +27,7 @@ from ..media.probe import MediaInfo, probe
 from ..media.scenes import SceneParams, detect_scenes, source_signature
 from ..media.subtitles import plan_subtitle
 from ..media.timing import snap_cut, timing_index
+from ..media.transfer import move_output
 from ..media.watermark import plan_watermark
 from ..models import Job, SceneAnalysis, Video, new_id, utcnow
 from ..playback_cache import remove_copy
@@ -315,7 +317,11 @@ async def edit(ctx: JobContext, job: Job) -> None:
         n = len(plan.commands)
         ctx.check_canceled()
         label = ops.OP_LABELS.get(params.op, params.op)
-        cb = ctx.stage(0, 1, f"{label}（{n} 步）")
+        ctx.set_progress(0, f"{label}（{n} 步）")
+
+        def cb(fraction: float) -> None:
+            ctx.set_progress(fraction * 0.96)
+
         encoding = await ctx.manager.encoding.run(
             plan.commands,
             s.encoder,
@@ -331,11 +337,17 @@ async def edit(ctx: JobContext, job: Job) -> None:
                 db.commit()
         if not result.exists() or result.stat().st_size == 0:
             raise RuntimeError("ffmpeg 未生成输出文件")
-        ctx.set_progress(0.99, "保存结果")
+        ctx.set_progress(0.97, "保存结果")
+        await ctx.handle.checkpoint()
 
         if isinstance(params, (ops.ExtractAudioParams, ops.AnimationParams)):
             dest = s.exports_dir / f"{job.id}{result.suffix}"
-            shutil.move(str(result), dest)
+            await move_output(
+                result,
+                dest,
+                handle=ctx.handle,
+                on_progress=lambda fraction: ctx.set_progress(0.97 + fraction * 0.02),
+            )
             name = f"{stem_of(output.get('title') or first_video.title)}{result.suffix}"
             with ctx.db() as db:
                 stored = db.get(Job, job.id)
@@ -363,9 +375,9 @@ async def edit(ctx: JobContext, job: Job) -> None:
             and not isinstance(params, (ops.MergeParams, ops.CompositeParams))
             and not job.params.get("history_replay")
         ):
-            new_id_ = _replace_with_backup(ctx, first_video, result, params, provenance)
+            new_id_ = await _replace_with_backup(ctx, first_video, result, params, provenance)
         else:
-            new_id_ = _store_new(
+            new_id_ = await _store_new(
                 ctx,
                 first_video,
                 result,
@@ -377,7 +389,7 @@ async def edit(ctx: JobContext, job: Job) -> None:
         _set_job(ctx, job.id, result_video_id=new_id_)
         ctx.manager.submit_from_worker("ingest", {}, [new_id_], reservation_from=job.id)
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, tmp, ignore_errors=True)
 
 
 def _set_job(ctx: JobContext, job_id: str, **fields: object) -> None:
@@ -390,7 +402,7 @@ def _set_job(ctx: JobContext, job_id: str, **fields: object) -> None:
         db.commit()
 
 
-def _store_new(
+async def _store_new(
     ctx: JobContext,
     source: Video,
     result: Path,
@@ -402,7 +414,12 @@ def _store_new(
     s = ctx.settings
     vid = new_id()
     dest = library_root(s, storage_id or s.storage_default) / f"{vid}{result.suffix}"
-    shutil.move(str(result), dest)
+    await move_output(
+        result,
+        dest,
+        handle=ctx.handle,
+        on_progress=lambda fraction: ctx.set_progress(0.97 + fraction * 0.02),
+    )
     label = ops.OP_LABELS.get(params.op, params.op)
     with ctx.db() as db:
         db.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -434,7 +451,7 @@ def _store_new(
     return vid
 
 
-def _replace_with_backup(
+async def _replace_with_backup(
     ctx: JobContext,
     source: Video,
     result: Path,
@@ -448,7 +465,12 @@ def _replace_with_backup(
         library_root(s, location_of(source.file_path))
         / f"{source.id}-{new_id()[:8]}{result.suffix}"
     )
-    shutil.move(str(result), new_file)
+    await move_output(
+        result,
+        new_file,
+        handle=ctx.handle,
+        on_progress=lambda fraction: ctx.set_progress(0.97 + fraction * 0.02),
+    )
     with ctx.db() as db:
         db.connection().exec_driver_sql("BEGIN IMMEDIATE")
         video = db.get(Video, source.id)
