@@ -22,22 +22,22 @@ beforeAll(() => {
 afterEach(() => { cleanup(); localStorage.clear() })
 
 test('command/control and shift select cards; dragging uses selected IDs; Escape returns to normal opening', () => {
-  function Location() { const location = useLocation(); return <output data-testid="path">{location.pathname}</output> }
+  function Location() { const location = useLocation(); return <span data-testid="path">{location.pathname}</span> }
   const client = new QueryClient()
   render(<MantineProvider><QueryClientProvider client={client}><MemoryRouter><LibraryPage /><Location /></MemoryRouter></QueryClientProvider></MantineProvider>)
   const card = (title: string) => screen.getByText(title).closest('[data-video-id]')!
   fireEvent.click(card('视频甲'), { ctrlKey: true })
-  expect(screen.getByText('已选择 1 个')).toBeDefined()
+  expect(screen.getByRole('status').textContent).toBe('已选择 1 个')
   fireEvent.click(card('视频丙'), { shiftKey: true })
-  expect(screen.getByText('已选择 3 个')).toBeDefined()
+  expect(screen.getByRole('status').textContent).toBe('已选择 3 个')
   expect(screen.getByTestId('path').textContent).toBe('/')
   fireEvent.click(card('视频乙'), { metaKey: true })
-  expect(screen.getByText('已选择 2 个')).toBeDefined()
+  expect(screen.getByRole('status').textContent).toBe('已选择 2 个')
   const setData = vi.fn()
   fireEvent.dragStart(card('视频甲'), { dataTransfer: { effectAllowed: '', setData } })
   expect(setData).toHaveBeenCalledWith(VIDEO_DRAG_TYPE, JSON.stringify([ids[0], ids[2]]))
   fireEvent.keyDown(window, { key: 'Escape' })
-  expect(screen.queryByText(/已选择 \d 个/)).toBeNull()
+  expect(screen.getByRole('status').textContent).toBe('已选择 0 个')
   fireEvent.click(card('视频甲'))
   expect(screen.getByTestId('path').textContent).toBe(`/videos/${ids[0]}`)
   client.clear()
@@ -50,15 +50,15 @@ test('list rows and checkboxes support the same range selection', () => {
   render(<MantineProvider><QueryClientProvider client={client}><MemoryRouter><LibraryPage /></MemoryRouter></QueryClientProvider></MantineProvider>)
   fireEvent.click(screen.getByLabelText('选择 视频甲'))
   fireEvent.click(screen.getByLabelText('选择 视频丙'), { shiftKey: true })
-  expect(screen.getByText('已选择 3 个')).toBeDefined()
+  expect(screen.getByRole('status').textContent).toBe('已选择 3 个')
   fireEvent.keyDown(window, { key: 'Escape' })
-  expect(screen.queryByText(/已选择 \d 个/)).toBeNull()
+  expect(screen.getByRole('status').textContent).toBe('已选择 0 个')
   client.clear()
 })
 
 test('list keyboard navigation moves focus, skips form controls, and opens the focused row', () => {
   localStorage.setItem('rv-view', JSON.stringify('list'))
-  function Location() { const location = useLocation(); return <output data-testid="path">{location.pathname}</output> }
+  function Location() { const location = useLocation(); return <span data-testid="path">{location.pathname}</span> }
   const client = new QueryClient()
   render(<MantineProvider><QueryClientProvider client={client}><MemoryRouter><main><LibraryPage /></main><Location /></MemoryRouter></QueryClientProvider></MantineProvider>)
   const rows = ['甲', '乙', '丙'].map((name) => screen.getByText(`视频${name}`).closest<HTMLElement>('[data-video-id]')!)
