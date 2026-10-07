@@ -188,15 +188,18 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         </ActionIcon>
       </Group>
       {tree.map(renderNode)}
-      {(tags.data?.length ?? 0) > 0 && (
+      <NavLink component={Link} to="/tags" label={tr('标签管理')} leftSection={<IconHash size={16} />}
+        active={location.pathname === '/tags'} aria-current={location.pathname === '/tags' ? 'page' : undefined} onClick={onNavigate} />
+      {(tags.data?.some(tag => tag.count > 0) ?? false) && (
         <>
           <Text size="xs" c="dimmed" fw={600} mt="sm" px="sm">{tr("标签")}</Text>
           <Group gap={6} p="sm">
-            {tags.data!.map((t) => (
+            {tags.data!.filter(tag => tag.count > 0).map((t) => (
               <Badge
                 component="button" type="button"
                 key={t.name}
                 aria-pressed={tag === t.name}
+                color={t.color ?? 'violet'} autoContrast
                 variant={tag === t.name ? 'filled' : 'light'}
                 leftSection={<IconHash size={10} />}
                 style={{ cursor: 'pointer', textTransform: 'none' }}

@@ -470,5 +470,25 @@
   "video_version_changed": {
     "en": "The video has changed. Refresh the page.",
     "zh": "视频版本已变化，请刷新"
+  },
+  "tag_group_name_conflict": {
+    "zh": "同名标签分组已存在",
+    "en": "A tag group with this name already exists."
+  },
+  "tag_name_conflict": {
+    "zh": "同名标签已存在，请选择其他名称或合并标签",
+    "en": "A tag with this name already exists. Choose another name or merge the tags."
+  },
+  "tag_group_not_found": {
+    "zh": "标签分组不存在",
+    "en": "Tag group not found."
+  },
+  "tag_not_found": {
+    "zh": "标签不存在",
+    "en": "Tag not found."
+  },
+  "tag_self_merge": {
+    "zh": "不能将标签合并到自身",
+    "en": "A tag cannot be merged into itself."
   }
 }

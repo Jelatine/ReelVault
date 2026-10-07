@@ -32,6 +32,7 @@ from .api import (
     scenes,
     subtitles,
     system,
+    tags,
     videos,
 )
 from .api import auth as auth_api
@@ -210,6 +211,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         hls.router,
         playback.router,
         scenes.router,
+        tags.router,
         videos.router,
         folders.router,
         jobs.router,

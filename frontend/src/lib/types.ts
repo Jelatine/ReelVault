@@ -50,8 +50,13 @@ export interface Folder {
 }
 
 export interface Tag {
+  id: number
   name: string
   count: number
+  trash_count: number
+  color: string | null
+  group_id: number | null
+  group_name: string | null
 }
 
 export type JobStatus = 'queued' | 'running' | 'paused' | 'succeeded' | 'failed' | 'canceled'

@@ -33,7 +33,7 @@ from ..media import derive
 from ..media.ffmpeg import FFmpegError, ffmpeg_args, run_command
 from ..media.probe import probe
 from ..media.timing import timing_index
-from ..models import Folder, Tag, Upload, Video, new_id, utcnow, video_tags
+from ..models import Folder, Tag, Upload, Video, new_id, utcnow
 from .deps import FiniteNumber, get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["videos"], dependencies=[Depends(require_auth)])
@@ -533,17 +533,6 @@ def batch(
                 set_tags(db, v, [t.name for t in v.tags if t.name not in remove])
     db.commit()
     return {"updated": len(videos)}
-
-
-@router.get("/tags")
-def list_tags(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    rows = db.execute(
-        select(Tag.name, func.count(video_tags.c.video_id))
-        .join(video_tags, video_tags.c.tag_id == Tag.id, isouter=True)
-        .group_by(Tag.id)
-        .order_by(Tag.name)
-    ).all()
-    return [{"name": name, "count": count} for name, count in rows if count]
 
 
 # ------------------------------------------------------------------ media files

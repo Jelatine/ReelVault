@@ -98,11 +98,23 @@ video_tags = Table(
 )
 
 
+class TagGroup(Base):
+    __tablename__ = "tag_groups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+
+
 class Tag(Base):
     __tablename__ = "tags"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(64), unique=True)
+    color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tag_groups.id", ondelete="SET NULL"), nullable=True
+    )
+    group: Mapped[TagGroup | None] = relationship(lazy="joined")
 
 
 class Video(Base):
