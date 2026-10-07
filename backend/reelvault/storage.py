@@ -111,6 +111,8 @@ def edit_bytes(db: Session, edit: ops.EditParams, ids: list[str]) -> int:
 
 
 def job_bytes(db: Session, kind: str, params: dict[str, Any], ids: list[str]) -> int:
+    if kind == "link_import":
+        return int(params["limit_bytes"]) * 5 + 32 * MIB
     if kind == "edit":
         return edit_bytes(db, TypeAdapter(ops.EditParams).validate_python(params["edit"]), ids)
     if kind == "hls":
@@ -122,6 +124,8 @@ def job_requirements(
     settings: Settings, kind: str, params: dict[str, Any], estimate: int
 ) -> dict[str, int]:
     requirements = {"local": estimate} if estimate else {}
+    if kind == "link_import":
+        return link_requirements(int(params["limit_bytes"]), params["storage_id"])
     target = params.get("output", {}).get("storage_id") or "local"
     if (
         kind == "edit"
@@ -138,6 +142,13 @@ def upload_requirements(size: int, storage_id: str) -> dict[str, int]:
     requirements = {"local": upload_bytes(size)}
     if storage_id != "local":
         requirements[storage_id] = size
+    return requirements
+
+
+def link_requirements(limit: int, storage_id: str) -> dict[str, int]:
+    requirements = {"local": limit * 5 + 32 * MIB}
+    if storage_id != "local":
+        requirements[storage_id] = limit
     return requirements
 
 

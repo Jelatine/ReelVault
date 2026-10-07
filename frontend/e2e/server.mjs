@@ -20,6 +20,8 @@ const server = spawn(resolve(backend, '.venv/bin/python'), ['-m', 'reelvault'], 
     REELVAULT_ADMIN_USER: 'e2e-admin',
     REELVAULT_ADMIN_PASSWORD: 'e2e-secret123',
     REELVAULT_UPDATE_CHECK: 'false',
+    // Synthetic HTTP fixtures only; production keeps private destinations blocked.
+    REELVAULT_LINK_IMPORT_ALLOW_PRIVATE: 'true',
     REELVAULT_ALLOW_SELF_UPDATE: 'false',
   },
 })

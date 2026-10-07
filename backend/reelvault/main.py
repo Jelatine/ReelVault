@@ -29,6 +29,7 @@ from .api import (
     hls,
     images,
     jobs,
+    links,
     locations,
     luts,
     playback,
@@ -165,6 +166,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     validated = Settings(**saved_locations.value)
                     settings.storage_locations = validated.storage_locations
                     settings.storage_default = validated.storage_default
+                saved_links = db.get(RuntimeSetting, "link_import")
+                if saved_links:
+                    validated = Settings(**saved_links.value)
+                    for key in (
+                        "link_import_enabled",
+                        "link_import_max_mb",
+                        "link_import_timeout_minutes",
+                    ):
+                        setattr(settings, key, getattr(validated, key))
             bootstrap_admin(app, settings)
             cleanup_stale_uploads(app, settings)
             app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)
@@ -222,6 +232,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     for r in (
         auth_api.router,
         two_factor.router,
+        links.router,
         assets.router,
         auto_groups.router,
         bookmarks.router,

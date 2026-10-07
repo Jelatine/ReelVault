@@ -22,7 +22,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --frozen
+      - run: uv sync --frozen --extra link-import
       - name: Lint
         run: |
           uv run ruff check .
@@ -68,7 +68,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
           cd backend
-          uv sync --frozen
+          uv sync --frozen --extra link-import
       - name: Build and test in Chromium
         working-directory: frontend
         run: |
@@ -98,10 +98,13 @@ jobs:
           context: .
           load: true
           tags: reelvault:ci
+          build-args: REELVAULT_LINK_IMPORT_EXTRA=1
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Smoke test
         run: |
+          docker run --rm --entrypoint deno reelvault:ci --version
+          docker run --rm --entrypoint python reelvault:ci -c "import yt_dlp, yt_dlp_ejs"
           docker run -d --name rv -p 8080:8080 reelvault:ci
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:8080/healthz; then exit 0; fi

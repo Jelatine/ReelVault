@@ -8,6 +8,7 @@ import { jobNotificationObserver } from './system-notifications'
 
 const operationLabels = (): Record<string, string> => ({
   ingest: tr("处理新视频"),
+  link_import: tr('链接导入'),
   scenes: tr("场景检测"),
   duplicates: tr("重复视频检测"),
   hls: tr("生成 HLS 清晰度"),

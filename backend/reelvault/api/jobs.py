@@ -361,6 +361,18 @@ async def retry_job(
         if old.kind == "ingest":
             video.status, video.error = "processing", None
     params = copy.deepcopy(old.params)
+    if old.kind == "link_import":
+        from ..link_download import downloader_command
+        from ..storage import MIB
+
+        if not jobs.settings.link_import_enabled:
+            raise APIError(403, "链接导入尚未启用", code="link_import_disabled")
+        if not downloader_command(jobs.settings):
+            raise APIError(409, "未安装 yt-dlp，无法导入链接", code="link_import_unavailable")
+        params["limit_bytes"] = min(params["limit_bytes"], jobs.settings.link_import_max_mb * MIB)
+        params["timeout_minutes"] = min(
+            params["timeout_minutes"], jobs.settings.link_import_timeout_minutes
+        )
     for field in ("encoding", "preview_encoding", "playable_encoding", "name"):
         params.pop(field, None)
     if "requested_edit" in params:

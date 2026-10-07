@@ -100,6 +100,12 @@ class Settings(BaseSettings):
     static_dir: Path | None = None
     # Optional directory that can be scanned to import existing videos.
     import_dir: Path | None = None
+    link_import_enabled: bool = False
+    link_import_max_mb: int = Field(1024, ge=16, le=102400)
+    link_import_timeout_minutes: int = Field(30, ge=1, le=1440)
+    # Deployment-only opt-in for trusted private video sources; never set via the web UI.
+    link_import_allow_private: bool = False
+    yt_dlp: str = "yt-dlp"
 
     ffmpeg: str = "ffmpeg"
     ffprobe: str = "ffprobe"

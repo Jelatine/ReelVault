@@ -105,6 +105,7 @@ export default function JobRow({ job, compact }: { job: Job; compact?: boolean }
       )}
       {!!job.conflicting_jobs?.length && active && <Text size="xs" c="orange">{tr("同一视频还有 ")}{job.conflicting_jobs.length}{tr(" 个未结束任务，涉及相同视频的任务依次处理。")}</Text>}
       {job.retry_of && <Text size="xs" c="dimmed">{tr("失败任务的重试 · 原任务 ")}{job.retry_of.slice(0, 8)}</Text>}
+      {job.kind === 'link_import' && <Text size="xs" c="dimmed" lineClamp={2} style={{ overflowWrap: 'anywhere' }}>{job.params.imported_title || job.params.title || job.params.url}</Text>}
       {job.status === 'failed' && job.error && (
         <Text size="xs" c="red" lineClamp={3} style={{ whiteSpace: 'pre-wrap' }}>
           {serverText(job.error)}

@@ -614,5 +614,21 @@
   "totp_enrollment_expired": {
     "zh": "验证器设置已过期，请重新开始",
     "en": "Authenticator setup expired. Start again."
+  },
+  "link_import_disabled": {
+    "zh": "链接导入尚未启用",
+    "en": "Link import is not enabled."
+  },
+  "link_import_unavailable": {
+    "zh": "未安装 yt-dlp，无法启用链接导入",
+    "en": "The optional yt-dlp downloader is not installed."
+  },
+  "link_import_rights_required": {
+    "zh": "请确认有权下载并遵守版权与站点条款",
+    "en": "Confirm your permission to download and comply with copyright and the site’s terms."
+  },
+  "link_import_url_invalid": {
+    "zh": "下载链接无效或来源地址不允许",
+    "en": "The download URL is invalid, unavailable or uses a blocked address."
   }
 }

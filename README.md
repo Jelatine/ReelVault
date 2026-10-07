@@ -373,7 +373,7 @@ GitHub Actions 会构建 `linux/amd64`、`linux/arm64` 镜像并推送到 `ghcr.
 
 MIT
 
-浏览器端到端测试：先安装后端依赖（`cd backend && uv sync --frozen`），在 `frontend/` 执行 `npm ci`、`npx playwright install chromium`、`npm run build`、`npm run test:e2e`。需要本机 ffmpeg；测试自动启动端口 18089 的临时后端并使用独立数据库，退出后清理。配置遵循 [Playwright webServer](https://playwright.dev/docs/test-webserver)，CI 安装方式见 [Playwright CI](https://playwright.dev/docs/ci)。失败报告位于 `frontend/playwright-report/`，截图与 trace 位于 `frontend/test-results/`。
+浏览器端到端测试：先安装后端依赖（`cd backend && uv sync --frozen --extra link-import`），在 `frontend/` 执行 `npm ci`、`npx playwright install chromium`、`npm run build`、`npm run test:e2e`。需要本机 ffmpeg；测试自动启动端口 18089 的临时后端并使用独立数据库，退出后清理。配置遵循 [Playwright webServer](https://playwright.dev/docs/test-webserver)，CI 安装方式见 [Playwright CI](https://playwright.dev/docs/ci)。失败报告位于 `frontend/playwright-report/`，截图与 trace 位于 `frontend/test-results/`。
 
 
 备份与恢复：设置页的「导出数据库与配置」生成 ZIP，包含 SQLite 一致性快照、当前配置和 SHA256 校验清单，支持数据库使用 WAL 时在线导出。实现采用 [SQLite backup API](https://docs.python.org/3/library/sqlite3.html#sqlite3.Connection.backup)。包内包含密码哈希、设备会话记录和配置凭据，请保存在受保护的位置；服务端备份文件权限为 0600。
@@ -568,3 +568,21 @@ Docker 部署需额外挂载目录，例如将宿主机 `/mnt/archive/reelvault`
 验证器密钥在数据库内使用认证加密保存，本地加密密钥为主数据目录的 `.auth-key`（权限 `0600`）；恢复码仅保存哈希。缺失或损坏加密密钥时不会自动替换，验证码登录会关闭，仍可使用有效恢复码恢复访问。密码正确后才验证第二步，失败按实际客户端地址限流；验证码与恢复码消费和登录会话创建在同一事务内完成，防止并发重复使用。
 
 元数据 ZIP 备份包含 `.auth-key` 的内容及加密验证器状态，因此备份应与账号凭据一样妥善保护，需要额外加密时请使用受保护的备份工具。恢复前校验密钥与验证器数据；密钥缺失、损坏或不匹配时拒绝安装数据库。旧版三文件 ZIP 仍可恢复，已启用验证器和剩余恢复码在新备份中保留；未完成设置和旧登录会话在恢复时清除。迁移 `0027` 新增验证器表，回退该迁移会删除两步验证设置。
+
+### 可选的链接导入
+
+链接导入默认关闭。安装下载组件后，在「设置 → 链接导入」启用，并设置视频大小上限与下载运行超时；从用户菜单选择「从链接导入」，填写 URL、可选标题、目标文件夹和存储位置，确认下载权利后提交。请仅下载有权使用的视频，并遵守版权与来源站点条款。
+
+源码部署在 `backend/` 执行 `uv sync --frozen --extra link-import`；标准 Ubuntu 安装在 `/opt/reelvault` 中由服务账号执行 `uv sync --frozen --no-dev --extra link-import`，然后重启服务。也可通过 `REELVAULT_YT_DLP` 指定管理员安装的 yt-dlp 可执行文件。在线升级会保留已安装的可选依赖，回滚到不含该依赖组的旧版本时按旧清单同步。
+
+需要 JavaScript 求解的网站（例如 YouTube）还需将 Deno 2.3+ 安装到服务的 `PATH`；下载器仅启用 Deno，并禁用远程求解组件与第三方插件。PyPI 可选依赖包含匹配的 `yt-dlp-ejs`，无需运行时下载求解代码。详见 [yt-dlp JavaScript 支持](https://github.com/yt-dlp/yt-dlp/wiki/EJS)。站点限制、登录要求或 DRM 可能导致下载失败；此入口不接受浏览器 Cookie、账号密码或自定义下载命令。
+
+默认发布镜像不带下载组件。可从源码构建包含 yt-dlp 与 Deno 的镜像：
+
+```sh
+docker build --build-arg REELVAULT_LINK_IMPORT_EXTRA=1 -t reelvault:link-import .
+```
+
+一次仅导入一个视频，播放列表取首项，不下载直播。提交时固定目标存储并预留下载及处理空间；下载完成后进入现有入库任务，生成海报和播放资源。任务中心支持暂停、继续、取消与失败重试；暂停时间不计入运行超时。失败保留表单内容，取消或失败清理临时下载文件。关闭功能仅阻止新提交与重试，已提交任务请在任务中心取消。
+
+默认只访问公开 HTTP/HTTPS 地址，拒绝 URL 中的账号密码、本机、内网和保留地址；下载代理对重定向和每次连接重新检查目的地址，并限制流量。确需导入可信内网来源时，部署管理员可设置 `REELVAULT_LINK_IMPORT_ALLOW_PRIVATE=true`；此权限不在网页中开放。大小上限默认 1024 MiB，运行超时默认 30 分钟，可通过设置页持久化，也可在首次启动前设置 `REELVAULT_LINK_IMPORT_ENABLED`、`REELVAULT_LINK_IMPORT_MAX_MB`、`REELVAULT_LINK_IMPORT_TIMEOUT_MINUTES`。

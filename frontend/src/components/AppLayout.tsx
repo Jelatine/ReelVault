@@ -20,6 +20,7 @@ import { modals } from '@mantine/modals'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   IconLogout,
+  IconLink,
   IconMoon,
   IconMovie,
   IconSettings,
@@ -29,7 +30,7 @@ import {
   IconUser,
 } from '@tabler/icons-react'
 import { useEffect, useRef } from 'react'
-import { Link, Outlet, useSearchParams } from 'react-router-dom'
+import { Link, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { VIDEO_ACCEPT, VIDEO_EXTENSIONS } from '../lib/constants'
 import { useJobs, useUpdateStatus } from '../lib/queries'
@@ -44,8 +45,10 @@ import LanguageSelect from './LanguageSelect'
 import { shortcutBlocked } from '../lib/shortcuts'
 import SearchBox from './SearchBox'
 import { StorageWarning } from './StoragePanel'
+import { LinkImportForm } from './LinkImport'
 
 export default function AppLayout() {
+  const navigate = useNavigate()
   useTranslation()
 
   const [opened, { toggle, close }] = useDisclosure()
@@ -183,6 +186,9 @@ export default function AppLayout() {
                 <Menu.Label>{user?.username}</Menu.Label>
                 <Menu.Label><LanguageSelect /></Menu.Label>
                 <Menu.Item leftSection={<IconFolderUp size={14} />} onClick={() => folderInput.current?.click()}>{tr("上传文件夹")}</Menu.Item>
+                <Menu.Item leftSection={<IconLink size={14} />} onClick={() => {
+                  const id = modals.open({ title: tr('从链接导入'), children: <LinkImportForm folderId={currentFolder()} onNavigate={path => { modals.close(id); navigate(path) }} /> })
+                }}>{tr('从链接导入')}</Menu.Item>
                 <Menu.Item onClick={showShortcuts}>{tr("快捷键说明")}</Menu.Item>
                 <Menu.Item
                   leftSection={scheme === 'dark' ? <IconSun size={14} /> : <IconMoon size={14} />}

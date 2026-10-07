@@ -26,6 +26,27 @@ from .test_service_sync import helper as helper
 REPO = "Jelatine/ReelVault"
 
 
+def test_uv_sync_preserves_link_extra_but_rollback_accepts_older_manifest(tmp_path, monkeypatch):
+    import subprocess
+
+    settings = Settings(data_dir=tmp_path / "data", link_import_enabled=True)
+    updater = Updater(settings, app_dir=tmp_path)
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(updates.subprocess, "run", run)
+    manifest = tmp_path / "pyproject.toml"
+    manifest.write_text('[project.optional-dependencies]\nlink-import=["yt-dlp"]\n')
+    updater._uv_sync()
+    assert calls[-1][-2:] == ["--extra", "link-import"]
+    manifest.write_text('[project]\nname="older-reelvault"\n')
+    updater._uv_sync()
+    assert "--extra" not in calls[-1]
+
+
 def test_version_ordering() -> None:
     assert is_newer("0.2.0", "0.1.0")
     assert is_newer("v1.0.0", "0.9.9")

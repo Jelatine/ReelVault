@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib.util
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import tomllib
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -406,8 +408,17 @@ class Updater:
             "UV_PYTHON_INSTALL_DIR": str(self.app_dir / ".python"),
             "UV_CACHE_DIR": str(self.app_dir / ".uv-cache"),
         }
+        args = [self.settings.uv, "sync", "--project", str(self.app_dir), "--frozen", "--no-dev"]
+        if self.settings.link_import_enabled or importlib.util.find_spec("yt_dlp"):
+            try:
+                project = tomllib.loads((self.app_dir / "pyproject.toml").read_text())
+            except (OSError, tomllib.TOMLDecodeError):
+                project = {}
+            # Inspect the staged manifest again on rollback: older releases lack this extra.
+            if "link-import" in project.get("project", {}).get("optional-dependencies", {}):
+                args.extend(["--extra", "link-import"])
         result = subprocess.run(
-            [self.settings.uv, "sync", "--project", str(self.app_dir), "--frozen", "--no-dev"],
+            args,
             env=env,
             capture_output=True,
             text=True,

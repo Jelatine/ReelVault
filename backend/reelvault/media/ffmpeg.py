@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import re
 import signal
 from collections.abc import Callable
@@ -28,21 +29,26 @@ class ProcessHandle:
     process: asyncio.subprocess.Process | None = None
     canceled: bool = False
     paused: bool = False
+    process_group: bool = False
     _resumed: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def _signal(self, signal_number: int) -> None:
+        if self.process and self.process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                if self.process_group:
+                    os.killpg(self.process.pid, signal_number)
+                else:
+                    self.process.send_signal(signal_number)
 
     def pause(self) -> None:
         self.paused = True
         self._resumed.clear()
-        if self.process and self.process.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                self.process.send_signal(signal.SIGSTOP)
+        self._signal(signal.SIGSTOP)
 
     def resume(self) -> None:
         self.paused = False
         self._resumed.set()
-        if self.process and self.process.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                self.process.send_signal(signal.SIGCONT)
+        self._signal(signal.SIGCONT)
 
     async def checkpoint(self) -> None:
         while self.paused and not self.canceled:
@@ -55,9 +61,7 @@ class ProcessHandle:
         # Wake a task paused between subprocesses as well as killing stopped processes.
         self.paused = False
         self._resumed.set()
-        if self.process and self.process.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                self.process.kill()
+        self._signal(signal.SIGKILL)
 
 
 @dataclass

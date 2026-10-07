@@ -22,6 +22,11 @@ dependencies = [
 [project.scripts]
 reelvault = "reelvault.__main__:main"
 
+[project.optional-dependencies]
+link-import = [
+    "yt-dlp[default]>=2026.8.19",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8",

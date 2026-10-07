@@ -30,6 +30,7 @@ from ..media.watermark import plan_watermark
 from ..models import Job, SceneAnalysis, Video, new_id, utcnow
 from ..storage import MIB, check_budget
 from .duplicates import duplicates
+from .links import link_import
 from .manager import Handler, JobContext
 
 edit_params: TypeAdapter[ops.EditParams] = TypeAdapter(ops.EditParams)
@@ -596,6 +597,7 @@ async def hls(ctx: JobContext, job: Job) -> None:
 
 
 HANDLERS: dict[str, Handler] = {
+    "link_import": link_import,
     "ingest": ingest,
     "scenes": scenes,
     "hls": hls,

@@ -8,6 +8,9 @@ RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
+# Optional JavaScript solver runtime; only copied into the opt-in image.
+FROM denoland/deno:bin-2.9.7 AS deno
+
 # ---- runtime ----
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -22,10 +25,17 @@ RUN apt-get update \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
+ARG REELVAULT_LINK_IMPORT_EXTRA=0
+RUN --mount=from=deno,source=/deno,target=/tmp/deno \
+    if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then install -m 755 /tmp/deno /usr/local/bin/deno; fi
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then \
+        uv sync --frozen --no-dev --no-install-project --extra link-import; \
+    else uv sync --frozen --no-dev --no-install-project; fi
 COPY backend/reelvault ./reelvault
-RUN uv sync --frozen --no-dev
+RUN if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then \
+        uv sync --frozen --no-dev --extra link-import; \
+    else uv sync --frozen --no-dev; fi
 COPY --from=web /web/dist ./reelvault/static
 
 RUN useradd --system --uid 1000 --home /data reelvault \
