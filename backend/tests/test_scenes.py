@@ -211,11 +211,9 @@ def test_scene_migration_preserves_existing_video(tmp_path):
     config = alembic_config(str(engine.url))
     command.upgrade(config, "0012")
     with engine.begin() as db:
-        vid = db.execute(
-            Video.__table__.insert().values(
-                title="before scenes", file_path="library/existing.mp4", status="ready"
-            )
-        ).inserted_primary_key[0]
+        from .legacy import insert_legacy_video
+
+        vid = insert_legacy_video(db, "before scenes", "library/existing.mp4", "ready")
     upgrade(engine)
     with Session(engine) as db:
         assert db.get(Video, vid).title == "before scenes"

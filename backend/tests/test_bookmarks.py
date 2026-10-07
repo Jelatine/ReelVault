@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from alembic import command
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from reelvault.auth import hash_password
@@ -132,12 +132,16 @@ def test_bookmark_migration_upgrade_and_downgrade(tmp_path: Path):
     command.upgrade(cfg, "0013")
     # Historical schemas must not be read through today's full ORM mapping.
     with engine.begin() as db:
-        uid = db.execute(
-            User.__table__.insert().values(username="old", password_hash="hash")
-        ).inserted_primary_key[0]
-        vid = db.execute(
-            Video.__table__.insert().values(title="old", file_path="library/old.mp4")
-        ).inserted_primary_key[0]
+        from .legacy import insert_legacy_video
+
+        uid = 1
+        db.execute(
+            text(
+                "INSERT INTO users(id,username,password_hash,created_at,password_changed_at) "
+                "VALUES (1,'old','hash','2024-01-01','2024-01-01')"
+            )
+        )
+        vid = insert_legacy_video(db, "old", "library/old.mp4")
     upgrade(engine)
     with Session(engine) as db:
         db.add(
