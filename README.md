@@ -173,6 +173,8 @@ Ubuntu 的新版安装脚本会安装 root 所有的 `reelvault-service-sync.pat
 
 同步目前针对标准 `/opt/reelvault` Ubuntu 安装；源码、Docker 和 macOS 升级沿用各自方式。显式设置 `REELVAULT_SYSTEMD_SYNC=false` 可选择只升级程序，此时需自行同步 systemd 配置。
 
+Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https://github.com/Jelatine/ReelVault/actions/runs/37580047332)：实际安装与重复安装、在主服务权限限制下在线升级并自动重启、依赖/摘要/配置确认失败回滚，以及环境文件、drop-in、元数据和媒体保留。CI 持续运行两种 Ubuntu 的测试。
+
 不希望服务器访问 GitHub 时，设置 `REELVAULT_UPDATE_CHECK=false` 关闭自动检查；`REELVAULT_ALLOW_SELF_UPDATE=false` 只保留检查、禁用一键升级。
 
 ## 配置
