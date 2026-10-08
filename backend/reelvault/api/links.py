@@ -15,7 +15,7 @@ from ..link_download import downloader_command
 from ..link_network import addresses, parse_url
 from ..locations import library_root
 from ..models import Folder, RuntimeSetting
-from ..storage import MIB, lock_budget
+from ..storage import MIB, budget_transaction
 from .deps import get_jobs, get_settings
 
 router = APIRouter(tags=["links"], dependencies=[Depends(require_auth)])
@@ -91,23 +91,23 @@ async def import_link(
         await addresses(host, port, allow_private=settings.link_import_allow_private)
     except ValueError as error:
         raise APIError(400, str(error), code="link_import_url_invalid") from error
-    lock_budget(db)
-    storage_id = body.storage_id or settings.storage_default
-    library_root(settings, storage_id)
-    if body.folder_id is not None and db.get(Folder, body.folder_id) is None:
-        raise APIError(404, "文件夹不存在", code="folder_not_found")
-    job = jobs.submit(
-        db,
-        "link_import",
-        {
-            "url": url,
-            "title": body.title.strip(),
-            "folder_id": body.folder_id,
-            "storage_id": storage_id,
-            "limit_bytes": settings.link_import_max_mb * MIB,
-            "timeout_minutes": settings.link_import_timeout_minutes,
-            "acknowledge_rights": True,
-        },
-        [],
-    )
-    return jobs.describe(db, job)
+    with budget_transaction(db):
+        storage_id = body.storage_id or settings.storage_default
+        library_root(settings, storage_id)
+        if body.folder_id is not None and db.get(Folder, body.folder_id) is None:
+            raise APIError(404, "文件夹不存在", code="folder_not_found")
+        job = jobs.submit(
+            db,
+            "link_import",
+            {
+                "url": url,
+                "title": body.title.strip(),
+                "folder_id": body.folder_id,
+                "storage_id": storage_id,
+                "limit_bytes": settings.link_import_max_mb * MIB,
+                "timeout_minutes": settings.link_import_timeout_minutes,
+                "acknowledge_rights": True,
+            },
+            [],
+        )
+        return jobs.describe(db, job)

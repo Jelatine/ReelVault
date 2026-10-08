@@ -8,7 +8,7 @@ import sqlite3
 import pytest
 
 from reelvault.ai import AiParams
-from reelvault.api import ai, playback_cache, transcription, visual_search
+from reelvault.api import ai, links, playback_cache, transcription, videos, visual_search
 from reelvault.api import jobs as jobs_api
 from reelvault.errors import APIError
 from reelvault.models import Job
@@ -30,6 +30,8 @@ from .conftest import upload_ready
         "clear_busy",
         "manager_rejected",
         "retry_rejected",
+        "upload_rejected",
+        "link_rejected",
     ],
 )
 def test_task_handlers_release_sqlite_writer_before_response_cleanup(
@@ -40,7 +42,13 @@ def test_task_handlers_release_sqlite_writer_before_response_cleanup(
     monkeypatch.setattr("reelvault.transcription.available", lambda settings: True)
     jobs = client.app.state.jobs
     with client.app.state.sessionmaker() as db:
-        if kind not in {"cached", "rejected", "manager_rejected"}:
+        if kind not in {
+            "cached",
+            "rejected",
+            "manager_rejected",
+            "upload_rejected",
+            "link_rejected",
+        }:
             row = Job(
                 kind="vision_index" if kind == "clear_busy" else kind,
                 status="paused",
@@ -49,7 +57,38 @@ def test_task_handlers_release_sqlite_writer_before_response_cleanup(
             )
             db.add(row)
             db.commit()
-        if kind == "manager_rejected":
+        if kind == "upload_rejected":
+
+            def reject(*args, **kwargs):
+                raise APIError(507, "Insufficient space", code="storage_budget_exceeded")
+
+            monkeypatch.setattr(videos, "check_budget", reject)
+            with pytest.raises(APIError):
+                videos.init_upload(
+                    videos.UploadInit(filename="large.mp4", size=2**30), db=db, settings=settings
+                )
+        elif kind == "link_rejected":
+
+            async def resolve(*args, **kwargs):
+                return []
+
+            settings.link_import_enabled = True
+            monkeypatch.setattr(links, "addresses", resolve)
+            monkeypatch.setattr(links, "downloader_command", lambda settings: ["yt-dlp"])
+            with pytest.raises(APIError):
+                asyncio.run(
+                    links.import_link(
+                        links.LinkBody(
+                            url="https://example.org/video",
+                            folder_id=999999,
+                            acknowledge_rights=True,
+                        ),
+                        db=db,
+                        settings=settings,
+                        jobs=jobs,
+                    )
+                )
+        elif kind == "manager_rejected":
             with pytest.raises(APIError):
                 jobs.submit(
                     db, "edit", {"edit": {"op": "compress", "codec": "h264", "crf": 30}}, ["0" * 32]

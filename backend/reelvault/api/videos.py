@@ -40,7 +40,7 @@ from ..observability import audit_request
 from ..pinyin_search import normalize_pinyin_query
 from ..playback_cache import stream_path
 from ..search_syntax import parse_search
-from ..storage import check_budget, lock_budget, upload_bytes, upload_requirements
+from ..storage import budget_transaction, check_budget, upload_bytes, upload_requirements
 from .deps import FiniteNumber, get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["videos"], dependencies=[Depends(require_auth)])
@@ -140,27 +140,27 @@ def init_upload(
         )
     if not folder_exists(db, body.folder_id):
         raise APIError(status.HTTP_400_BAD_REQUEST, "文件夹不存在", code="folder_not_found")
-    lock_budget(db)
-    storage_id = body.storage_id or settings.storage_default
-    library_root(settings, storage_id)
-    check_budget(
-        db,
-        settings,
-        upload_bytes(body.size),
-        requirements=upload_requirements(body.size, storage_id),
-    )
-    upload = Upload(
-        storage_id=storage_id,
-        filename=body.filename,
-        size=body.size,
-        folder_id=body.folder_id,
-        relative_path=body.relative_path,
-        tags=body.tags,
-    )
-    db.add(upload)
-    db.commit()
-    _upload_path(settings, upload.id).touch()
-    return _upload_dict(upload, settings)
+    with budget_transaction(db):
+        storage_id = body.storage_id or settings.storage_default
+        library_root(settings, storage_id)
+        check_budget(
+            db,
+            settings,
+            upload_bytes(body.size),
+            requirements=upload_requirements(body.size, storage_id),
+        )
+        upload = Upload(
+            storage_id=storage_id,
+            filename=body.filename,
+            size=body.size,
+            folder_id=body.folder_id,
+            relative_path=body.relative_path,
+            tags=body.tags,
+        )
+        db.add(upload)
+        db.commit()
+        _upload_path(settings, upload.id).touch()
+        return _upload_dict(upload, settings)
 
 
 @router.get("/uploads/{upload_id}")
