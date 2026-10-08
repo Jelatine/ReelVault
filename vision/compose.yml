@@ -1,0 +1,31 @@
+services:
+  vision:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8091:8091"
+    environment:
+      REELVAULT_VISION_TOKEN: ${REELVAULT_VISION_TOKEN:-}
+    volumes:
+      - vision-models:/models
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8091/health',headers={'Authorization':'Bearer '+os.environ['REELVAULT_VISION_TOKEN']}); urllib.request.urlopen(r,timeout=5).close()"
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+volumes:
+  vision-models:

@@ -8,6 +8,7 @@ __pycache__/
 *.egg-info/
 backend/reelvault/static/
 backend/data/
+vision/models/
 
 # Node
 node_modules/

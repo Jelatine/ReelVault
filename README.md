@@ -686,3 +686,7 @@ docker exec reelvault python -m reelvault.media.transcription_worker \
 模型加载、识别和音轨提取均在可控制子进程中，接入现有暂停/继续/取消、优先级和失败重试。不同视频仍可并行，同源操作串行；每个并行转写任务会各自加载模型，低内存部署可减少 `REELVAULT_WORKERS` 或选用较小模型。在线升级保留启用或已安装的可选依赖，回滚旧版本时按旧清单同步。PyAV 锁定兼容版本，避免其新接口变化导致识别无法启动。
 
 验证真实识别时可提供自备语音视频与已准备的 tiny 模型缓存，执行 `REELVAULT_TEST_WHISPER_CACHE=/path/to/cache REELVAULT_TEST_SPEECH=/path/to/speech.mp4 .venv/bin/pytest -q tests/test_content_search.py::test_real_whisper_transcribes_and_indexes_speech`。CI 单独合成语音并验证 CPU 模型、字幕发布与时间索引；普通测试不会自行下载模型。
+
+### 可选视觉模型服务
+
+文字／图片搜索的模型服务独立于默认安装，固定 CLIP 图片模型与中英文多语言文字模型，采用 CPU、本地离线推理和私有令牌认证。源码与独立容器部署见 [vision/README.md](vision/README.md)。当前先提供服务及协议，视频抽帧索引与搜索界面的接入继续实施；该 TODO 尚未标记完成。
