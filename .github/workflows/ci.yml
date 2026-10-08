@@ -300,5 +300,8 @@ jobs:
           npm ci
           cd ..
           make package VERSION=ci
+      - name: Use HTTPS Ubuntu mirror for installation checks
+        if: matrix.os == 'ubuntu-22.04'
+        run: sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list
       - name: Verify real install and online upgrade under systemd
         run: sudo env GITHUB_ACTIONS=true python3 deploy/test-systemd.py

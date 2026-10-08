@@ -44,8 +44,8 @@ export default function SetupPage() {
             <Text c="dimmed" size="sm">{tr("首次启动，请创建管理员账号。")}</Text>
             {error && <Alert color="red">{errorText(error)}</Alert>}
             <TextInput label={tr("用户名")} required {...form.getInputProps('username')} />
-            <PasswordInput visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("密码")} required {...form.getInputProps('password')} error={typeof form.errors.password === 'string' ? translateStoredText(form.errors.password) : form.errors.password} />
-            <PasswordInput visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("确认密码")} required {...form.getInputProps('confirm')} error={typeof form.errors.confirm === 'string' ? translateStoredText(form.errors.confirm) : form.errors.confirm} />
+            <PasswordInput visibilityToggleButtonProps={{ tabIndex: 0, "aria-label": tr("显示或隐藏密码") }} label={tr("密码")} required {...form.getInputProps('password')} error={typeof form.errors.password === 'string' ? translateStoredText(form.errors.password) : form.errors.password} />
+            <PasswordInput visibilityToggleButtonProps={{ tabIndex: 0, "aria-label": tr("显示或隐藏密码") }} label={tr("确认密码")} required {...form.getInputProps('confirm')} error={typeof form.errors.confirm === 'string' ? translateStoredText(form.errors.confirm) : form.errors.confirm} />
             <Button type="submit" loading={busy}>{tr("创建并登录")}</Button>
           </Stack>
         </form>

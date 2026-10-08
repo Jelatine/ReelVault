@@ -54,7 +54,7 @@ export default function WebdavPanel() {
     </>}
     {password && <Alert color="blue"><Stack gap="xs">
       <Text size="sm">{tr('此密码仅显示一次，请保存到播放器。离开或刷新页面后无法查看。')}</Text>
-      <PasswordInput label={tr('播放器访问密码')} value={password} readOnly visibilityToggleButtonProps={{ 'aria-label': tr('显示或隐藏密码') }} />
+      <PasswordInput label={tr('播放器访问密码')} value={password} readOnly visibilityToggleButtonProps={{ tabIndex: 0, 'aria-label': tr('显示或隐藏密码') }} />
       <Group>
         <CopyButton value={password}>{({ copied, copy }) => <Button size="xs" onClick={copy}>{copied ? tr('已复制') : tr('复制密码')}</Button>}</CopyButton>
         <Button size="xs" variant="subtle" onClick={() => setPassword('')}>{tr('已保存，隐藏密码')}</Button>
