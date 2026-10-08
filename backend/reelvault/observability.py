@@ -24,6 +24,7 @@ KINDS = (
     "link_import",
     "playable",
     "transcribe",
+    "vision_index",
     "other",
 )
 STATES = ("queued", "running", "paused", "succeeded", "failed", "canceled")

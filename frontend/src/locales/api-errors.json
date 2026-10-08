@@ -670,5 +670,45 @@
   "transcription_busy": {
     "en": "Finish the active transcription task first.",
     "zh": "请先结束语音转写任务"
+  },
+  "vision_disabled": {
+    "en": "Visual search has not been enabled.",
+    "zh": "画面搜索尚未启用"
+  },
+  "vision_busy": {
+    "en": "The vision service is busy. Try again shortly.",
+    "zh": "视觉模型正在处理其他任务，请稍后重试"
+  },
+  "vision_service_failed": {
+    "en": "The vision service rejected the request. Check its deployment token and logs.",
+    "zh": "视觉服务拒绝请求，请检查部署令牌与服务日志"
+  },
+  "vision_unavailable": {
+    "en": "The vision service cannot be reached. Check its deployment configuration.",
+    "zh": "视觉服务无法连接，请检查部署配置"
+  },
+  "vision_protocol_invalid": {
+    "en": "The vision service returned an incompatible model or invalid response.",
+    "zh": "视觉服务模型或响应不兼容"
+  },
+  "vision_text_invalid": {
+    "en": "Enter a frame description of 1–512 characters.",
+    "zh": "请输入 1–512 字符的画面描述"
+  },
+  "vision_image_invalid": {
+    "en": "The query image is empty or too large.",
+    "zh": "查询图片大小不符合要求"
+  },
+  "vision_index_busy": {
+    "en": "Finish the active visual indexing task first.",
+    "zh": "请先结束画面索引任务"
+  },
+  "vision_duration_invalid": {
+    "en": "Visual indexing supports videos up to 24 hours.",
+    "zh": "画面索引仅支持最长 24 小时的视频"
+  },
+  "vision_frame_missing": {
+    "en": "The indexed frame is missing or stale. Rebuild the visual index.",
+    "zh": "画面索引不存在或已过期，请重新生成"
   }
 }

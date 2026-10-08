@@ -17,6 +17,7 @@ dependencies = [
     "pypinyin==0.55.0",
     "cryptography>=50.0.2",
     "qrcode>=8.2",
+    "sqlite-vec==0.1.9",
 ]
 
 [project.scripts]

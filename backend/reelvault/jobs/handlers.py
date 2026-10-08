@@ -36,6 +36,7 @@ from .duplicates import duplicates
 from .links import link_import
 from .manager import Handler, JobContext
 from .transcription import transcribe
+from .vision import index_vision
 
 edit_params: TypeAdapter[ops.EditParams] = TypeAdapter(ops.EditParams)
 
@@ -694,6 +695,7 @@ HANDLERS: dict[str, Handler] = {
     "hls": hls,
     "playable": playable,
     "transcribe": transcribe,
+    "vision_index": index_vision,
     "edit": edit,
     "duplicates": duplicates,
 }

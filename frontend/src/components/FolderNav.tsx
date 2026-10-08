@@ -196,6 +196,8 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         active={location.pathname === '/duplicates'} aria-current={location.pathname === '/duplicates' ? 'page' : undefined} onClick={onNavigate} />
       <NavLink component={Link} to="/content" label={tr('内容搜索')} leftSection={<IconVideo size={16} />}
         active={location.pathname === '/content'} aria-current={location.pathname === '/content' ? 'page' : undefined} onClick={onNavigate} />
+      <NavLink component={Link} to="/visual-search" label={tr('画面搜索')} leftSection={<IconVideo size={16} />}
+        active={location.pathname === '/visual-search'} aria-current={location.pathname === '/visual-search' ? 'page' : undefined} onClick={onNavigate} />
       <NavLink component={Link} to="/auto-groups" label={tr('自动分组')} leftSection={<IconFolder size={16} />}
         active={location.pathname === '/auto-groups' || (onLibrary && params.has('auto'))} aria-current={location.pathname === '/auto-groups' ? 'page' : undefined} onClick={onNavigate} />
       {(tags.data?.some(tag => tag.count > 0) ?? false) && (

@@ -10,6 +10,7 @@ const CollectionPage = lazy(() => import('./pages/CollectionPage'))
 const JobsPage = lazy(() => import('./pages/JobsPage'))
 const LibraryPage = lazy(() => import('./pages/LibraryPage'))
 const ContentSearchPage = lazy(() => import('./pages/ContentSearchPage'))
+const VisualSearchPage = lazy(() => import('./pages/VisualSearchPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
@@ -46,6 +47,7 @@ function AppRoutes() {
         <Route index element={location.search ? <Navigate to={`/library${location.search}`} replace /> : <DashboardPage />} />
         <Route path="library" element={<LibraryPage />} />
         <Route path="content" element={<ContentSearchPage />} />
+        <Route path="visual-search" element={<VisualSearchPage />} />
         <Route path="videos/:id" element={<VideoPage />} />
         <Route path="collections/:id" element={<CollectionPage />} />
         <Route path="jobs" element={<JobsPage />} />

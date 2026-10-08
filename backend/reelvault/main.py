@@ -46,6 +46,7 @@ from .api import (
     transcription,
     two_factor,
     videos,
+    visual_search,
 )
 from .api import auth as auth_api
 from .auth import LoginLimiter, hash_password
@@ -131,6 +132,23 @@ def cleanup_stale_uploads(app: FastAPI, settings: Settings, max_age_days: int = 
             settings.derived_dir / p.video_id / "hls" / p.generation
             for p in db.scalars(select(HlsPackage))
         }
+    from .models import VideoVectorIndex
+    from .visual_search import directory as vision_directory
+
+    with app.state.sessionmaker() as db:
+        vision_keep = set()
+        for index in db.scalars(select(VideoVectorIndex)):
+            with contextlib.suppress(ValueError):
+                vision_keep.add(vision_directory(settings, index))
+    for frames in settings.derived_dir.glob("*/vision/*"):
+        if (
+            frames not in vision_keep
+            and len(frames.name) == 32
+            and all(c in "0123456789abcdef" for c in frames.name)
+        ):
+            shutil.rmtree(frames, ignore_errors=True)
+    for query in settings.tmp_dir.glob("vision-query-*"):
+        shutil.rmtree(query, ignore_errors=True)
     for directory in settings.derived_dir.glob("*/hls/*"):
         if directory not in keep:
             shutil.rmtree(directory, ignore_errors=True)
@@ -310,6 +328,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         luts.router,
         subtitles.router,
         transcription.router,
+        visual_search.router,
         collections.router,
         dashboard.router,
         duplicates.router,

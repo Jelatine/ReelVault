@@ -14,6 +14,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Table,
     Text,
@@ -393,6 +394,35 @@ class VideoFingerprint(Base):
     visual_error: Mapped[str | None] = mapped_column(Text)
     algorithm: Mapped[int] = mapped_column(Integer)
     detected_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class VideoVectorIndex(Base):
+    __tablename__ = "video_vector_indexes"
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE"), primary_key=True
+    )
+    signature: Mapped[list[Any]] = mapped_column(JSON)
+    model: Mapped[str] = mapped_column(String(80))
+    generation: Mapped[str] = mapped_column(String(32))
+    interval: Mapped[float] = mapped_column(Float)
+    frames: Mapped[int] = mapped_column(Integer)
+    indexed_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class VectorFrame(Base):
+    __tablename__ = "vector_frames"
+    __table_args__ = (
+        UniqueConstraint("video_id", "ordinal"),
+        CheckConstraint("timestamp >= 0 AND ordinal >= 0 AND ordinal < 1000"),
+        CheckConstraint("length(embedding) = 2048"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("video_vector_indexes.video_id", ondelete="CASCADE"), index=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer)
+    timestamp: Mapped[float] = mapped_column(Float)
+    embedding: Mapped[bytes] = mapped_column(LargeBinary)
 
 
 class DuplicateMatch(Base):

@@ -9,6 +9,7 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .pinyin_search import register_pinyin
+from .vector_sql import register_vectors
 
 
 class Base(DeclarativeBase):
@@ -32,6 +33,7 @@ def make_engine(path: Path) -> Engine:
         cur.close()
         dbapi_conn.create_function("reelvault_device", 2, device_key, deterministic=True)
         register_pinyin(dbapi_conn)
+        register_vectors(dbapi_conn)
 
     return engine
 

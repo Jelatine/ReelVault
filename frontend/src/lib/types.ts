@@ -73,7 +73,7 @@ export type JobStatus = 'queued' | 'running' | 'paused' | 'succeeded' | 'failed'
 
 export interface Job {
   id: string
-  kind: 'ingest' | 'edit' | 'scenes' | 'hls' | 'duplicates' | 'link_import' | 'playable' | 'transcribe'
+  kind: 'ingest' | 'edit' | 'scenes' | 'hls' | 'duplicates' | 'link_import' | 'playable' | 'transcribe' | 'vision_index'
   status: JobStatus
   priority?: number
   eta_seconds?: number | null

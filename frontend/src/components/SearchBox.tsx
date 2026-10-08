@@ -68,7 +68,8 @@ export default function SearchBox({ inputRef }: { inputRef: RefObject<HTMLInputE
     if (value.trim()) { next.set('q', value.trim()); if (value.trim().length <= 512) remember.mutate(value.trim()) }
     else next.delete('q')
     next.delete('page')
-    const searchPath = location.pathname === '/content' ? '/content' : '/library'
+    const searchPath = ['/content', '/visual-search'].includes(location.pathname) ? location.pathname : '/library'
+    if (searchPath === '/visual-search') next.delete('mode')
     const searchURL = searchPath + (next.size ? `?${next.toString()}` : '')
     setPendingSearches(current => ({ ...current, [searchURL]: draftRevision }))
     setLatestSearchURL(searchURL)

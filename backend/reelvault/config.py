@@ -4,6 +4,7 @@ import os
 import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import (
@@ -80,6 +81,44 @@ class Settings(BaseSettings):
     transcription_download_model: bool = False
     transcription_threads: int = Field(2, ge=1, le=32)
     transcription_max_hours: int = Field(6, ge=1, le=24)
+    vision_enabled: bool = Field(False, exclude=True)
+    vision_url: str = Field("http://127.0.0.1:8091", exclude=True)
+    vision_token: str = Field("", repr=False, exclude=True)
+    vision_max_frames: int = Field(240, ge=1, le=1000)
+
+    @field_validator("vision_url")
+    @classmethod
+    def valid_vision_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if (
+            len(value) > 2048
+            or any(not 33 <= ord(c) <= 126 for c in value)
+            or parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or (parsed.port is not None and not 1 <= parsed.port <= 65535)
+        ):
+            raise ValueError(
+                "Vision URL must be an HTTP(S) service URL without credentials or query"
+            )
+        return value.rstrip("/")
+
+    @field_validator("vision_token")
+    @classmethod
+    def valid_vision_token(cls, value: str) -> str:
+        if value and (not 32 <= len(value) <= 256 or any(not 33 <= ord(c) <= 126 for c in value)):
+            raise ValueError("Vision token requires 32–256 printable ASCII characters")
+        return value
+
+    @model_validator(mode="after")
+    def vision_credentials(self) -> Settings:
+        if self.vision_enabled and not self.vision_token:
+            raise ValueError("Vision service requires a deployment token")
+        return self
+
     encoder: Literal["software", "auto", "videotoolbox", "qsv", "vaapi", "nvenc"] = "software"
     hls_enabled: bool = False
     playable_eager_max_mb: int = Field(256, ge=0, le=102400)

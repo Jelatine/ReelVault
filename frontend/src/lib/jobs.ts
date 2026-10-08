@@ -13,6 +13,7 @@ const operationLabels = (): Record<string, string> => ({
   duplicates: tr("重复视频检测"),
   playable: tr('生成兼容播放缓存'),
   transcribe: tr('转写语音'),
+  vision_index: tr('生成画面索引'),
   hls: tr("生成 HLS 清晰度"),
   adjust: tr("画面调整"),
   effect: tr("片段效果"),
@@ -51,6 +52,7 @@ export function useJobEvents(session: string | null, username: string) {
     es.addEventListener('job', (ev) => {
       const job = JSON.parse((ev as MessageEvent).data) as Job
       if (job.kind === 'transcribe') qc.invalidateQueries({ queryKey: ['transcription'] })
+      if (job.kind === 'vision_index') qc.invalidateQueries({ queryKey: ['visual-index'] })
       notify(job, jobLabel(job))
       qc.setQueryData<Job[]>(['jobs'], (old) => {
         if (!old) return old
@@ -72,6 +74,8 @@ export function useJobEvents(session: string | null, username: string) {
         qc.invalidateQueries({ queryKey: ['playback-cache'] })
         qc.invalidateQueries({ queryKey: ['subtitles'] })
         qc.invalidateQueries({ queryKey: ['content-search'] })
+        qc.invalidateQueries({ queryKey: ['visual-index'] })
+        qc.invalidateQueries({ queryKey: ['visual-search'] })
         qc.invalidateQueries({ queryKey: ['hls-settings'] })
         qc.invalidateQueries({ queryKey: ['folders'] })
         qc.invalidateQueries({ queryKey: ['dashboard'] })
