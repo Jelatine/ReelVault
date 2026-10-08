@@ -9,20 +9,18 @@ from __future__ import annotations
 import base64
 import contextlib
 import hashlib
+import json
 import mimetypes
 import os
 import re
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 from .config import S3Config
+from .object_types import KEY, ObjectRef
 
-KEY = re.compile(r"[a-f0-9]{32}(?:-[a-f0-9]{32})?\.[a-z0-9]{1,10}")
 Progress = Callable[[float], None]
 Started = Callable[[str], None]
 
@@ -33,24 +31,6 @@ class ObjectStoreError(OSError):
     def __init__(self, message: str, *, code: str | None = None):
         super().__init__(message)
         self.code = code
-
-
-class ObjectRef(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-    key: str
-    size: int = Field(gt=0)
-    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    etag: str = Field(min_length=1, max_length=1024)
-    version_id: str | None = Field(default=None, max_length=1024)
-    modified: datetime
-    transfer_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
-
-    @field_validator("key")
-    @classmethod
-    def safe_key(cls, value: str) -> str:
-        if KEY.fullmatch(value) is None:
-            raise ValueError("Invalid original-video object key")
-        return value
 
 
 def _signature(path: Path) -> tuple[int, int, int, int, int]:
@@ -91,6 +71,12 @@ class ObjectStore:
                 **credentials,
             )
         self.client = client
+        if config.namespace_id:
+            try:
+                self.validate_namespace(config.library_id or "", config.namespace_id)
+            except Exception:
+                self.close()
+                raise
 
     def close(self) -> None:
         self.client.close()
@@ -113,6 +99,68 @@ class ObjectStore:
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", code):
             code = "unavailable"
         return ObjectStoreError(f"S3 operation failed ({code})", code=code)
+
+    def _namespace(self) -> dict[str, Any]:
+        try:
+            result = self.client.get_object(
+                Bucket=self.config.bucket, Key=self.config.prefix + "/.reelvault-namespace.json"
+            )
+            with contextlib.closing(result["Body"]) as body:
+                data = body.read(1025)
+            value = json.loads(data)
+            if (
+                len(data) > 1024
+                or not isinstance(value, dict)
+                or set(value) != {"version", "id", "library_id"}
+                or type(value["version"]) is not int
+                or value["version"] != 1
+                or not isinstance(value["id"], str)
+                or not isinstance(value["library_id"], str)
+                or re.fullmatch(r"[a-f0-9]{32}", value["id"]) is None
+                or re.fullmatch(r"[a-f0-9]{32}", value["library_id"]) is None
+            ):
+                raise ObjectStoreError("S3 storage identity is invalid")
+            return value
+        except ObjectStoreError:
+            raise
+        except (ValueError, KeyError, TypeError):
+            raise ObjectStoreError("S3 storage identity is invalid") from None
+        except Exception as error:
+            raise self._failure(error) from None
+
+    def bind_namespace(self, library_id: str) -> str:
+        if re.fullmatch(r"[a-f0-9]{32}", library_id) is None:
+            raise ValueError("Invalid library identity")
+        try:
+            value = self._namespace()
+        except ObjectStoreError as error:
+            if error.code not in {"404", "NoSuchKey", "NotFound"}:
+                raise
+            data = json.dumps({"version": 1, "id": uuid4().hex, "library_id": library_id}).encode()
+            try:
+                self.client.put_object(
+                    Bucket=self.config.bucket,
+                    Key=self.config.prefix + "/.reelvault-namespace.json",
+                    Body=data,
+                    IfNoneMatch="*",
+                    ContentType="application/json",
+                    ContentMD5=base64.b64encode(
+                        hashlib.md5(data, usedforsecurity=False).digest()
+                    ).decode(),
+                )
+            except Exception as error:
+                failed = self._failure(error)
+                if failed.code != "PreconditionFailed":
+                    raise failed from None
+            value = self._namespace()
+        if value["library_id"] != library_id:
+            raise ObjectStoreError("S3 prefix belongs to another video library")
+        return str(value["id"])
+
+    def validate_namespace(self, library_id: str, namespace_id: str) -> None:
+        value = self._namespace()
+        if value["library_id"] != library_id or value["id"] != namespace_id:
+            raise ObjectStoreError("S3 storage identity mismatch")
 
     def head(self, key: str) -> ObjectRef:
         try:

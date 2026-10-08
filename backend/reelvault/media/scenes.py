@@ -19,6 +19,15 @@ class SceneParams(BaseModel):
 
 
 def source_signature(source: Path) -> list[Any]:
+    from ..object_types import OriginalPath
+
+    if isinstance(source, OriginalPath):
+        ref = source.object_ref
+        return [
+            source.name,
+            ref.size,
+            f"s3:{source.parent.name}:{ref.sha256}:{ref.etag}:{ref.version_id}",
+        ]
     stat = source.stat()
     return [source.name, stat.st_size, stat.st_mtime_ns]
 

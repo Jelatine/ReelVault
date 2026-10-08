@@ -55,6 +55,20 @@ def _read_identity(root: Path) -> str:
 def library_root(settings: Settings, location_id: str = "local") -> Path:
     if location_id == "local":
         return settings.library_dir
+    if location_id == "s3":
+        from .object_library import bound_config
+
+        namespace_id = settings.s3_current
+        if namespace_id is None:
+            raise LocationUnavailable("s3")
+        bound_config(settings, namespace_id)
+        root = settings.data_dir / "objects"
+        cache = root / namespace_id
+        if root.is_symlink() or cache.is_symlink():
+            raise LocationUnavailable("s3")
+        root.mkdir(mode=0o700, exist_ok=True)
+        cache.mkdir(mode=0o700, exist_ok=True)
+        return cache
     if not ID.fullmatch(location_id) or location_id not in settings.storage_locations:
         raise LocationUnavailable(location_id)
     root = settings.storage_locations[location_id].path
@@ -137,6 +151,12 @@ def relative_parts(value: str) -> tuple[str, ...]:
 
 def location_of(value: str) -> str:
     parts = relative_parts(value)
+    if parts[0] == "s3":
+        from .object_types import KEY
+
+        if len(parts) != 3 or not ID.fullmatch(parts[1]) or not KEY.fullmatch(parts[2]):
+            raise ValueError("非法对象存储路径")
+        return "s3"
     if parts[0] != "volumes":
         return "local"
     if len(parts) < 3 or not ID.fullmatch(parts[1]):
@@ -147,6 +167,21 @@ def location_of(value: str) -> str:
 def resolve_path(settings: Settings, value: str) -> Path:
     parts = relative_parts(value)
     location_id = location_of(value)
+    if location_id == "s3":
+        from .object_types import original_path
+
+        if parts[1] not in settings.s3_namespaces:
+            raise LocationUnavailable("s3")
+        root = settings.data_dir / "objects"
+        path = root.joinpath(*parts[1:])
+        if (
+            root.is_symlink()
+            or path.parent.is_symlink()
+            or not path.resolve().is_relative_to(root.resolve())
+        ):
+            raise ValueError("媒体路径不能越过存储目录")
+        ref = settings.s3_objects.get(value)
+        return original_path(path, ref) if ref else path
     root = settings.data_dir if location_id == "local" else library_root(settings, location_id)
     path = root.joinpath(*(parts if location_id == "local" else parts[2:]))
     if not path.resolve().is_relative_to(root.resolve()):
@@ -155,6 +190,12 @@ def resolve_path(settings: Settings, value: str) -> Path:
 
 
 def encode_path(settings: Settings, path: Path) -> str:
+    object_root = settings.data_dir / "objects"
+    if path.is_relative_to(object_root):
+        relative = "s3/" + path.relative_to(object_root).as_posix()
+        location_of(relative)
+        resolve_path(settings, relative)
+        return relative
     if path.is_relative_to(settings.data_dir):
         return str(path.relative_to(settings.data_dir))
     for location_id, entry in settings.storage_locations.items():

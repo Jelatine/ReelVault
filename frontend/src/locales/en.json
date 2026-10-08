@@ -1654,5 +1654,9 @@
   "请先生成播放器访问密码，再启用 WebDAV。": "Generate a player access password before enabling WebDAV.",
   "重置后旧密码立即失效；撤销会关闭访问。已开始的播放可能持续到下一次请求。": "Resetting invalidates the old password immediately. Revoking disables access. Playback already in progress may continue until the next request.",
   "重置播放器访问密码": "Reset player access password",
-  "默认关闭。播放器可只读浏览全部视频、文件夹与合集，播放原文件；格式兼容性取决于播放器。": "Off by default. Players can browse all videos, folders and collections with read-only access and play original files. Format support depends on the player."
+  "默认关闭。播放器可只读浏览全部视频、文件夹与合集，播放原文件；格式兼容性取决于播放器。": "Off by default. Players can browse all videos, folders and collections with read-only access and play original files. Format support depends on the player.",
+  "对象存储 (S3)": "Object storage (S3)",
+  "容量未知。上传暂存与本地缓存使用主存储{{free}}；连接信息由部署环境配置，不在此修改。": "Capacity unknown. Upload staging and the local cache use primary storage{{free}}; connection settings come from the deployment environment and cannot be changed here.",
+  "（剩余 {{free}}）": " ({{free}} free)",
+  "对象存储不可用：{{error}}": "Object storage unavailable: {{error}}"
 }

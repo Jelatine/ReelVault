@@ -84,7 +84,43 @@ def describe_locations(db: Session, settings: Settings) -> dict[str, Any]:
         except OSError:
             pass
         locations.append(entry)
+    if settings.s3 is not None or settings.storage_default == "s3":
+        locations.append(describe_s3(db, settings))
     return {"default_id": settings.storage_default, "items": locations}
+
+
+def describe_s3(db: Session, settings: Settings) -> dict[str, Any]:
+    """Deployment-configured S3; never reports credentials or the private endpoint."""
+    config = settings.s3
+    available = False
+    error = settings.s3_error
+    try:
+        library_root(settings, "s3")
+        available = error is None
+    except (OSError, ValueError):
+        error = error or "对象存储未配置或未绑定到此视频库"
+    try:
+        usage = shutil.disk_usage(settings.data_dir)
+        free: int | None = usage.free
+    except OSError:
+        free = None
+    return {
+        "id": "s3",
+        "kind": "s3",
+        "name": "对象存储 (S3)",
+        "path": f"{config.bucket}/{config.prefix}" if config else "",
+        "video_count": db.scalar(
+            select(func.count()).select_from(Video).where(Video.file_path.startswith("s3/"))
+        )
+        or 0,
+        "available": available,
+        # Remote capacity is unknown; local staging and cache use the primary disk.
+        "total": None,
+        "free": None,
+        "used": None,
+        "cache_free": free,
+        "error": error,
+    }
 
 
 @router.get("")

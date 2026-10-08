@@ -330,6 +330,34 @@ class ImportSource(Base):
     imported_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class ObjectNamespace(Base):
+    __tablename__ = "object_namespaces"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    library_id: Mapped[str] = mapped_column(String(32))
+    descriptor: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class OriginalObject(Base):
+    __tablename__ = "original_objects"
+
+    path: Mapped[str] = mapped_column(String(256), primary_key=True)
+    namespace_id: Mapped[str] = mapped_column(
+        ForeignKey("object_namespaces.id", ondelete="RESTRICT"), index=True
+    )
+    key: Mapped[str] = mapped_column(String(96))
+    transfer_id: Mapped[str] = mapped_column(String(32), default=new_id)
+    state: Mapped[str] = mapped_column(String(16), default="pending")
+    object_ref: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    __table_args__ = (
+        UniqueConstraint("namespace_id", "key"),
+        CheckConstraint("state IN ('pending', 'ready')"),
+        CheckConstraint("state != 'ready' OR object_ref IS NOT NULL"),
+    )
+
+
 class Upload(Base):
     __tablename__ = "uploads"
 

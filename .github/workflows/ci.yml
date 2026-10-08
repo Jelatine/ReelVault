@@ -71,7 +71,7 @@ jobs:
           exit 1
       - name: Verify multipart, integrity, real subprocess pause/cancel and recovery
         working-directory: backend
-        run: uv run --frozen --extra s3 pytest -q tests/test_object_store.py tests/test_object_transfer.py
+        run: uv run --frozen --extra s3 pytest -q tests/test_object_store.py tests/test_object_transfer.py tests/test_object_integration.py
       - name: Stop owned S3 test server
         if: always()
         run: docker rm -f rv-s3 || true

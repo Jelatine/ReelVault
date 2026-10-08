@@ -145,7 +145,7 @@ def job_requirements(
     target = params.get("output", {}).get("storage_id") or "local"
     if (
         kind == "edit"
-        and target != "local"
+        and target not in {"local", "s3"}
         and params["edit"]["op"] not in ("animation", "extract_audio")
     ):
         # Working files/derived media live on the primary disk; independently
@@ -156,14 +156,14 @@ def job_requirements(
 
 def upload_requirements(size: int, storage_id: str) -> dict[str, int]:
     requirements = {"local": upload_bytes(size)}
-    if storage_id != "local":
+    if storage_id not in {"local", "s3"}:
         requirements[storage_id] = size
     return requirements
 
 
 def link_requirements(limit: int, storage_id: str) -> dict[str, int]:
     requirements = {"local": limit * 5 + 32 * MIB}
-    if storage_id != "local":
+    if storage_id not in {"local", "s3"}:
         requirements[storage_id] = limit
     return requirements
 

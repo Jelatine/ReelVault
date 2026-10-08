@@ -67,7 +67,10 @@ def store_file(
         shutil.move(str(src), dest)
     else:
         try:
-            dest.hardlink_to(src)
+            if (storage_id or settings.storage_default) == "s3":
+                shutil.copy2(src, dest)
+            else:
+                dest.hardlink_to(src)
         except OSError:
             shutil.copy2(src, dest)
     video = Video(
@@ -81,6 +84,10 @@ def store_file(
         source_path=source_path,
     )
     try:
+        if location_of(video.file_path) == "s3":
+            from .object_library import reserve_original
+
+            reserve_original(db, settings, dest.name)
         db.add(video)
         if commit:
             db.commit()

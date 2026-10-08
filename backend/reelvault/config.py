@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
@@ -13,6 +13,8 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
+
+from .object_types import ObjectRef
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 
@@ -29,6 +31,8 @@ class S3Config(BaseModel):
     session_token: SecretStr | None = None
     addressing_style: Literal["auto", "path", "virtual"] = "path"
     part_size_mb: int = Field(default=8, ge=5, le=128)
+    namespace_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    library_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
 
     @field_validator("prefix")
     @classmethod
@@ -63,6 +67,8 @@ class S3Config(BaseModel):
 
     @model_validator(mode="after")
     def credential_pair(self) -> S3Config:
+        if bool(self.namespace_id) != bool(self.library_id):
+            raise ValueError("S3 namespace identity requires a library identity")
         if bool(self.access_key) != bool(self.secret_key):
             raise ValueError("S3 access key and secret key must be supplied together")
         if self.session_token and not self.access_key:
@@ -113,6 +119,11 @@ class Settings(BaseSettings):
     storage_locations: dict[str, StorageRoot] = Field(default_factory=dict)
     storage_default: str = "local"
     s3: S3Config | None = Field(default=None, repr=False, exclude=True)
+    s3_current: str | None = Field(default=None, exclude=True)
+    s3_library_id: str | None = Field(default=None, exclude=True)
+    s3_namespaces: dict[str, dict[str, Any]] = Field(default_factory=dict, exclude=True)
+    s3_objects: dict[str, ObjectRef] = Field(default_factory=dict, exclude=True)
+    s3_error: str | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def valid_storage_registry(self) -> Settings:
@@ -120,7 +131,10 @@ class Settings(BaseSettings):
             not re.fullmatch(r"[a-f0-9]{32}", key) for key in self.storage_locations
         ):
             raise ValueError("Invalid storage location identifiers")
-        if self.storage_default != "local" and self.storage_default not in self.storage_locations:
+        if (
+            self.storage_default not in {"local", "s3"}
+            and self.storage_default not in self.storage_locations
+        ):
             raise ValueError("Default storage location is not registered")
         return self
 

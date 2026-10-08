@@ -451,6 +451,15 @@ class JobManager:
                     if stored:
                         stored.params = {**stored.params, **job.params}
                     db.commit()
+            from ..object_library import ensure_original
+
+            with self.sessionmaker() as db:
+                paths = [
+                    v.file_path
+                    for v in db.scalars(select(Video).where(Video.id.in_(job.video_ids)))
+                ]
+            for path in dict.fromkeys(paths):
+                await ensure_original(ctx, path)
             await handler(ctx, job)
         except Canceled:
             status, message = "canceled", "已取消"

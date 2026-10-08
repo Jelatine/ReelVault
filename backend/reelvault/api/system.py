@@ -240,7 +240,7 @@ class StorageEstimate(BaseModel):
     video_ids: list[str] = Field(default_factory=list, max_length=1000)
     edit: ops.EditParams | None = None
     batch: bool = False
-    storage_id: str | None = Field(default=None, pattern=r"^(local|[a-f0-9]{32})$")
+    storage_id: str | None = Field(default=None, pattern=r"^(local|s3|[a-f0-9]{32})$")
     output: OutputOptions = OutputOptions()
 
 
