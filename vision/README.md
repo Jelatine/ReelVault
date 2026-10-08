@@ -31,6 +31,16 @@ docker compose run --rm vision --prepare
 docker compose up -d
 ```
 
+也可直接拉取发布镜像代替构建。镜像已包含人脸可选依赖，但不含模型权重，仍需显式准备；未加 `--faces` 时不加载人脸模型：
+
+```bash
+cd vision
+export REELVAULT_VISION_TOKEN='替换为32到256字符的随机ASCII令牌'
+docker compose pull
+docker compose run --rm vision --prepare
+docker compose up -d
+```
+
 容器仅向主机回环地址暴露端口，模型放在独立持久卷中；主程序容器接入时需要配置私有容器网络。该 Compose 文件独立于主程序的默认启动文件，限制 2 个 CPU 和 3 GiB 内存。不要将端口直接公开；跨主机部署请使用私有网络与 HTTPS，令牌须与调用方一致。
 
 视觉服务独立升级：获取新版发布包中的 `vision/`，重新同步锁定依赖或重建容器，再以相同令牌启动。主程序的一键升级不会自动重启或升级此服务。模型提交改变时需显式准备新模型并重建对应的视频向量索引。
@@ -64,7 +74,7 @@ uv run --frozen --extra faces reelvault-vision --cache ./models --prepare-faces
 uv run --frozen --extra faces reelvault-vision --cache ./models --faces
 ```
 
-容器部署使用可选覆盖文件：
+容器部署使用可选覆盖文件（使用发布镜像时以 `docker compose pull` 代替 `build`）：
 
 ```bash
 docker compose -f compose.yml -f compose.faces.yml build
