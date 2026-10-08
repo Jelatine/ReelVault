@@ -85,7 +85,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       - name: Check version matches tag
         run: |
           version=$(grep -oP '__version__ = "\K[^"]+' backend/reelvault/__init__.py)
