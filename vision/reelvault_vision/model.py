@@ -21,6 +21,24 @@ MAX_IMAGE_BYTES = 1024 * 1024
 MAX_PIXELS = 1024 * 1024
 
 
+def decode_image(data: bytes) -> Any:
+    from PIL import Image, ImageOps
+
+    if not data or len(data) > MAX_IMAGE_BYTES:
+        raise ValueError("Image must be between 1 byte and 1 MiB")
+    with Image.open(io.BytesIO(data)) as image:
+        if image.format not in {"PNG", "JPEG", "WEBP"} or getattr(image, "n_frames", 1) != 1:
+            raise ValueError("Only static PNG, JPEG and WebP images are supported")
+        width, height = image.size
+        if min(width, height) <= 0 or max(width, height) > 1024 or width * height > MAX_PIXELS:
+            raise ValueError("Image dimensions must not exceed 1024×1024")
+        oriented = ImageOps.exif_transpose(image)
+        try:
+            return oriented.convert("RGB")
+        finally:
+            oriented.close()
+
+
 def snapshot(cache: Path, model: str, revision: str, download: bool = False) -> str:
     from huggingface_hub import snapshot_download
 
@@ -81,18 +99,5 @@ class Models:
         ]
 
     def image_vector(self, data: bytes) -> list[float]:
-        from PIL import Image, ImageOps
-
-        if not data or len(data) > MAX_IMAGE_BYTES:
-            raise ValueError("Image must be between 1 byte and 1 MiB")
-        with Image.open(io.BytesIO(data)) as image:
-            if image.format not in {"PNG", "JPEG", "WEBP"} or getattr(image, "n_frames", 1) != 1:
-                raise ValueError("Only static PNG, JPEG and WebP images are supported")
-            width, height = image.size
-            if min(width, height) <= 0 or max(width, height) > 1024 or width * height > MAX_PIXELS:
-                raise ValueError("Image dimensions must not exceed 1024×1024")
-            rgb = ImageOps.exif_transpose(image).convert("RGB")
-            try:
-                return normalized(self.image.encode(rgb, show_progress_bar=False))
-            finally:
-                rgb.close()
+        with decode_image(data) as rgb:
+            return normalized(self.image.encode(rgb, show_progress_bar=False))

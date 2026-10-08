@@ -15,6 +15,11 @@ dependencies = [
 [project.scripts]
 reelvault-vision = "reelvault_vision.__main__:main"
 
+[project.optional-dependencies]
+faces = [
+    "opencv-python-headless==4.11.0.86",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

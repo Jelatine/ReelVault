@@ -90,26 +90,37 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/clip-models
-          key: clip-b32-327ab672-multilingual-58edf8ca-safetensors-v1
-      - run: uv sync --frozen
+          key: clip-b32-327ab672-multilingual-58edf8ca-yunet-sface-v2
+          restore-keys: clip-b32-327ab672-multilingual-58edf8ca-safetensors-v1
+      - run: uv sync --frozen --extra faces
       - name: Lint and verify real offline multilingual CLIP
         env:
           REELVAULT_TEST_CLIP_CACHE: ${{ runner.temp }}/clip-models
+          REELVAULT_TEST_FACE_CACHE: ${{ runner.temp }}/clip-models
+          REELVAULT_TEST_FACE_IMAGE: ${{ runner.temp }}/face-fixture.jpg
         run: |
-          uv run --frozen ruff check .
-          uv run --frozen ruff format --check .
-          uv run --frozen reelvault-vision --cache "$REELVAULT_TEST_CLIP_CACHE" --prepare
-          uv run --frozen pytest -q
+          uv run --frozen --extra faces ruff check .
+          uv run --frozen --extra faces ruff format --check .
+          uv run --frozen --extra faces reelvault-vision --cache "$REELVAULT_TEST_CLIP_CACHE" --prepare
+          uv run --frozen --extra faces reelvault-vision --cache "$REELVAULT_TEST_FACE_CACHE" --prepare-faces
+          curl -fL --connect-timeout 15 --max-time 60 -o "$REELVAULT_TEST_FACE_IMAGE" https://raw.githubusercontent.com/opencv/opencv/4.11.0/samples/data/lena.jpg
+          printf '%s  %s\n' 7de7ed51a1594fff247f4cae2301eceacf5313d6011e37b4a4c8733f7bb72c07 "$REELVAULT_TEST_FACE_IMAGE" | sha256sum -c -
+          uv run --frozen --extra faces pytest -q
       - name: Verify independent container starts offline
         run: |
-          docker build -t reelvault-vision:ci .
-          docker run -d --name rv-vision --read-only --tmpfs /tmp:size=64m -p 127.0.0.1:8091:8091 -v "$RUNNER_TEMP/clip-models:/models:ro" -e REELVAULT_VISION_TOKEN=ci-vision-token-0123456789abcdef0123456789abcdef reelvault-vision:ci
+          docker build --build-arg REELVAULT_FACES_EXTRA=1 -t reelvault-vision:ci .
+          docker run -d --name rv-vision --read-only --tmpfs /tmp:size=64m -p 127.0.0.1:8091:8091 -v "$RUNNER_TEMP/clip-models:/models:ro" -e REELVAULT_VISION_TOKEN=ci-vision-token-0123456789abcdef0123456789abcdef reelvault-vision:ci --host 0.0.0.0 --faces
           for i in $(seq 1 60); do
             if curl -fsS -H 'Authorization: Bearer ci-vision-token-0123456789abcdef0123456789abcdef' http://127.0.0.1:8091/health; then exit 0; fi
             sleep 2
           done
           docker logs rv-vision
           exit 1
+
+      - name: Verify real offline face inference over authenticated container HTTP
+        run: |
+          curl -fsS --max-time 30 -H 'Authorization: Bearer ci-vision-token-0123456789abcdef0123456789abcdef' -H 'Content-Type: image/jpeg' --data-binary "@$RUNNER_TEMP/face-fixture.jpg" http://127.0.0.1:8091/embed/faces -o "$RUNNER_TEMP/face-result.json"
+          python -c 'import json, math, os; data=json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "face-result.json"))); assert data["face_dimension"] == 128; assert data["face_model"] == "yunet-sface-4f3f83ee562f91109d0098a7"; assert data["faces"]; vector=data["faces"][0]["vector"]; assert len(vector) == 128 and all(math.isfinite(v) for v in vector); assert abs(sum(v*v for v in vector)-1) < 0.0001'
 
       - name: Verify frame indexing and search against the real private container
         working-directory: backend

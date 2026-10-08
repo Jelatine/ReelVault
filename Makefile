@@ -33,7 +33,7 @@ package: build
 	rm -rf dist/reelvault-$(VERSION) && mkdir -p dist/reelvault-$(VERSION)/backend
 	cp -r backend/reelvault backend/pyproject.toml backend/uv.lock backend/.python-version dist/reelvault-$(VERSION)/backend/
 	mkdir -p dist/reelvault-$(VERSION)/vision
-	cp vision/pyproject.toml vision/uv.lock vision/Dockerfile vision/compose.yml vision/README.md vision/.dockerignore dist/reelvault-$(VERSION)/vision/
+	cp vision/pyproject.toml vision/uv.lock vision/Dockerfile vision/compose.yml vision/compose.faces.yml vision/README.md vision/.dockerignore dist/reelvault-$(VERSION)/vision/
 	cp -r vision/reelvault_vision dist/reelvault-$(VERSION)/vision/
 	cp -r deploy README.md LICENSE docker-compose.yml dist/reelvault-$(VERSION)/
 	find dist/reelvault-$(VERSION) -name __pycache__ -type d -prune -exec rm -rf {} +

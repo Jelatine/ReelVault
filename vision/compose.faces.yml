@@ -1,0 +1,8 @@
+# Optional override; default compose.yml does not install or start face models.
+services:
+  vision:
+    build:
+      context: .
+      args:
+        REELVAULT_FACES_EXTRA: "1"
+    command: ["--host", "0.0.0.0", "--faces"]

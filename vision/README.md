@@ -54,6 +54,35 @@ REELVAULT_VISION_MAX_FRAMES=240
 
 ## HTTP 协议 v1
 
+### 可选人脸模型
+
+人脸特征服务是 AI 场景标签／人脸聚类的基础；主程序分组及人工纠正界面继续实施，相关 TODO 尚未完成。普通 CLIP 部署不会安装 OpenCV、下载或加载人脸模型。源码部署显式执行：
+
+```bash
+uv sync --frozen --extra faces
+uv run --frozen --extra faces reelvault-vision --cache ./models --prepare-faces
+uv run --frozen --extra faces reelvault-vision --cache ./models --faces
+```
+
+容器部署使用可选覆盖文件：
+
+```bash
+docker compose -f compose.yml -f compose.faces.yml build
+docker compose -f compose.yml -f compose.faces.yml run --rm vision --prepare
+docker compose -f compose.yml -f compose.faces.yml run --rm vision --prepare-faces
+docker compose -f compose.yml -f compose.faces.yml up -d
+```
+
+采用固定 OpenCV Zoo 提交的 YuNet 2023mar 检测模型和 SFace 2021dec 特征模型，只显式准备下载；每次准备与启动均校验固定 SHA256 和大小。CPU 推理与 CLIP 共用锁，不增加独立推理进程，健康检查保持可响应；同样执行图片输入大小、格式、EXIF 旋转和尺寸限制。一次最多返回 16 张脸，检测分数最低 0.85、裁剪可见尺寸至少 24 像素；通过五点对齐产生归一化 128 维特征。局部、模糊或较小的人脸可能遗漏，特征相似不保证是同一人，后续聚类需要用户复核。
+
+启用后认证健康响应增加 `face_model` 和 `face_dimension`；`POST /embed/faces` 接收原始 PNG/JPEG/WebP 字节，返回 `faces`（每项含归一化 `box: [x,y,width,height]`、检测 `score` 和 `vector`）及模型标识。关闭时返回 403，未认证仍返回 401，繁忙时返回 503；不返回人物身份或推断属性。坐标对应 EXIF 校正后的图像。
+
+YuNet 的 [MIT 许可](https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/LICENSE) 与 SFace 的 [Apache-2.0 许可](https://github.com/opencv/opencv_zoo/blob/main/models/face_recognition_sface/LICENSE) 随服务包及模型缓存保存，位于 `reelvault_vision/licenses/`。API 用法与模型方法参考 [OpenCV 官方教程](https://docs.opencv.org/4.10.0/d0/dd4/tutorial_dnn_face.html)。
+
+真实人脸回归可设置 `REELVAULT_TEST_FACE_CACHE` 为已准备的模型缓存、`REELVAULT_TEST_FACE_IMAGE` 为包含人脸的测试图片路径，然后执行 `uv run --frozen --extra faces pytest -q`；测试不会自行下载模型或图片。
+
+### CLIP 向量
+
 所有端点需要 `Authorization: Bearer <令牌>`。无浏览器跨域支持，无文档公开端点。请求体至多 1 MiB；一次最多 16 条文字，每条 1–512 字符；图片仅支持静态 PNG/JPEG/WebP，尺寸不超过 1024×1024。
 
 | 请求 | 输入 | 返回 |

@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from .faces import FACE_DIMENSION, FACE_MODEL_ID, Faces
 from .model import DIMENSION, MAX_IMAGE_BYTES, MODEL_ID, Models
 
 
@@ -45,7 +46,15 @@ class TextInput(BaseModel):
         return value
 
 
-def create_app(cache: Path, token: str, threads: int = 2, models: Any = None) -> FastAPI:
+def create_app(
+    cache: Path,
+    token: str,
+    threads: int = 2,
+    models: Any = None,
+    *,
+    enable_faces: bool = False,
+    faces: Any = None,
+) -> FastAPI:
     if not 32 <= len(token) <= 256 or any(not 33 <= ord(c) <= 126 for c in token):
         raise ValueError("VISION_TOKEN requires 32–256 printable ASCII characters without spaces")
     if not 1 <= threads <= 32:
@@ -57,6 +66,11 @@ def create_app(cache: Path, token: str, threads: int = 2, models: Any = None) ->
             models if models is not None else await asyncio.to_thread(Models, cache, threads)
         )
         app.state.lock = asyncio.Lock()
+        app.state.faces = (
+            faces
+            if faces is not None
+            else (await asyncio.to_thread(Faces, cache, threads) if enable_faces else None)
+        )
         yield
 
     async def authenticate(request: Request) -> None:
@@ -76,14 +90,14 @@ def create_app(cache: Path, token: str, threads: int = 2, models: Any = None) ->
     def result(vectors: list[list[float]]) -> dict[str, Any]:
         return {"protocol": 1, "model": MODEL_ID, "dimension": DIMENSION, "vectors": vectors}
 
-    async def infer(function: Any, argument: Any) -> dict[str, Any]:
+    async def infer(function: Any, argument: Any, format_result: Any = result) -> dict[str, Any]:
         if app.state.lock.locked():
             raise HTTPException(503, "Vision service is busy", headers={"Retry-After": "1"})
         async with app.state.lock:
             # A disconnected client must not release the inference lock while its thread runs.
             task = asyncio.create_task(asyncio.to_thread(function, argument))
             try:
-                return result(await asyncio.shield(task))
+                return format_result(await asyncio.shield(task))
             except asyncio.CancelledError:
                 while not task.done():
                     try:
@@ -100,7 +114,35 @@ def create_app(cache: Path, token: str, threads: int = 2, models: Any = None) ->
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
-        return {"protocol": 1, "model": MODEL_ID, "dimension": DIMENSION, "ready": True}
+        status = {"protocol": 1, "model": MODEL_ID, "dimension": DIMENSION, "ready": True}
+        if app.state.faces is not None:
+            status["face_model"] = FACE_MODEL_ID
+            status["face_dimension"] = FACE_DIMENSION
+        return status
+
+    @app.post("/embed/faces")
+    async def face_vectors(request: Request) -> dict[str, Any]:
+        if app.state.faces is None:
+            raise HTTPException(403, "Face models are disabled")
+        if request.headers.get("content-type", "").split(";")[0] not in {
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "application/octet-stream",
+        }:
+            raise HTTPException(415, "Expected an image body")
+        return await infer(
+            app.state.faces.detect,
+            await request.body(),
+            lambda faces: {
+                "protocol": 1,
+                "model": MODEL_ID,
+                "dimension": DIMENSION,
+                "face_model": FACE_MODEL_ID,
+                "face_dimension": FACE_DIMENSION,
+                "faces": faces,
+            },
+        )
 
     @app.post("/embed/text")
     async def text(body: TextInput) -> dict[str, Any]:
