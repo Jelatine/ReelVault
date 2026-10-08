@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-10-08T15:18:18.101467+00:00",
+  "platform": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+  "family": "qsv",
+  "device": null,
+  "passed": false,
+  "operations": [
+    {
+      "operation": "h264",
+      "passed": false,
+      "error": "Hardware encoding required: {'requested': 'qsv', 'encoder': 'libx264', 'fallback': '[h264_qsv @ 0x57bc8d4b7c00] Error initializing an internal MFX session: unsupported (-3)\\nError initializing output stream 0:0 -- Error while opening encoder for output stream #0:0 - maybe incorrect parameters such as bit_rate, rate, width or height'}"
+    },
+    {
+      "operation": "h265",
+      "passed": false,
+      "error": "Hardware encoding required: {'requested': 'qsv', 'encoder': 'libx265', 'fallback': '[hevc_qsv @ 0x612826bc3e00] Error initializing an internal MFX session: unsupported (-3)\\nError initializing output stream 0:0 -- Error while opening encoder for output stream #0:0 - maybe incorrect parameters such as bit_rate, rate, width or height'}"
+    },
+    {
+      "operation": "rotate",
+      "passed": false,
+      "error": "Hardware encoding required: {'requested': 'qsv', 'encoder': 'libx264', 'fallback': '[h264_qsv @ 0x5b98b20441c0] Error initializing an internal MFX session: unsupported (-3)\\nError initializing output stream 0:0 -- Error while opening encoder for output stream #0:0 - maybe incorrect parameters such as bit_rate, rate, width or height'}"
+    },
+    {
+      "operation": "merge",
+      "passed": false,
+      "error": "Hardware encoding required: {'requested': 'qsv', 'encoder': 'libx264', 'fallback': '[h264_qsv @ 0x55fa7622a480] Error initializing an internal MFX session: unsupported (-3)\\nError initializing output stream 0:0 -- Error while opening encoder for output stream #0:0 - maybe incorrect parameters such as bit_rate, rate, width or height'}"
+    }
+  ],
+  "ffmpeg": "ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright (c) 2000-2021 the FFmpeg developers",
+  "gpu": "NVIDIA GeForce RTX 3060 Ti",
+  "driver_version": "32.0.16.1060",
+  "source_revision": "6b943ed2e89bf64f67551d16d1e966be507bee98",
+  "environment": {
+    "distribution": "Ubuntu 22.04.5 LTS",
+    "wsl": "3.0.1.0",
+    "wslg": "1.0.79",
+    "mesa_va_drivers": "23.2.1-1ubuntu3.1~22.04.3",
+    "libva": "2.14.0-1",
+    "python": "3.12.12",
+    "dev_dxg": true,
+    "dev_dri": false
+  }
+}

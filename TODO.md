@@ -127,6 +127,8 @@
 
 ## 实施验证记录
 
+- 2026-10-08：在当前 RTX 3060 Ti 主机的 WSL2 / Ubuntu 22.04.5 实际验证 QSV 与 VAAPI。已安装 FFmpeg 4.4.2、vainfo，使用 Python 3.12.12；Mesa 23.2.1 与 libva 2.14.0。WSL 可见 `/dev/dxg`，无 `/dev/dri`；通过 WSLg X11 `:0` 和 `LIBVA_DRIVER_NAME=d3d12` 尝试 VAAPI，四项均因 D3D12 驱动初始化失败（`resource allocation failed`）而回退软件；Wayland 的 vainfo 初始化也失败（`invalid parameter`）。QSV 四项均报 `MFX session: unsupported (-3)` 并回退软件。两组检查均正确返回非零退出码，报告见 `validation/hardware-vaapi-wsl.json` 与 `validation/hardware-qsv-wsl.json`；对应 TODO 保持未完成。该结果仅代表本机当前 WSL 驱动环境，不能据此认定 WSL 不支持 VAAPI。
+
 - 2026-10-08：新增独立入口 `python -m reelvault.media.hardware_check`，复用项目实际编辑计划与编码执行层，不加载依赖 Unix `fcntl` 的应用服务器；原有四项硬件 pytest 用例共用同一验证函数。当前 Windows 11 主机为 NVIDIA RTX 3060 Ti，驱动 `32.0.16.1060`，FFmpeg `2023-01-30-git-2d202985b7`。NVENC 四项通过；QSV 四项均报 `MFX session: -9` 并回退软件，检查正确返回失败，报告分别保存在 `validation/hardware-nvenc-windows.json` 与 `validation/hardware-qsv-windows.json`。本机未检测到 Intel GPU，也不具备 Linux VAAPI 渲染设备，因此 QSV／VAAPI 继续保留待验证。
 
 - 2026-10-08：Windows 验证机检测到已启动的 Intel Iris Xe Graphics；FFmpeg 7.1 编译了 QSV／VAAPI／NVENC。直接使用 `h264_qsv` 与 `hevc_qsv` 对 320×240、30 fps 的测试图像编码 1 秒，两项命令均以退出码 0 完成。项目 `tests/test_encoding.py` 的四项 QSV 用例无法在原生 Windows 加载：后端导入 Unix `fcntl` 时抛出 `ModuleNotFoundError`；WSL 可见 `/dev/dxg`，但无 `/dev/dri`、FFmpeg 或 uv。该验证仅证明当前 Windows 环境的 QSV 基础编码可用，不等于项目级四项通过。未检测到 NVIDIA 显卡，VAAPI 无 Linux 渲染设备；最后一项保持未勾选。
