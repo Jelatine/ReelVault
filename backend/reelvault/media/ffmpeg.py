@@ -33,13 +33,21 @@ class ProcessHandle:
     _resumed: asyncio.Event = field(default_factory=asyncio.Event)
 
     def _signal(self, signal_number: int) -> None:
-        if self.process:
+        proc = self.process
+        if proc:
             with contextlib.suppress(ProcessLookupError):
                 if self.process_group:
                     # A wrapper may have exited while descendants still own the pipes.
-                    os.killpg(self.process.pid, signal_number)
-                elif self.process.returncode is None:
-                    self.process.send_signal(signal_number)
+                    try:
+                        os.killpg(proc.pid, signal_number)
+                    except PermissionError:
+                        # Darwin can report EPERM for a departed process group. A
+                        # completed child must not abort cancellation or shutdown;
+                        # permission failures for a live child remain actionable.
+                        if proc.returncode is None:
+                            raise
+                elif proc.returncode is None:
+                    proc.send_signal(signal_number)
 
     def pause(self) -> None:
         self.paused = True

@@ -6,12 +6,27 @@ import os
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from reelvault.media.ffmpeg import Canceled, ProcessHandle, run_command
 
 from .conftest import upload_ready, wait_job
+
+
+def test_departed_process_group_does_not_abort_cancel(monkeypatch):
+    def denied(pid, sig):
+        raise PermissionError("departed process group")
+
+    monkeypatch.setattr(os, "killpg", denied)
+    proc = SimpleNamespace(pid=12345, returncode=0)
+    handle = ProcessHandle(process=proc, process_group=True)
+    handle.cancel()
+    assert handle.canceled and not handle.paused
+    proc.returncode = None
+    with pytest.raises(PermissionError):
+        handle.cancel()
 
 
 def slow_worker(tmp_path):
