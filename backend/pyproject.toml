@@ -26,6 +26,10 @@ reelvault = "reelvault.__main__:main"
 link-import = [
     "yt-dlp[default]>=2026.8.19",
 ]
+transcription = [
+    "av>=11,<19",
+    "faster-whisper==1.2.1",
+]
 
 [dependency-groups]
 dev = [

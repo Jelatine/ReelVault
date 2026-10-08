@@ -108,6 +108,7 @@ def test_online_export_offline_restore(
         assert client.get(f"/api/videos/{video['id']}/playback").json()["position"] == 1.5
         assert client.get(f"/api/videos/{video['id']}/stream").status_code == 200
         assert client.get(f"/api/videos/{video['id']}/subtitles").json()[0]["label"] == "English"
+        assert client.get("/api/content-search?q=Restored%20caption").json()["total"] == 1
         (target.assets_dir / f"{subtitle['id']}.webvtt").unlink()
         assert "Restored caption" in client.get(f"/api/subtitle-assets/{subtitle['id']}/vtt").text
         assert client.get("/api/lut-assets").json()[0] == lut

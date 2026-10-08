@@ -1,0 +1,93 @@
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { expect, test } from '@playwright/test'
+
+const headers = { 'X-Requested-With': 'ReelVault' }
+async function login(page: import('@playwright/test').Page) {
+  await page.goto('/login')
+  await page.getByRole('textbox', { name: '用户名', exact: true }).fill('e2e-admin')
+  await page.getByLabel(/^密码/).fill('e2e-secret123')
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '首页', exact: true })).toBeVisible()
+}
+async function upload(page: import('@playwright/test').Page, data: Buffer, name: string) {
+  const incoming = await (await page.request.post('/api/uploads', { headers, data: { filename: name, size: data.length } })).json()
+  expect((await page.request.put(`/api/uploads/${incoming.id}?offset=0`, { headers, data })).ok()).toBe(true)
+  const video = await (await page.request.post(`/api/uploads/${incoming.id}/complete`, { headers })).json()
+  await expect.poll(async () => (await (await page.request.get(`/api/videos/${video.id}`)).json()).status).toBe('ready')
+  return video
+}
+
+test('字幕全文搜索、时间点跳转、故障刷新恢复和手机英文布局', async ({ page }, testInfo) => {
+  await login(page)
+  const source = execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=blue:size=320x240:rate=15:duration=6', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1'])
+  const video = await upload(page, source, '字幕内容搜索.mp4')
+  const vtt = 'WEBVTT\n\n00:00:02.250 --> 00:00:04.000\n紫色的大象来到海边散步\n'
+  const asset = await (await page.request.post('/api/subtitle-assets', { headers, multipart: { file: { name: 'speech.vtt', mimeType: 'text/vtt', buffer: Buffer.from(vtt) } } })).json()
+  expect(asset.id).toBeTruthy()
+  const track = await (await page.request.post(`/api/videos/${video.id}/subtitles`, { headers, data: { asset_id: asset.id, label: '中文字幕', language: 'zh' } })).json()
+  await page.goto('/content')
+  await page.getByRole('textbox', { name: '搜索字幕内容', exact: true }).fill('海边')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await expect(page.getByText('找到 1 个字幕片段', { exact: true })).toBeVisible()
+  await page.getByRole('link', { name: /字幕内容搜索/ }).click()
+  await expect.poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.currentTime)).toBeCloseTo(2.25, 1)
+  expect(new URL(page.url()).searchParams.get('t')).toBe('2.250')
+  expect((await page.request.put(`/api/videos/${video.id}/playback`, { headers, data: { position: 4.5, started: true } })).ok()).toBe(true)
+  await page.goto(`/videos/${video.id}?t=2.250&resume=1`)
+  await expect.poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.currentTime)).toBeCloseTo(2.25, 1)
+  await expect(page.getByText('管理员尚未启用本地语音转写。已添加的字幕仍可进行内容搜索。')).toBeVisible()
+  await page.getByRole('link', { name: '搜索此视频的字幕', exact: true }).click()
+  expect(new URL(page.url()).searchParams.get('video_id')).toBe(video.id)
+  await page.getByRole('textbox', { name: '搜索字幕内容', exact: true }).fill('紫色')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await expect(page.getByText('找到 1 个字幕片段', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '用户菜单', exact: true }).click()
+  await page.getByRole('menu').getByLabel('界面语言').selectOption('en')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page.getByRole('heading', { name: 'Content search', exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('content-search-mobile-english.png'), animations: 'disabled' })
+  let fail = true
+  await page.route('**/api/content-search?**', route => fail ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Temporary failure' }) }) : route.continue())
+  await page.reload()
+  await expect(page.getByRole('alert')).toContainText('Temporary failure')
+  fail = false
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await expect(page.getByText('Matching subtitle segments: 1', { exact: true })).toBeVisible()
+  expect((await page.request.delete(`/api/videos/${video.id}/subtitles/${track.id}`, { headers })).ok()).toBe(true)
+  await page.reload()
+  await expect(page.getByText('Matching subtitle segments: 0', { exact: true })).toBeVisible()
+  expect(await (await page.request.get(`/api/videos/${video.id}/download`)).body()).toEqual(source)
+})
+
+test('真实 Whisper 转写字幕并从搜索结果定位', async ({ page }, testInfo) => {
+  test.skip(!process.env.REELVAULT_TEST_WHISPER_CACHE || !process.env.REELVAULT_TEST_SPEECH, 'requires a prepared local Whisper model and speech fixture')
+  await login(page)
+  const video = await upload(page, readFileSync(process.env.REELVAULT_TEST_SPEECH!), '真实语音.mp4')
+  await page.goto(`/videos/${video.id}`)
+  await page.getByRole('button', { name: '转写语音', exact: true }).click()
+  await expect(page.getByText(/^已生成 [1-9].* 个字幕片段/)).toBeVisible()
+  await page.getByRole('link', { name: '搜索此视频的字幕', exact: true }).click()
+  await page.getByRole('textbox', { name: '搜索字幕内容', exact: true }).fill('purple elephant')
+  await page.getByRole('button', { name: '搜索', exact: true }).click()
+  await expect(page.getByText(/^找到 [1-9].* 个字幕片段$/)).toBeVisible()
+  await page.getByRole('link', { name: /真实语音/ }).click()
+  await expect.poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThanOrEqual(2)
+  await page.locator('video').evaluate((el: HTMLVideoElement) => el.play())
+  await expect.poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.currentTime)).toBeGreaterThan(0.1)
+  await page.getByRole('button', { name: '用户菜单', exact: true }).click()
+  await page.getByRole('menu').getByLabel('界面语言').selectOption('en')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByText('Speech transcription and content search', { exact: true }).scrollIntoViewIfNeeded()
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('transcription-mobile-english.png'), animations: 'disabled' })
+  const silence = execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=black:size=320x180:rate=15:duration=3', '-f', 'lavfi', '-i', 'anullsrc=r=16000:cl=mono', '-t', '3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1'])
+  const silent = await upload(page, silence, 'silence.mp4')
+  await page.goto(`/videos/${silent.id}`)
+  await page.getByRole('button', { name: 'Transcribe speech', exact: true }).click()
+  await expect(page.getByText('Transcription complete; no speech detected', { exact: true })).toBeVisible()
+  expect((await (await page.request.get(`/api/videos/${silent.id}/transcription`)).json()).track.segments).toBe(0)
+})

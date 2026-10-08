@@ -361,6 +361,17 @@ async def retry_job(
         if old.kind == "ingest":
             video.status, video.error = "processing", None
     params = copy.deepcopy(old.params)
+    if old.kind == "transcribe":
+        from ..transcription import check_enabled, estimate
+        from .scenes import ready_video, signature
+        from .transcription import active
+
+        video = ready_video(db, old.video_ids[0])
+        check_enabled(jobs.settings, video)
+        if active(db, jobs, video.id):
+            raise APIError(409, "请先结束语音转写任务", code="transcription_busy")
+        params["signature"] = signature(jobs.settings, video)
+        params["storage_bytes"] = estimate(video)
     if old.kind == "playable":
         from ..playback_cache import cached_path, estimate, needs_copy
         from .playback_cache import active

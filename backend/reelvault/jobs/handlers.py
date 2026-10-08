@@ -35,6 +35,7 @@ from ..storage import MIB, check_budget
 from .duplicates import duplicates
 from .links import link_import
 from .manager import Handler, JobContext
+from .transcription import transcribe
 
 edit_params: TypeAdapter[ops.EditParams] = TypeAdapter(ops.EditParams)
 
@@ -692,6 +693,7 @@ HANDLERS: dict[str, Handler] = {
     "scenes": scenes,
     "hls": hls,
     "playable": playable,
+    "transcribe": transcribe,
     "edit": edit,
     "duplicates": duplicates,
 }

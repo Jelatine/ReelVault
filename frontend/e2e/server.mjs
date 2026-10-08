@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
@@ -7,6 +7,10 @@ import { resolve } from 'node:path'
 const data = mkdtempSync(resolve(tmpdir(), 'reelvault-e2e-'))
 const incoming = mkdtempSync(resolve(tmpdir(), 'reelvault-incoming-'))
 const backend = resolve('../backend')
+if (process.env.REELVAULT_TEST_WHISPER_CACHE) {
+  mkdirSync(resolve(data, 'models'), { recursive: true })
+  symlinkSync(resolve(process.env.REELVAULT_TEST_WHISPER_CACHE), resolve(data, 'models/whisper'), 'dir')
+}
 const server = spawn(resolve(backend, '.venv/bin/python'), ['-m', 'reelvault'], {
   cwd: backend,
   stdio: 'inherit',

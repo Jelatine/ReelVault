@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import require_auth
 from ..config import Settings
+from ..content_search import index_track
 from ..db import get_db
 from ..errors import APIError
 from ..library import abs_path, rel_path
@@ -22,6 +23,7 @@ from ..media.probe import subtitle_streams
 from ..media.subtitles import FORMATS, to_vtt
 from ..models import EditPreset, Job, MediaAsset, SubtitleTrack, Video, new_id
 from .deps import get_settings
+from .scenes import signature
 from .videos import get_video
 
 router = APIRouter(prefix="/api", tags=["subtitles"], dependencies=[Depends(require_auth)])
@@ -105,6 +107,11 @@ async def asset_vtt(
     cache = settings.assets_dir / f"{asset.id}.webvtt"
     if cache.is_file():
         data = cache.read_bytes()
+    elif asset.meta.get("transcription_model") and Path(asset.file_path).suffix == ".vtt":
+        # Silence can legitimately produce an empty generated VTT. FFmpeg's regular
+        # upload validator rejects empty tracks, so use the stored canonical file.
+        data = abs_path(settings, asset.file_path).read_bytes()
+        cache.write_bytes(data)
     else:
         try:
             data = await to_vtt(settings.ffmpeg, abs_path(settings, asset.file_path))
@@ -129,9 +136,9 @@ async def attach(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, str]:
-    get_video(db, video_id)
+    video = get_video(db, video_id)
     try:
-        checked_asset(db, settings, body.asset_id, "subtitle")
+        asset = checked_asset(db, settings, body.asset_id, "subtitle")
     except AssetError as error:
         raise APIError(400, str(error), code="subtitle_asset_invalid") from error
     if db.scalar(
@@ -145,8 +152,23 @@ async def attach(
         asset_id=body.asset_id,
         label=body.label.strip() or "字幕",
         language=body.language,
+        source_signature=signature(settings, video),
     )
+    cache = settings.assets_dir / f"{asset.id}.webvtt"
+    try:
+        data = (
+            cache.read_bytes()
+            if cache.is_file()
+            else await to_vtt(settings.ffmpeg, abs_path(settings, asset.file_path))
+        )
+    except (FFmpegError, TimeoutError) as error:
+        raise APIError(400, "字幕没有有效片段或无法解析", code="subtitle_invalid") from error
     db.add(track)
+    try:
+        index_track(db, track, data)
+    except (ValueError, UnicodeError) as error:
+        db.rollback()
+        raise APIError(400, "字幕没有有效片段或无法解析", code="subtitle_invalid") from error
     db.commit()
     return {"id": track.id}
 

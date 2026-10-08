@@ -68,11 +68,12 @@ export default function SearchBox({ inputRef }: { inputRef: RefObject<HTMLInputE
     if (value.trim()) { next.set('q', value.trim()); if (value.trim().length <= 512) remember.mutate(value.trim()) }
     else next.delete('q')
     next.delete('page')
-    const searchURL = '/library' + (next.size ? `?${next.toString()}` : '')
+    const searchPath = location.pathname === '/content' ? '/content' : '/library'
+    const searchURL = searchPath + (next.size ? `?${next.toString()}` : '')
     setPendingSearches(current => ({ ...current, [searchURL]: draftRevision }))
     setLatestSearchURL(searchURL)
     combobox.closeDropdown()
-    navigate({ pathname: '/library', search: next.toString() })
+    navigate({ pathname: searchPath, search: next.toString() })
   }
   const choose = (value: string) => {
     const [kind, id] = value.split(':')

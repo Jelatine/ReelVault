@@ -650,5 +650,25 @@
   "playback_cache_busy": {
     "zh": "请先结束播放缓存生成任务",
     "en": "Finish or cancel the playback cache task first."
+  },
+  "transcription_disabled": {
+    "en": "Local speech transcription is disabled.",
+    "zh": "管理员尚未启用本地语音转写"
+  },
+  "transcription_dependency_missing": {
+    "en": "Install the optional transcription dependency.",
+    "zh": "请安装可选 transcription 依赖"
+  },
+  "transcription_no_audio": {
+    "en": "This video has no audio track.",
+    "zh": "视频没有音轨"
+  },
+  "transcription_duration_limit": {
+    "en": "This video exceeds the transcription duration limit of {{hours}} hours.",
+    "zh": "视频超过部署设置的转写时长上限（{{hours}} 小时）"
+  },
+  "transcription_busy": {
+    "en": "Finish the active transcription task first.",
+    "zh": "请先结束语音转写任务"
   }
 }

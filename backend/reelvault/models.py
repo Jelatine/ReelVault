@@ -292,6 +292,20 @@ class SubtitleTrack(Base):
     asset_id: Mapped[str] = mapped_column(ForeignKey("media_assets.id", ondelete="RESTRICT"))
     label: Mapped[str] = mapped_column(String(128))
     language: Mapped[str] = mapped_column(String(35), default="und")
+    generated: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    source_signature: Mapped[list[Any] | None] = mapped_column(JSON)
+
+
+class SubtitleCue(Base):
+    __tablename__ = "subtitle_cues"
+    __table_args__ = (CheckConstraint("start >= 0 AND end > start", name="subtitle_cue_time"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    track_id: Mapped[str] = mapped_column(
+        ForeignKey("subtitle_tracks.id", ondelete="CASCADE"), index=True
+    )
+    start: Mapped[float] = mapped_column(Float)
+    end: Mapped[float] = mapped_column(Float)
+    text: Mapped[str] = mapped_column(Text)
 
 
 class Playback(Base):

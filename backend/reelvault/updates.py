@@ -449,14 +449,21 @@ class Updater:
             "UV_CACHE_DIR": str(self.app_dir / ".uv-cache"),
         }
         args = [self.settings.uv, "sync", "--project", str(self.app_dir), "--frozen", "--no-dev"]
-        if self.settings.link_import_enabled or importlib.util.find_spec("yt_dlp"):
+        extras = (
+            ("link-import", self.settings.link_import_enabled, "yt_dlp"),
+            ("transcription", self.settings.transcription_enabled, "faster_whisper"),
+        )
+        if any(enabled or importlib.util.find_spec(module) for _, enabled, module in extras):
             try:
                 project = tomllib.loads((self.app_dir / "pyproject.toml").read_text())
             except (OSError, tomllib.TOMLDecodeError):
                 project = {}
             # Inspect the staged manifest again on rollback: older releases lack this extra.
-            if "link-import" in project.get("project", {}).get("optional-dependencies", {}):
-                args.extend(["--extra", "link-import"])
+            for extra, enabled, module in extras:
+                if (enabled or importlib.util.find_spec(module)) and extra in project.get(
+                    "project", {}
+                ).get("optional-dependencies", {}):
+                    args.extend(["--extra", extra])
         result = subprocess.run(
             args,
             env=env,

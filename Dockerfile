@@ -26,16 +26,19 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 ARG REELVAULT_LINK_IMPORT_EXTRA=0
+ARG REELVAULT_TRANSCRIPTION_EXTRA=0
 RUN --mount=from=deno,source=/deno,target=/tmp/deno \
     if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then install -m 755 /tmp/deno /usr/local/bin/deno; fi
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then \
-        uv sync --frozen --no-dev --no-install-project --extra link-import; \
-    else uv sync --frozen --no-dev --no-install-project; fi
+RUN set --; \
+    if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then set -- "$@" --extra link-import; fi; \
+    if [ "$REELVAULT_TRANSCRIPTION_EXTRA" = "1" ]; then set -- "$@" --extra transcription; fi; \
+    uv sync --frozen --no-dev --no-install-project "$@"
 COPY backend/reelvault ./reelvault
-RUN if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then \
-        uv sync --frozen --no-dev --extra link-import; \
-    else uv sync --frozen --no-dev; fi
+RUN set --; \
+    if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then set -- "$@" --extra link-import; fi; \
+    if [ "$REELVAULT_TRANSCRIPTION_EXTRA" = "1" ]; then set -- "$@" --extra transcription; fi; \
+    uv sync --frozen --no-dev "$@"
 COPY --from=web /web/dist ./reelvault/static
 
 RUN useradd --system --uid 1000 --home /data reelvault \

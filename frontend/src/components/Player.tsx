@@ -26,6 +26,7 @@ interface Props {
   onTimeUpdate?: (t: number) => void
   autoPlay?: boolean
   resumePlayback?: boolean
+  initialTime?: number
   onEnded?: () => void
   bookmarks?: Bookmark[]
   chapters?: Chapter[]
@@ -35,7 +36,7 @@ interface Props {
   resumeSource?: { position: number; playing: boolean; token: number }
 }
 
-const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, resumePlayback, onEnded, playbackRate, loopRange, hlsUrl, resumeSource, bookmarks = [], chapters = [] }, ref) {
+const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, onTimeUpdate, autoPlay, resumePlayback, initialTime, onEnded, playbackRate, loopRange, hlsUrl, resumeSource, bookmarks = [], chapters = [] }, ref) {
   useTranslation()
 
   const player = useRef<MediaPlayerInstance>(null)
@@ -52,6 +53,17 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
   const [sourceError, setSourceError] = useState<{ url: string; message: string }>()
   const resumedToken = useRef<number | undefined>(undefined)
   const historyResumed = useRef(false)
+  const initialSeek = useRef<string | undefined>(undefined)
+  const seekInitial = useCallback(() => {
+    if (initialTime === undefined || !Number.isFinite(initialTime) || initialTime < 0 || !player.current?.state.canPlay) return
+    const key = `${video.id}:${initialTime}`
+    if (initialSeek.current === key) return
+    initialSeek.current = key
+    const position = Math.min(initialTime, video.duration)
+    player.current.currentTime = position
+    onTimeUpdate?.(position)
+  }, [initialTime, video.id, video.duration, onTimeUpdate])
+  useEffect(seekInitial, [seekInitial])
   const played = useRef(false)
   const [hasPlayed, setHasPlayed] = useState(false)
   const lastReport = useRef(0)
@@ -68,12 +80,12 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
   })
   const resumeFromHistory = useCallback(() => {
     const position = history.data?.position
-    if (!resumePlayback || historyResumed.current || position == null || position <= 1
+    if (initialTime !== undefined || !resumePlayback || historyResumed.current || position == null || position <= 1
       || position >= video.duration - 1 || !player.current?.state.canPlay) return
     historyResumed.current = true
     player.current.currentTime = position
     void player.current.play().catch(() => {})
-  }, [resumePlayback, history.data?.position, video.duration])
+  }, [initialTime, resumePlayback, history.data?.position, video.duration])
   useEffect(resumeFromHistory, [resumeFromHistory])
   const report = (position: number) => {
     if (!played.current || video.deleted_at) return
@@ -131,6 +143,7 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
       }}
       onError={(error) => { if (hlsUrl) setSourceError({ url: hlsUrl, message: error.message }) }}
       onCanPlay={() => {
+        seekInitial()
         resumeFromHistory()
         if (resumeSource && resumedToken.current !== resumeSource.token && player.current) {
           resumedToken.current = resumeSource.token

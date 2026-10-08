@@ -68,6 +68,7 @@ import { formatBytes, formatDate, formatDuration } from '../lib/format'
 import { useJobs, useVideo } from '../lib/queries'
 import type { Video } from '../lib/types'
 import MetadataPanel from '../components/MetadataPanel'
+import TranscriptionPanel from '../components/TranscriptionPanel'
 
 import { ShareButton } from '../components/SharePanel'
 
@@ -209,6 +210,8 @@ export default function VideoPage() {
   const [time, setTime] = useState(0)
   const [overlay, setOverlay] = useState<Overlay>({})
   const tool = params.get('tool') ?? 'trim'
+  const requestedTime = params.has('t') ? Number(params.get('t')) : undefined
+  const initialTime = requestedTime !== undefined && Number.isFinite(requestedTime) && requestedTime >= 0 ? requestedTime : undefined
   const mergeIds = params.get('ids')?.split(',').filter(Boolean)
 
   const switchSource = (useHls: boolean) => {
@@ -281,6 +284,7 @@ export default function VideoPage() {
                 hlsUrl={usingHls ? hls.data!.package!.url : undefined} resumeSource={resumeSource}
                 autoPlay={params.get('autoplay') === '1' && ready}
                 resumePlayback={params.get('resume') === '1' && ready}
+                initialTime={initialTime}
                 onEnded={() => {
                   if (!preferences.autoNext || !ready) return
                   if (folderMode) {
@@ -335,6 +339,7 @@ export default function VideoPage() {
               }} />}
 
             {ready && <BookmarkPanel key={`bookmarks:${video.stream_url}`} video={video} currentTime={time} seek={seek} />}
+            {ready && <TranscriptionPanel key={`transcription:${video.id}`} video={video} />}
 
             {ready && tool === 'trim' && <FrameControls video={video} currentTime={time} seek={seek} pause={pause} />}
 

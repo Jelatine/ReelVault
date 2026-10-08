@@ -43,6 +43,7 @@ from .api import (
     subtitles,
     system,
     tags,
+    transcription,
     two_factor,
     videos,
 )
@@ -50,6 +51,7 @@ from .api import auth as auth_api
 from .auth import LoginLimiter, hash_password
 from .backup import backup_before_migration, library_lock
 from .config import Settings
+from .content_search import backfill as backfill_subtitles
 from .db import make_engine, make_sessionmaker
 from .errors import install_error_handlers
 from .importer import Importer
@@ -170,6 +172,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             upgrade(engine)
             app.state.engine = engine
             app.state.sessionmaker = make_sessionmaker(engine)
+            with app.state.sessionmaker() as db:
+                await backfill_subtitles(db, settings)
             with app.state.sessionmaker() as db:
                 saved = db.get(RuntimeSetting, "encoding")
                 if saved:
@@ -305,6 +309,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         images.router,
         luts.router,
         subtitles.router,
+        transcription.router,
         collections.router,
         dashboard.router,
         duplicates.router,

@@ -39,7 +39,7 @@ import {
   IconX,
 } from '@tabler/icons-react'
 import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from 'react'
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import BatchEditForm from '../editor/BatchEditForm'
 import AdvancedFilters from '../components/AdvancedFilters'
 import { FILTER_KEYS } from '../lib/filters'
@@ -304,6 +304,7 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
       <Group justify="space-between">
         <Group gap="xs">
           <Title order={3} style={{ maxWidth: '100%', overflowWrap: 'anywhere' }}>{title}</Title>
+          {q && <Button size="xs" variant="subtle" component={Link} to={`/content?q=${encodeURIComponent(q)}`}>{tr('搜索字幕内容')}</Button>}
           <Text c="dimmed" size="sm">
             {data?.total ?? 0}{tr(" 个视频")}</Text>
           {(q || tag) && (

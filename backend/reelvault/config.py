@@ -75,6 +75,11 @@ class Settings(BaseSettings):
 
     # Number of concurrent ffmpeg jobs.
     workers: int = 2
+    transcription_enabled: bool = False
+    transcription_model: Literal["tiny", "base", "small", "medium", "large-v3"] = "base"
+    transcription_download_model: bool = False
+    transcription_threads: int = Field(2, ge=1, le=32)
+    transcription_max_hours: int = Field(6, ge=1, le=24)
     encoder: Literal["software", "auto", "videotoolbox", "qsv", "vaapi", "nvenc"] = "software"
     hls_enabled: bool = False
     playable_eager_max_mb: int = Field(256, ge=0, le=102400)

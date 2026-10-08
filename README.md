@@ -644,3 +644,45 @@ scrape_configs:
 磁盘指标带稳定位置 ID；同一文件系统上的目录共享容量和预算，不应相加。任务种类与状态标签限定为固定集合，不使用用户名、视频标题、URL 或每个任务的 ID。累计指标独立持久化，删除任务记录、重启或升级不会减少计数；恢复旧备份可能重新设定累计基线。历史任务不回填，新任务和升级时尚未结束的任务从启用版本起统计。
 
 常用查询：队列长度 `sum(reelvault_jobs{status="queued"})`；15 分钟任务 P95 `histogram_quantile(0.95, sum by (kind, le) (rate(reelvault_job_duration_seconds_bucket[15m])))`；主磁盘可用空间 `reelvault_storage_available_bytes{location="local"}`。
+
+### 本地语音转写与内容搜索
+
+「内容搜索」检索手动添加及 Whisper 转写的字幕。每个结果显示原文和时间范围，点击标题/时间点直接在播放器定位；可限制为某个视频，也可组合 `tag:`、`rating:`、`duration:` 条件。中文一两个字也可搜索，多个关键词必须出现在同一字幕片段，不进行拼音或语义扩展。视频库的关键词结果可切换到字幕内容搜索。回收站和不可用源文件不参与搜索；源文件签名变化后旧转写不再提供过期时间点。
+
+视频详情提供「语音转写与内容搜索」面板，选择自动识别或指定语言后提交后台任务。采用 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 的 Whisper 模型，在服务器本地以 CPU/int8 推理，音视频不会发送给识别服务。生成外挂 WebVTT 字幕，可在播放器中切换或用已有字幕烧录功能编辑；未识别到语音时返回空字幕及明确提示，不制造片段。重新转写仅在成功后替换上一次生成的轨道，失败/取消保留已有字幕。移除转写清理其轨道与搜索索引，手动添加的字幕保留；字幕素材仍按现有素材管理和编辑历史规则保留。
+
+转写默认关闭，普通安装不包含模型依赖。源码部署在 `backend/` 运行：
+
+```bash
+uv sync --frozen --extra transcription
+uv run --frozen --extra transcription python -m reelvault.media.transcription_worker \
+  --prepare --model base --cache /absolute/path/to/data/models/whisper
+```
+
+`--cache` 必须指向实际 `REELVAULT_DATA_DIR` 下的 `models/whisper`。如同时使用链接导入，同步依赖时同时添加 `--extra link-import`。Ubuntu 安装可执行 `sudo env REELVAULT_TRANSCRIPTION_EXTRA=1 ./deploy/install.sh`，或由服务账号在 `/opt/reelvault` 同步该依赖；准备模型也必须以服务账号执行，保证模型可读写。首次准备从 Hugging Face 下载模型，需要服务器联网；完成后普通任务默认只读取本地模型，不联网下载。模型目录属于媒体之外的可重建缓存，元数据备份不包含它，迁移服务器时需复制或重新准备。
+
+随后设置部署环境并重启服务：
+
+```dotenv
+REELVAULT_TRANSCRIPTION_ENABLED=true
+REELVAULT_TRANSCRIPTION_MODEL=base
+REELVAULT_TRANSCRIPTION_THREADS=2
+REELVAULT_TRANSCRIPTION_MAX_HOURS=6
+REELVAULT_TRANSCRIPTION_DOWNLOAD_MODEL=false
+```
+
+模型可选 `tiny`、`base`、`small`、`medium`、`large-v3`，更大模型占用更多内存；切换后先用相同 `--model` 准备相应模型。部署者也可显式设置 `REELVAULT_TRANSCRIPTION_DOWNLOAD_MODEL=true`，允许任务加载模型时下载；加载阶段不伪造百分比，用户仍可暂停或取消。默认单个视频最多六小时，部署可调整到 1–24 小时；任务会预留 16 kHz 单声道 WAV 的磁盘空间，并验证字幕大小、数量与时间范围。
+
+Docker 使用可选镜像构建参数，随后在运行的容器中准备模型：
+
+```bash
+docker build --build-arg REELVAULT_TRANSCRIPTION_EXTRA=1 -t reelvault:transcription .
+docker run -d --name reelvault -p 8080:8080 -v "$PWD/data:/data" \
+  -e REELVAULT_TRANSCRIPTION_ENABLED=true reelvault:transcription
+docker exec reelvault python -m reelvault.media.transcription_worker \
+  --prepare --model base --cache /data/models/whisper
+```
+
+模型加载、识别和音轨提取均在可控制子进程中，接入现有暂停/继续/取消、优先级和失败重试。不同视频仍可并行，同源操作串行；每个并行转写任务会各自加载模型，低内存部署可减少 `REELVAULT_WORKERS` 或选用较小模型。在线升级保留启用或已安装的可选依赖，回滚旧版本时按旧清单同步。PyAV 锁定兼容版本，避免其新接口变化导致识别无法启动。
+
+验证真实识别时可提供自备语音视频与已准备的 tiny 模型缓存，执行 `REELVAULT_TEST_WHISPER_CACHE=/path/to/cache REELVAULT_TEST_SPEECH=/path/to/speech.mp4 .venv/bin/pytest -q tests/test_content_search.py::test_real_whisper_transcribes_and_indexes_speech`。CI 单独合成语音并验证 CPU 模型、字幕发布与时间索引；普通测试不会自行下载模型。

@@ -42,8 +42,12 @@ cp -r "$SRC_DIR/backend/reelvault" "$SRC_DIR/backend/pyproject.toml" "$SRC_DIR/b
 chown -R reelvault:reelvault "$APP_DIR"
 
 echo "==> 安装 Python 依赖"
+EXTRAS=()
+if [[ "${REELVAULT_TRANSCRIPTION_EXTRA:-0}" == "1" ]] || grep -Eq '^REELVAULT_TRANSCRIPTION_ENABLED=(true|1)$' "$CONF_DIR/reelvault.env" 2>/dev/null; then
+  EXTRAS+=(--extra transcription)
+fi
 sudo -u reelvault env HOME="$DATA_DIR" UV_PYTHON_INSTALL_DIR="$APP_DIR/.python" \
-  UV_CACHE_DIR="$APP_DIR/.uv-cache" uv sync --project "$APP_DIR" --frozen --no-dev
+  UV_CACHE_DIR="$APP_DIR/.uv-cache" uv sync --project "$APP_DIR" --frozen --no-dev "${EXTRAS[@]}"
 
 if [[ ! -f "$CONF_DIR/reelvault.env" ]]; then
   echo "==> 写入默认配置 $CONF_DIR/reelvault.env"
