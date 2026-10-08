@@ -128,6 +128,7 @@ def controlled_worker(monkeypatch, tmp_path, *, slow=False, invalid=False, empty
     original = handler.run_command
     worker = tmp_path / "whisper_contract.py"
     counter = tmp_path / "progress.txt"
+    counter.unlink(missing_ok=True)
     worker.write_text(f"""
 import json, sys, time
 from pathlib import Path
