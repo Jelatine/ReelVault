@@ -11,8 +11,9 @@ from fastapi.testclient import TestClient
 from reelvault.config import Settings
 from reelvault.main import create_app
 from reelvault.media import encoding, ops
-from reelvault.media.encoding import EncoderRuntime, detect_encoders, hardware_command
-from reelvault.media.ffmpeg import Canceled, FFmpegError, RunResult, run_command
+from reelvault.media.encoding import EncoderRuntime, hardware_command
+from reelvault.media.ffmpeg import Canceled, FFmpegError, RunResult
+from reelvault.media.hardware_check import verify_operation
 from reelvault.media.probe import probe
 
 from .conftest import HEADERS, login
@@ -183,44 +184,12 @@ def test_real_hardware_output(samples: dict[str, Path], tmp_path: Path, operatio
     family = os.environ["REELVAULT_TEST_HARDWARE"]
     assert family in encoding.FAMILIES, f"Unknown hardware family: {family}"
 
-    async def run() -> None:
-        runtime = EncoderRuntime(
-            "ffmpeg",
-            await detect_encoders("ffmpeg"),
+    asyncio.run(
+        verify_operation(
+            family,
+            operation,
+            samples,
+            tmp_path,
             device=os.environ.get("REELVAULT_TEST_VAAPI_DEVICE", "/dev/dri/renderD128"),
         )
-        info = await probe("ffprobe", str(samples["a"]))
-        out = tmp_path / f"{operation}.mp4"
-        dimensions = (320, 240)
-        if operation in {"h264", "h265"}:
-            plan = ops.plan_compress(
-                ops.CompressParams(codec=operation), (samples["a"], info), out, tmp_path
-            )
-        elif operation == "rotate":
-            plan = ops.plan_rotate(ops.RotateParams(angle=90), (samples["a"], info), out)
-            dimensions = (240, 320)
-        else:
-            second = await probe("ffprobe", str(samples["b"]))
-            plan = ops.plan_merge(
-                ops.MergeParams(video_ids=["a", "b"], mode="reencode"),
-                [(samples["a"], info), (samples["b"], second)],
-                out,
-                tmp_path,
-            )
-        result = await runtime.run(plan.commands, family, duration=plan.duration)
-        assert result["fallback"] is None, result
-        assert result["encoder"] == encoding.FAMILIES[family][2 if operation == "h265" else 1]
-        produced = await probe("ffprobe", str(out))
-        assert produced.video_codec == ("hevc" if operation == "h265" else "h264")
-        assert (produced.width, produced.height) == dimensions
-        assert produced.audio_codec == "aac"
-        assert abs(produced.duration - plan.duration) < 0.2
-        # Probe alone cannot prove that all encoded video/audio packets are decodable.
-        await run_command(
-            [
-                "ffmpeg", "-hide_banner", "-v", "error", "-xerror", "-i", str(out),
-                "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-",
-            ]
-        )  # fmt: skip
-
-    asyncio.run(run())
+    )

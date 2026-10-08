@@ -1,0 +1,70 @@
+{
+  "timestamp": "2026-10-08T14:59:23.596243+00:00",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "family": "nvenc",
+  "device": null,
+  "passed": true,
+  "operations": [
+    {
+      "operation": "h264",
+      "passed": true,
+      "requested": "nvenc",
+      "encoder": "h264_nvenc",
+      "fallback": null,
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "width": 320,
+      "height": 240,
+      "duration": 4.017007,
+      "expected_duration": 4.0,
+      "decoded": true
+    },
+    {
+      "operation": "h265",
+      "passed": true,
+      "requested": "nvenc",
+      "encoder": "hevc_nvenc",
+      "fallback": null,
+      "video_codec": "hevc",
+      "audio_codec": "aac",
+      "width": 320,
+      "height": 240,
+      "duration": 4.017007,
+      "expected_duration": 4.0,
+      "decoded": true
+    },
+    {
+      "operation": "rotate",
+      "passed": true,
+      "requested": "nvenc",
+      "encoder": "h264_nvenc",
+      "fallback": null,
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "width": 240,
+      "height": 320,
+      "duration": 4.0,
+      "expected_duration": 4.0,
+      "decoded": true
+    },
+    {
+      "operation": "merge",
+      "passed": true,
+      "requested": "nvenc",
+      "encoder": "h264_nvenc",
+      "fallback": null,
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "width": 320,
+      "height": 240,
+      "duration": 7.035,
+      "expected_duration": 7.0,
+      "decoded": true
+    }
+  ],
+  "ffmpeg": "ffmpeg version 2023-01-30-git-2d202985b7-full_build-www.gyan.dev Copyright (c) 2000-2023 the FFmpeg developers",
+  "gpu": "NVIDIA GeForce RTX 3060 Ti",
+  "driver_version": "32.0.16.1060",
+  "source_revision": "4a6fb036c5faf6ba2697c874fc1cf97f0c81f5a9",
+  "source_changes": "Uses the uncommitted hardware_check module and shared pytest checks in this change."
+}

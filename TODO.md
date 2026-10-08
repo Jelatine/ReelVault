@@ -2,7 +2,7 @@
 
 ## 当前进度（2026-10-08，恢复推进）
 
-- 已按最新要求恢复实施。当前仅剩第 7 节的 QSV、VAAPI、NVENC 实机验证未完成，其余实施项已勾选。
+- 已按最新要求恢复实施。当前仅剩第 7 节的 QSV、VAAPI 实机验证未完成；NVENC 四项已在 Windows / RTX 3060 Ti 通过，其余实施项已勾选。
 - [v0.3.0 已发布](https://github.com/Jelatine/ReelVault/releases/tag/v0.3.0)，S3 完整接入已在主分支；此前 `codex/s3` 基础阶段及暂停记录仅作为历史保留，不代表当前状态。仅使用单用户；多用户、DLNA 和电视播放器接入均已取消。
 - 发布提交 `2da08c5` 的[完整 CI 37760559474](https://github.com/Jelatine/ReelVault/actions/runs/37760559474) 与[发布工作流 37760711756](https://github.com/Jelatine/ReelVault/actions/runs/37760711756) 成功；完整 CI 包括真实 MinIO 后端／Chromium、可选模型、Ubuntu 安装升级及 Docker 检查。
 - 此前已在 Apple Silicon macOS 验证 VideoToolbox。2026-10-08 另在 Windows 的 Intel Iris Xe 上完成 FFmpeg QSV H.264／H.265 基础编码；该机器无 NVIDIA GPU，WSL 中无 `/dev/dri`，且后端测试依赖 Unix `fcntl`，因此仍需在对应 Linux／NVIDIA 环境完成 QSV、VAAPI、NVENC 的项目级实机用例。软件回退成功不算硬件验证通过。
@@ -120,11 +120,14 @@
 - [x] `deploy/install.sh` 已在 Ubuntu 22.04/24.04 GitHub 托管虚拟机完整验证（安装、重复安装、一键升级、systemd 重启及失败回滚）。
 - [x] 超过 10 分钟的视频缩略图准确性 — 统一从完整解码帧均匀抽样，不再跳过非关键帧；补齐末帧，避免稀疏关键帧或不足一秒的视频缺少图片。
 - [x] GHCR 中残留测试镜像 `0.1.0-rc.1` 已清理；其余 9 个 tag 保留，旧测试 tag 的 manifest 返回 404，`latest` 返回 200。
-- [ ] QSV、VAAPI、NVENC 编码仍需在对应 GPU 与驱动上实机验证（已完成命令参数、自动选择与真实软件回退测试；VideoToolbox H.264/H.265 已通过 macOS 实机验证）。
+- [x] NVENC 实机验证：Windows / NVIDIA RTX 3060 Ti 上 H.264/H.265 压缩、旋转、重编码合并四项通过，无软件回退，音轨／尺寸／时长及完整解码均通过；报告见 `validation/hardware-nvenc-windows.json`。
+- [ ] QSV、VAAPI 编码仍需在对应 GPU 与驱动上实机验证（已完成命令参数、自动选择与真实软件回退测试；VideoToolbox H.264/H.265 已通过 macOS 实机验证）。
 - [x] HEVC 等格式的大文件兼容播放副本按需生成 — 默认超过 256 MiB 只生成预览与缩略图，详情页按需生成/清理兼容缓存，或使用 HLS；分享前需准备缓存。
 
 
 ## 实施验证记录
+
+- 2026-10-08：新增独立入口 `python -m reelvault.media.hardware_check`，复用项目实际编辑计划与编码执行层，不加载依赖 Unix `fcntl` 的应用服务器；原有四项硬件 pytest 用例共用同一验证函数。当前 Windows 11 主机为 NVIDIA RTX 3060 Ti，驱动 `32.0.16.1060`，FFmpeg `2023-01-30-git-2d202985b7`。NVENC 四项通过；QSV 四项均报 `MFX session: -9` 并回退软件，检查正确返回失败，报告分别保存在 `validation/hardware-nvenc-windows.json` 与 `validation/hardware-qsv-windows.json`。本机未检测到 Intel GPU，也不具备 Linux VAAPI 渲染设备，因此 QSV／VAAPI 继续保留待验证。
 
 - 2026-10-08：Windows 验证机检测到已启动的 Intel Iris Xe Graphics；FFmpeg 7.1 编译了 QSV／VAAPI／NVENC。直接使用 `h264_qsv` 与 `hevc_qsv` 对 320×240、30 fps 的测试图像编码 1 秒，两项命令均以退出码 0 完成。项目 `tests/test_encoding.py` 的四项 QSV 用例无法在原生 Windows 加载：后端导入 Unix `fcntl` 时抛出 `ModuleNotFoundError`；WSL 可见 `/dev/dxg`，但无 `/dev/dri`、FFmpeg 或 uv。该验证仅证明当前 Windows 环境的 QSV 基础编码可用，不等于项目级四项通过。未检测到 NVIDIA 显卡，VAAPI 无 Linux 渲染设备；最后一项保持未勾选。
 - 2026-10-08：恢复推进后核对当前主分支与发布状态，修正顶部过时的暂停／S3 未完成说明。唯一剩余项是 QSV、VAAPI、NVENC 实机验证；本机 Apple Silicon macOS 不具备这三类编码器和设备，未勾选该项。

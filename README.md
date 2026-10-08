@@ -216,7 +216,7 @@ Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https
 
 编辑输出、入库预览和兼容播放副本均使用所选编码器。硬件的质量参数只近似映射软件 CRF，画质与文件大小可能不同；目标大小压缩继续使用软件两遍编码，无损剪辑、封装转换等直接复制原流。编码器选项参考 [FFmpeg 编码器文档](https://ffmpeg.org/ffmpeg-codecs.html)。
 
-容器部署还需要映射对应 GPU 设备并提供驱动；仅选择硬件不能让容器获得 GPU。VAAPI 需要可访问配置的渲染设备，NVENC 需要 NVIDIA 驱动及容器 GPU 支持。本项目已在 macOS 实机验证 VideoToolbox 的 H.264/H.265 输出及软件回退；QSV、VAAPI、NVENC 已有参数与回退测试，尚未在对应硬件上验证。
+容器部署还需要映射对应 GPU 设备并提供驱动；仅选择硬件不能让容器获得 GPU。VAAPI 需要可访问配置的渲染设备，NVENC 需要 NVIDIA 驱动及容器 GPU 支持。本项目已在 macOS 实机验证 VideoToolbox，并在 Windows / RTX 3060 Ti 验证 NVENC 的 H.264/H.265 压缩、旋转和重编码合并；QSV、VAAPI 仍需对应硬件验证。
 
 实机验证须在目标 GPU 主机的源码目录执行，安装 FFmpeg、FFprobe 和后端开发依赖（`cd backend && uv sync --frozen`）。分别选择对应家族运行：
 
@@ -226,6 +226,16 @@ REELVAULT_TEST_HARDWARE=qsv uv run --frozen pytest -v tests/test_encoding.py --j
 REELVAULT_TEST_HARDWARE=vaapi REELVAULT_TEST_VAAPI_DEVICE=/dev/dri/renderD128 uv run --frozen pytest -v tests/test_encoding.py --junitxml=/tmp/reelvault-vaapi.xml
 REELVAULT_TEST_HARDWARE=nvenc uv run --frozen pytest -v tests/test_encoding.py --junitxml=/tmp/reelvault-nvenc.xml
 ```
+
+Windows 可使用独立入口，避免应用服务器的 Unix 依赖。该入口与上述 pytest 共用四项验证函数，只需 Pydantic、FFmpeg 和 FFprobe；报告包含实际编码器、媒体信息、完整解码结果及失败原因，任何回退或检查失败都会返回非零退出码：
+
+```powershell
+cd backend
+uv run --no-project --with pydantic python -m reelvault.media.hardware_check nvenc --report ../validation/hardware-nvenc-windows.json
+uv run --no-project --with pydantic python -m reelvault.media.hardware_check qsv --report ../validation/hardware-qsv-windows.json
+```
+
+Linux 也可使用该入口，将家族改为 `vaapi`，并通过 `--device /dev/dri/renderD128` 指定渲染设备。报告应另记录 GPU 型号、驱动版本和源码提交；本轮实机报告保存在 `validation/`。
 
 每个家族的四项实机用例覆盖 H.264/H.265 压缩、旋转滤镜和重编码合并（复杂滤镜与音轨映射）。测试要求实际使用指定编码器且无软件回退，检查编码、尺寸、音轨和时长，再完整解码输出音视频；未编译编码器、驱动不可用或不支持 H.265 都会失败。VAAPI 设备路径可按主机调整；macOS 使用 `REELVAULT_TEST_HARDWARE=videotoolbox`。不设置该变量时实机用例跳过，常规 CI 不能证明 GPU 验证完成。保留测试报告并记录提交号、GPU 型号、驱动和 `ffmpeg -version`，三种剩余家族均通过后才能勾选 TODO。
 
