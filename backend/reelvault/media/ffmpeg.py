@@ -45,6 +45,10 @@ class ProcessHandle:
                         # completed child must not abort cancellation or shutdown;
                         # permission failures for a live child remain actionable.
                         if proc.returncode is None:
+                            # The child watcher can reap the PID before asyncio's
+                            # returncode callback runs. Probe without sending a
+                            # signal; ESRCH is handled by the enclosing suppress.
+                            os.kill(proc.pid, 0)
                             raise
                 elif proc.returncode is None:
                     proc.send_signal(signal_number)

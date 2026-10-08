@@ -20,13 +20,28 @@ def test_departed_process_group_does_not_abort_cancel(monkeypatch):
         raise PermissionError("departed process group")
 
     monkeypatch.setattr(os, "killpg", denied)
-    proc = SimpleNamespace(pid=12345, returncode=0)
+    proc = SimpleNamespace(pid=os.getpid(), returncode=0)
     handle = ProcessHandle(process=proc, process_group=True)
     handle.cancel()
     assert handle.canceled and not handle.paused
     proc.returncode = None
     with pytest.raises(PermissionError):
         handle.cancel()
+
+
+def test_reaped_group_with_pending_returncode_does_not_abort_cancel(monkeypatch):
+    def denied(pid, sig):
+        raise PermissionError("departed process group")
+
+    def gone(pid, sig):
+        assert pid == 12345 and sig == 0
+        raise ProcessLookupError("PID already reaped; returncode callback pending")
+
+    monkeypatch.setattr(os, "killpg", denied)
+    monkeypatch.setattr(os, "kill", gone)
+    handle = ProcessHandle(process=SimpleNamespace(pid=12345, returncode=None), process_group=True)
+    handle.cancel()
+    assert handle.canceled and not handle.paused
 
 
 def slow_worker(tmp_path):
