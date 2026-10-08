@@ -1,5 +1,6 @@
 services:
   vision:
+    image: ghcr.io/jelatine/reelvault-vision:latest
     build: .
     restart: unless-stopped
     ports:
