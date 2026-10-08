@@ -76,9 +76,9 @@ function PasswordForm() {
       })}
     >
       <Stack>
-        <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("当前密码")} autoComplete="current-password" {...form.getInputProps('current_password')} />
-        <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("新密码")} autoComplete="new-password" {...form.getInputProps('new_password')} error={typeof form.errors.new_password === 'string' ? translateStoredText(form.errors.new_password) : form.errors.new_password} />
-        <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("确认新密码")} autoComplete="new-password" {...form.getInputProps('confirm')} error={typeof form.errors.confirm === 'string' ? translateStoredText(form.errors.confirm) : form.errors.confirm} />
+        <PasswordInput visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("当前密码")} autoComplete="current-password" {...form.getInputProps('current_password')} />
+        <PasswordInput visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("新密码")} autoComplete="new-password" {...form.getInputProps('new_password')} error={typeof form.errors.new_password === 'string' ? translateStoredText(form.errors.new_password) : form.errors.new_password} />
+        <PasswordInput visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }} label={tr("确认新密码")} autoComplete="new-password" {...form.getInputProps('confirm')} error={typeof form.errors.confirm === 'string' ? translateStoredText(form.errors.confirm) : form.errors.confirm} />
         {factor.data?.enabled && <TextInput label={tr('验证码或恢复码')} autoComplete="one-time-code" required maxLength={64} {...form.getInputProps('code')} />}
         <Checkbox label={tr("同时退出其他所有设备")} {...form.getInputProps('logout_others', { type: 'checkbox' })} />
         <Button type="submit">{tr("修改密码")}</Button>

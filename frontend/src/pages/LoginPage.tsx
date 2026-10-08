@@ -72,7 +72,7 @@ export default function LoginPage() {
             </Title>
             {error && <Alert color="red">{errorText(error)}</Alert>}
             <TextInput label={tr("用户名")} autoComplete="username" required {...form.getInputProps('username')} />
-            <PasswordInput visibilityToggleFocusable visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }}
+            <PasswordInput visibilityToggleButtonProps={{ "aria-label": tr("显示或隐藏密码") }}
               label={tr("密码")}
               autoComplete="current-password"
               required
