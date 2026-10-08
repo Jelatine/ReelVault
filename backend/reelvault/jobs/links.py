@@ -46,7 +46,8 @@ async def link_import(ctx: JobContext, job: Job) -> None:
             db.flush()
             size = source.stat().st_size
             plan = {"local": upload_bytes(size) - size}
-            if storage_id != "local":
+            # The S3 staging copy is moved within the primary data disk, as for local.
+            if storage_id not in {"local", "s3"}:
                 plan[storage_id] = size
             check_budget(db, settings, sum(plan.values()), exclude_job=job.id, requirements=plan)
             try:

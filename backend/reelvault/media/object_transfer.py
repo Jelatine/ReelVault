@@ -60,11 +60,14 @@ async def upload_original(
     temporary_root: Path,
     handle: ProcessHandle,
     on_progress: ProgressCallback | None = None,
+    transfer_id: str | None = None,
 ) -> ObjectRef:
     if KEY.fullmatch(key) is None:
         raise ValueError("Invalid original-video object key")
     directory = Path(tempfile.mkdtemp(prefix="s3-transfer-", dir=temporary_root))
-    transfer_id = uuid4().hex
+    transfer_id = transfer_id or uuid4().hex
+    if re.fullmatch(r"[a-f0-9]{32}", transfer_id) is None:
+        raise ValueError("Invalid S3 transfer identifier")
     succeeded = False
     try:
         path = _request(

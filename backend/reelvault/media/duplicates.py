@@ -21,6 +21,18 @@ class SourceChanged(RuntimeError):
 
 
 def file_signature(path: Path) -> list[Any]:
+    from ..object_types import OriginalPath
+
+    if isinstance(path, OriginalPath):
+        ref = path.object_ref
+        return [
+            f"s3/{path.parent.name}/{ref.key}",
+            "s3",
+            ref.version_id or ref.etag,
+            ref.size,
+            ref.sha256,
+            1,
+        ]
     stat = path.stat()
     return [
         str(path.resolve()),
@@ -55,6 +67,10 @@ async def content_hash(
                 on_progress(min(1, read / max(1, size)))
     if file_signature(path) != signature or read != size:
         raise SourceChanged("Video file changed during fingerprinting")
+    from ..object_types import OriginalPath
+
+    if isinstance(path, OriginalPath) and digest.hexdigest() != path.object_ref.sha256:
+        raise SourceChanged("Cached S3 original checksum does not match its pinned object")
     return digest.hexdigest(), signature
 
 

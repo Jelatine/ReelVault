@@ -20,7 +20,9 @@ function Entry({ item, defaultId, refresh }: { item: StorageLocation; defaultId:
     <Group><Text fw={600}>{locationName(item)}</Text><Badge color={item.available ? 'green' : 'orange'}>{item.available ? tr('已连接') : tr('未连接')}</Badge>{item.id === defaultId && <Badge>{tr('默认')}</Badge>}</Group>
     <Text size="sm" style={{ overflowWrap: 'anywhere' }}>{item.path}</Text>
     <Text size="sm">{tr('视频数量：{{count}}（含回收站）', { count: item.video_count })}{item.free !== null && ` · ${tr('剩余 {{free}}', { free: formatBytes(item.free) })}`}</Text>
-    {item.id !== 'local' && <>
+    {item.kind === 's3' && <Text size="sm" c="dimmed">{tr('容量未知。上传暂存与本地缓存使用主存储{{free}}；连接信息由部署环境配置，不在此修改。', { free: item.cache_free != null ? tr('（剩余 {{free}}）', { free: formatBytes(item.cache_free) }) : '' })}</Text>}
+    {item.kind === 's3' && item.error && <Alert color="orange">{tr('对象存储不可用：{{error}}', { error: item.error })}</Alert>}
+    {item.id !== 'local' && item.kind !== 's3' && <>
       <TextInput label={tr('存储名称')} value={name} onChange={e => setName(e.currentTarget.value)} />
       <TextInput label={tr('挂载目录')} value={path} onChange={e => setPath(e.currentTarget.value)} />
       <Group><Button variant="light" loading={busy} onClick={() => run(() => api.patch(`/api/system/locations/${item.id}`, { name, path }))}>{tr('保存')}</Button>

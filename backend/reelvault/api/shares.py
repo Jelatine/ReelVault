@@ -5,7 +5,6 @@ from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
@@ -17,6 +16,7 @@ from ..errors import APIError
 from ..library import abs_path
 from ..media import derive
 from ..models import Collection, ShareGrant, ShareLink, Video, utcnow
+from ..original_response import original_response
 from ..playback_cache import cached_path, needs_copy, stream_path
 from ..sharing import (
     PRIVATE_HEADERS,
@@ -220,13 +220,16 @@ def share_media(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> FileResponse:
+) -> Response:
     share = find_share(db, token)
     require_share(db, share, request)
     video = shared_video(db, share, video_id)
     filename = None
+    original: str | None = None
     if resource == "stream":
         path = stream_path(settings, video)
+        if path == abs_path(settings, video.file_path):
+            original = video.file_path
         media_type = mimetypes.guess_type(path.name)[0] or "video/mp4"
     elif resource == "poster.jpg":
         path = settings.derived_dir / video.id / derive.POSTER
@@ -240,14 +243,23 @@ def share_media(
                 headers=PRIVATE_HEADERS,
             )
         path = abs_path(settings, video.file_path)
+        original = video.file_path
         media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
         filename = video.title + path.suffix
     else:
         raise APIError(
             404, "分享资源不存在", code="share_video_unavailable", headers=PRIVATE_HEADERS
         )
-    if not path.is_file():
+    if original is None and not path.is_file():
         raise APIError(
             404, "分享视频文件不可用", code="share_video_unavailable", headers=PRIVATE_HEADERS
         )
-    return FileResponse(path, media_type=media_type, filename=filename, headers=PRIVATE_HEADERS)
+    return original_response(
+        request,
+        settings,
+        original,
+        path,
+        media_type=media_type,
+        filename=filename,
+        headers=PRIVATE_HEADERS,
+    )

@@ -191,6 +191,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             upgrade(engine)
             app.state.engine = engine
             app.state.sessionmaker = make_sessionmaker(engine)
+            from .object_library import initialize as initialize_objects
+
+            await initialize_objects(settings, app.state.sessionmaker)
             with app.state.sessionmaker() as db:
                 await backfill_subtitles(db, settings)
             with app.state.sessionmaker() as db:

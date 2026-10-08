@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api", tags=["jobs"], dependencies=[Depends(require_a
 
 
 class OutputOptions(BaseModel):
-    storage_id: str | None = Field(default=None, pattern=r"^(local|[a-f0-9]{32})$")
+    storage_id: str | None = Field(default=None, pattern=r"^(local|s3|[a-f0-9]{32})$")
     mode: Literal["new", "replace"] = "new"
     title: str | None = Field(None, max_length=255)
 

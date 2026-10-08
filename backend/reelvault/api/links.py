@@ -31,7 +31,7 @@ class LinkBody(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
     title: str = Field("", max_length=255)
     folder_id: int | None = Field(None, gt=0)
-    storage_id: str | None = Field(None, pattern=r"^(local|[a-f0-9]{32})$")
+    storage_id: str | None = Field(None, pattern=r"^(local|s3|[a-f0-9]{32})$")
     acknowledge_rights: bool = Field(False, strict=True)
 
 

@@ -58,7 +58,10 @@ async def ingest(ctx: JobContext, job: Job) -> None:
         old_playable = abs_path(s, video.playable_path) if video.playable_path else None
 
     try:
-        ctx.set_progress(0, "分析视频")
+        from ..object_library import archive_original
+
+        src = await archive_original(ctx, video.file_path)
+        ctx.set_progress(0.12 if location_of(video.file_path) == "s3" else 0, "分析视频")
         info = await probe(s.ffprobe, str(src), ctx.handle)
         with ctx.db() as db:
             db.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -449,6 +452,10 @@ async def _store_new(
         video.meta = {**(metadata_source.meta or {}), "custom_cover": False}
         video.metadata_overrides = dict(metadata_source.metadata_overrides or {})
         video.custom_fields = dict(metadata_source.custom_fields or {})
+        if location_of(video.file_path) == "s3":
+            from ..object_library import reserve_original
+
+            reserve_original(db, s, dest.name)
         db.add(video)
         db.commit()
     return vid
@@ -464,10 +471,10 @@ async def _replace_with_backup(
     """Swap the edited file into the existing video; the old file goes to the trash
     as a separate video so it can still be restored."""
     s = ctx.settings
-    new_file = (
-        library_root(s, location_of(source.file_path))
-        / f"{source.id}-{new_id()[:8]}{result.suffix}"
-    )
+    location_id = location_of(source.file_path)
+    # Object keys must be server-allocated, unguessable identifiers.
+    suffix = new_id() if location_id == "s3" else new_id()[:8]
+    new_file = library_root(s, location_id) / f"{source.id}-{suffix}{result.suffix}"
     await move_output(
         result,
         new_file,
@@ -518,6 +525,10 @@ async def _replace_with_backup(
         video.edit_sources = [{**provenance[0], "id": backup.id}]
         old_playable = video.playable_path
         video.file_path = rel_path(s, new_file)
+        if location_id == "s3":
+            from ..object_library import reserve_original
+
+            reserve_original(db, s, new_file.name)
         video.playable_path = None
         video.size = new_file.stat().st_size
         video.status = "processing"

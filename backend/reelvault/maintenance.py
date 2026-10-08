@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from .config import Settings
 from .library import delete_video_files
 from .models import Job, Video, utcnow
+from .object_library import forget_original, release_remote
 from .observability import audit, prune_audit
 
 log = logging.getLogger("reelvault.maintenance")
@@ -33,18 +34,22 @@ def purge_expired_trash(settings: Settings, sessions: sessionmaker[Session]) -> 
             )
             for video_id in job.video_ids
         }
-        for video in db.scalars(select(Video).where(Video.deleted_at < cutoff)):
+        for video in db.scalars(select(Video).where(Video.deleted_at < cutoff)).all():
             if video.id in active_ids:
                 continue
             try:
+                # Remote I/O first; the session has no pending writes yet for this video.
+                release_remote(db, settings, [video])
                 delete_video_files(settings, video)
             except OSError:
                 log.exception("cannot purge expired video %s", video.id)
                 continue
             audit(db, settings, "trash_retention", target=video.id)
             db.delete(video)
+            forget_original(db, settings, video.file_path)
+            # Commit per video so no writer is held during the next remote delete.
+            db.commit()
             deleted += 1
-        db.commit()
     return deleted
 
 

@@ -37,6 +37,7 @@ from ..media.timing import timing_index
 from ..metadata import MetadataPatch, update_metadata
 from ..models import Folder, Tag, Upload, Video, new_id, utcnow
 from ..observability import audit_request
+from ..original_response import original_response
 from ..pinyin_search import normalize_pinyin_query
 from ..playback_cache import stream_path
 from ..search_syntax import parse_search
@@ -83,7 +84,7 @@ def set_tags(db: Session, video: Video, names: list[str]) -> None:
 
 
 class UploadInit(BaseModel):
-    storage_id: str | None = Field(default=None, pattern=r"^(local|[a-f0-9]{32})$")
+    storage_id: str | None = Field(default=None, pattern=r"^(local|s3|[a-f0-9]{32})$")
     filename: str = Field(min_length=1, max_length=255)
     size: int = Field(gt=0)
     folder_id: int | None = None
@@ -551,9 +552,27 @@ def update_video(video_id: str, body: VideoPatch, db: Session = Depends(get_db))
     return video_to_dict(video)
 
 
+def _release(db: Session, settings: Settings, videos: list[Video]) -> None:
+    """Remove remote originals first; called before any write in this session."""
+    from ..object_library import release_remote
+    from ..object_store import ObjectStoreError
+
+    try:
+        release_remote(db, settings, videos)
+    except ObjectStoreError as error:
+        raise APIError(
+            503,
+            "对象存储暂不可用或原视频已在外部变更，未删除任何记录，请稍后重试",
+            code="object_storage_unavailable",
+        ) from error
+
+
 def _purge(db: Session, settings: Settings, video: Video) -> None:
+    from ..object_library import forget_original
+
     delete_video_files(settings, video)
     db.delete(video)
+    forget_original(db, settings, video.file_path)
 
 
 @router.delete("/videos/{video_id}")
@@ -566,6 +585,7 @@ def delete_video(
 ) -> dict[str, bool]:
     video = get_video(db, video_id, allow_deleted=True)
     if permanent or video.deleted_at is not None:
+        _release(db, settings, [video])
         audit_request(db, request, "video_purge", video.id)
         _purge(db, settings, video)
     else:
@@ -591,6 +611,7 @@ def empty_trash(
     request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
 ) -> dict[str, int]:
     videos = db.scalars(select(Video).where(Video.deleted_at.is_not(None))).all()
+    _release(db, settings, list(videos))
     for v in videos:
         audit_request(db, request, "video_purge", v.id)
         _purge(db, settings, v)
@@ -615,6 +636,8 @@ def batch(
     if body.action == "move" and not folder_exists(db, body.folder_id):
         raise APIError(status.HTTP_400_BAD_REQUEST, "文件夹不存在", code="folder_not_found")
     videos = db.scalars(select(Video).where(Video.id.in_(body.ids))).all()
+    if body.action == "purge":
+        _release(db, settings, list(videos))
     now = utcnow()
     for v in videos:
         match body.action:
@@ -670,27 +693,39 @@ def _cache_headers() -> dict[str, str]:
 
 @router.get("/videos/{video_id}/stream")
 def stream(
-    video_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
-) -> FileResponse:
+    video_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
     video = get_video(db, video_id, allow_deleted=True)
     path = stream_path(settings, video)
-    if not path.exists():
-        raise APIError(status.HTTP_404_NOT_FOUND, "视频文件丢失", code="video_file_missing")
+    original = video.file_path if path == abs_path(settings, video.file_path) else None
     media_type = mimetypes.guess_type(path.name)[0] or "video/mp4"
     if path.suffix == ".mkv":
         media_type = "video/x-matroska"
-    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private"})
+    return original_response(
+        request,
+        settings,
+        original,
+        path,
+        media_type=media_type,
+        headers={"Cache-Control": "private"},
+    )
 
 
 @router.get("/videos/{video_id}/download")
 def download(
-    video_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
-) -> FileResponse:
+    video_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> Response:
     video = get_video(db, video_id, allow_deleted=True)
     path = abs_path(settings, video.file_path)
-    if not path.exists():
-        raise APIError(status.HTTP_404_NOT_FOUND, "视频文件丢失", code="video_file_missing")
-    return FileResponse(path, filename=f"{video.title}{path.suffix}")
+    return original_response(
+        request, settings, video.file_path, path, filename=f"{video.title}{path.suffix}"
+    )
 
 
 @router.get("/videos/{video_id}/frame")

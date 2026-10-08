@@ -33,6 +33,7 @@ from .errors import APIError
 from .library import abs_path
 from .locations import LocationUnavailable
 from .models import Collection, CollectionItem, Folder, RuntimeSetting, Video
+from .original_response import original_response
 from .storage import budget_transaction
 
 DAV = "{DAV:}"
@@ -396,6 +397,23 @@ async def browse(request: Request, value: str = "") -> Response:
         )
     if entry.file is None:
         return error(405)
+    if settings.s3_objects.get(entry.file) is not None:
+        # Verified cache or pinned-version Range proxy; never exposes S3 details.
+        try:
+            path = await run_in_threadpool(abs_path, settings, entry.file)
+            return await run_in_threadpool(
+                original_response,
+                request,
+                settings,
+                entry.file,
+                path,
+                media_type=entry.mime,
+                headers={**HEADERS, "ETag": entry.etag},
+            )
+        except APIError as failure:
+            return error(failure.status_code if failure.status_code in {404, 416} else 503)
+        except (OSError, ValueError):
+            return error(503)
     try:
         path = await run_in_threadpool(abs_path, settings, entry.file)
         stat = await run_in_threadpool(path.stat)
