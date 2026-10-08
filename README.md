@@ -218,6 +218,17 @@ Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https
 
 容器部署还需要映射对应 GPU 设备并提供驱动；仅选择硬件不能让容器获得 GPU。VAAPI 需要可访问配置的渲染设备，NVENC 需要 NVIDIA 驱动及容器 GPU 支持。本项目已在 macOS 实机验证 VideoToolbox 的 H.264/H.265 输出及软件回退；QSV、VAAPI、NVENC 已有参数与回退测试，尚未在对应硬件上验证。
 
+实机验证须在目标 GPU 主机的源码目录执行，安装 FFmpeg、FFprobe 和后端开发依赖（`cd backend && uv sync --frozen`）。分别选择对应家族运行：
+
+```bash
+cd backend
+REELVAULT_TEST_HARDWARE=qsv uv run --frozen pytest -v tests/test_encoding.py --junitxml=/tmp/reelvault-qsv.xml
+REELVAULT_TEST_HARDWARE=vaapi REELVAULT_TEST_VAAPI_DEVICE=/dev/dri/renderD128 uv run --frozen pytest -v tests/test_encoding.py --junitxml=/tmp/reelvault-vaapi.xml
+REELVAULT_TEST_HARDWARE=nvenc uv run --frozen pytest -v tests/test_encoding.py --junitxml=/tmp/reelvault-nvenc.xml
+```
+
+每个家族的四项实机用例覆盖 H.264/H.265 压缩、旋转滤镜和重编码合并（复杂滤镜与音轨映射）。测试要求实际使用指定编码器且无软件回退，检查编码、尺寸、音轨和时长，再完整解码输出音视频；未编译编码器、驱动不可用或不支持 H.265 都会失败。VAAPI 设备路径可按主机调整；macOS 使用 `REELVAULT_TEST_HARDWARE=videotoolbox`。不设置该变量时实机用例跳过，常规 CI 不能证明 GPU 验证完成。保留测试报告并记录提交号、GPU 型号、驱动和 `ffmpeg -version`，三种剩余家族均通过后才能勾选 TODO。
+
 ### 任务控制
 
 「任务中心」支持低、普通、高三档优先级，按优先级及提交时间调度；仅尚未启动的任务可调整，不中断正在执行的任务。涉及相同源视频的任务串行处理，独立视频仍可并行，编辑提交提示已有未结束任务。
