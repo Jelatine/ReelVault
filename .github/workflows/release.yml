@@ -111,7 +111,7 @@ jobs:
 
             **Docker**
             ```bash
-            docker run -d --name reelvault -p 8080:8080 -v $PWD/data:/data ${{ env.IMAGE }}:${{ env.VERSION }}
+            docker run -d --name reelvault -p 34123:34123 -v $PWD/data:/data ${{ env.IMAGE }}:${{ env.VERSION }}
             ```
 
             **Ubuntu**

@@ -86,6 +86,6 @@ systemctl restart reelvault
 
 PORT=$(grep -E '^REELVAULT_PORT=' "$CONF_DIR/reelvault.env" | cut -d= -f2 || true)
 echo
-echo "ReelVault 已启动: http://$(hostname -I | awk '{print $1}'):${PORT:-8080}"
+echo "ReelVault 已启动: http://$(hostname -I | awk '{print $1}'):${PORT:-34123}"
 echo "配置文件: $CONF_DIR/reelvault.env   数据目录: $DATA_DIR"
 echo "查看日志: journalctl -u reelvault -f"

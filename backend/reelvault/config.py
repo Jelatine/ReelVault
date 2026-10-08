@@ -148,7 +148,7 @@ class Settings(BaseSettings):
         return self
 
     host: str = "0.0.0.0"
-    port: int = 8080
+    port: int = 34123
 
     # Initial admin account. When unset, the first visitor is asked to create one.
     admin_user: str | None = None

@@ -27,7 +27,7 @@
     <key>REELVAULT_HOST</key>
     <string>0.0.0.0</string>
     <key>REELVAULT_PORT</key>
-    <string>8080</string>
+    <string>34123</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

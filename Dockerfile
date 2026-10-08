@@ -52,9 +52,9 @@ USER reelvault
 ENV PATH=/app/.venv/bin:$PATH \
     REELVAULT_IN_DOCKER=1 \
     REELVAULT_DATA_DIR=/data \
-    REELVAULT_PORT=8080
+    REELVAULT_PORT=34123
 VOLUME /data
-EXPOSE 8080
+EXPOSE 34123
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz')"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:34123/healthz')"
 CMD ["reelvault"]

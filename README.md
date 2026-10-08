@@ -75,7 +75,7 @@
 
 ```bash
 docker run -d --name reelvault --restart unless-stopped \
-  -p 8080:8080 -v $PWD/data:/data \
+  -p 34123:34123 -v $PWD/data:/data \
   ghcr.io/jelatine/reelvault:latest
 ```
 
@@ -85,7 +85,9 @@ docker run -d --name reelvault --restart unless-stopped \
 docker compose up -d
 ```
 
-打开 `http://服务器IP:8080`，首次访问创建管理员账号。
+打开 `http://服务器IP:34123`，首次访问创建管理员账号。
+
+v0.2.9 之后的版本默认端口由 8080 改为 34123。从旧版本升级的 Docker 部署需同步修改端口映射：改为 `-p 34123:34123`（compose 中 `"34123:34123"`）；若要保留原访问地址，可映射 `-p 8080:34123`，或设置 `REELVAULT_PORT=8080` 并保留 `-p 8080:8080`。Ubuntu 安装的环境文件已写明 `REELVAULT_PORT=8080`，升级后端口不变；macOS 重新执行 `install-launchd.sh` 后改用 34123。反向代理按实际端口配置。
 
 ### Ubuntu (22.04 / 24.04)
 
@@ -136,7 +138,7 @@ cd backend
 REELVAULT_DATA_DIR=~/ReelVault uv run reelvault
 ```
 
-打开 <http://localhost:8080>，首次访问创建管理员账号。同一局域网内的手机、平板可通过 `http://<Mac 的 IP>:8080` 访问（首次运行时 macOS 可能弹出防火墙提示，选择「允许」）。
+打开 <http://localhost:34123>，首次访问创建管理员账号。同一局域网内的手机、平板可通过 `http://<Mac 的 IP>:34123` 访问（首次运行时 macOS 可能弹出防火墙提示，选择「允许」）。
 
 **4. 后台常驻（可选）**
 
@@ -184,7 +186,7 @@ Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
 | `REELVAULT_DATA_DIR` | `./data`（Docker 为 `/data`） | 数据目录：视频、缩略图、数据库 |
-| `REELVAULT_HOST` / `REELVAULT_PORT` | `0.0.0.0` / `8080` | 监听地址 |
+| `REELVAULT_HOST` / `REELVAULT_PORT` | `0.0.0.0` / `34123` | 监听地址 |
 | `REELVAULT_ADMIN_USER` / `REELVAULT_ADMIN_PASSWORD` | 空 | 预置管理员账号（仅在尚无账号时生效） |
 | `REELVAULT_WORKERS` | `2` | 同时运行的 ffmpeg 任务数 |
 | `REELVAULT_TRASH_RETENTION_DAYS` | `30` | 回收站自动彻底删除的保留天数；`0` 禁用，修改后重启生效 |
@@ -328,7 +330,7 @@ FFmpeg 需包含 `eq`、`lut1d`、`lut3d`、`hqdn3d`、`vidstabdetect` 和 `vids
 
 ```bash
 make install   # 安装前后端依赖
-make dev       # 后端 :8080 + Vite 开发服务器 :5173（代理 /api，前端热更新）
+make dev       # 后端 :34123 + Vite 开发服务器 :5173（代理 /api，前端热更新）
 make test      # pytest + vitest
 make lint      # ruff、mypy、oxlint、tsc
 make build     # 构建前端并拷贝到 backend/reelvault/static
@@ -711,7 +713,7 @@ Docker 使用可选镜像构建参数，随后在运行的容器中准备模型�
 
 ```bash
 docker build --build-arg REELVAULT_TRANSCRIPTION_EXTRA=1 -t reelvault:transcription .
-docker run -d --name reelvault -p 8080:8080 -v "$PWD/data:/data" \
+docker run -d --name reelvault -p 34123:34123 -v "$PWD/data:/data" \
   -e REELVAULT_TRANSCRIPTION_ENABLED=true reelvault:transcription
 docker exec reelvault python -m reelvault.media.transcription_worker \
   --prepare --model base --cache /data/models/whisper
