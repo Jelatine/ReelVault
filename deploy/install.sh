@@ -52,6 +52,9 @@ EXTRAS=()
 if [[ "${REELVAULT_TRANSCRIPTION_EXTRA:-0}" == "1" ]] || grep -Eq '^REELVAULT_TRANSCRIPTION_ENABLED=(true|1)$' "$CONF_DIR/reelvault.env" 2>/dev/null; then
   EXTRAS+=(--extra transcription)
 fi
+if [[ "${REELVAULT_S3_EXTRA:-0}" == "1" ]] || grep -Eq '^REELVAULT_S3__BUCKET=' "$CONF_DIR/reelvault.env" 2>/dev/null; then
+  EXTRAS+=(--extra s3)
+fi
 sudo -u reelvault env HOME="$DATA_DIR" UV_PYTHON_INSTALL_DIR="$APP_DIR/.python" \
   UV_CACHE_DIR="$APP_DIR/.uv-cache" uv sync --project "$APP_DIR" --frozen --no-dev "${EXTRAS[@]}"
 

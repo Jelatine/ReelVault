@@ -15,6 +15,7 @@ export function serverText(text: string | null | undefined): string {
   if ((match = text.match(/^辅助服务目录权限不正确：(.+)$/))) return tr('辅助服务目录权限不正确：{{path}}', { path: match[1] })
   if ((match = text.match(/^辅助服务目录必须由 root 管理：(.+)$/))) return tr('辅助服务目录必须由 root 管理：{{path}}', { path: match[1] })
   if ((match = text.match(/^辅助服务文件权限不正确：(.+)$/))) return tr('辅助服务文件权限不正确：{{path}}', { path: match[1] })
+  if ((match = text.match(/^无法连接对象存储（(.+)）$/))) return tr('无法连接对象存储（{{code}}）', { code: match[1] })
   if ((match = text.match(/^文件哈希 (\d+)\/(\d+)$/))) return tr('文件哈希 {{current}}/{{total}}', { current: match[1], total: match[2] })
   if ((match = text.match(/^抽帧比较 (\d+)\/(\d+)$/))) return tr('抽帧比较 {{current}}/{{total}}', { current: match[1], total: match[2] })
   if ((match = text.match(/^已检查 (\d+)\/(\d+)$/))) return tr('已检查 {{current}}/{{total}}', { current: match[1], total: match[2] })

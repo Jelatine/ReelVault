@@ -37,7 +37,7 @@ from ..media.timing import timing_index
 from ..metadata import MetadataPatch, update_metadata
 from ..models import Folder, Tag, Upload, Video, new_id, utcnow
 from ..observability import audit_request
-from ..original_response import original_response
+from ..original_response import local_original, original_response
 from ..pinyin_search import normalize_pinyin_query
 from ..playback_cache import stream_path
 from ..search_syntax import parse_search
@@ -679,7 +679,7 @@ async def video_timing(
         return await timing_index(
             settings,
             video.id,
-            abs_path(settings, video.file_path),
+            local_original(settings, video.file_path),
             int((video.meta or {}).get("video_index", 0)),
             keyframes_only=keyframes_only,
         )
@@ -737,7 +737,7 @@ async def frame(
 ) -> Response:
     """Full-resolution screenshot at time `t`."""
     video = get_video(db, video_id)
-    src = abs_path(settings, video.file_path)
+    src = local_original(settings, video.file_path)
     out = settings.tmp_dir / f"frame-{new_id()}.jpg"
     try:
         info = await probe(settings.ffprobe, str(src))
@@ -769,7 +769,7 @@ async def set_cover_from_time(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     video = get_video(db, video_id)
-    src = abs_path(settings, video.file_path)
+    src = local_original(settings, video.file_path)
     try:
         info = await probe(settings.ffprobe, str(src))
         out = derived_dir(settings, video.id) / derive.POSTER

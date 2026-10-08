@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -10,6 +11,25 @@ const backend = resolve('../backend')
 if (process.env.REELVAULT_TEST_WHISPER_CACHE) {
   mkdirSync(resolve(data, 'models'), { recursive: true })
   symlinkSync(resolve(process.env.REELVAULT_TEST_WHISPER_CACHE), resolve(data, 'models/whisper'), 'dir')
+}
+// Optional S3 originals against an owned test server; a fresh bucket per run.
+const s3 = {}
+if (process.env.REELVAULT_TEST_S3_ENDPOINT) {
+  const bucket = `reelvault-e2e-${randomUUID().replaceAll('-', '')}`
+  Object.assign(s3, {
+    REELVAULT_S3__BUCKET: bucket,
+    REELVAULT_S3__ENDPOINT: process.env.REELVAULT_TEST_S3_ENDPOINT,
+    REELVAULT_S3__ACCESS_KEY: process.env.REELVAULT_TEST_S3_ACCESS_KEY,
+    REELVAULT_S3__SECRET_KEY: process.env.REELVAULT_TEST_S3_SECRET_KEY,
+    REELVAULT_S3__PART_SIZE_MB: '5',
+  })
+  execFileSync(resolve(backend, '.venv/bin/python'), ['-c', [
+    'import os, boto3',
+    "boto3.client('s3', endpoint_url=os.environ['REELVAULT_TEST_S3_ENDPOINT'],",
+    "  aws_access_key_id=os.environ['REELVAULT_TEST_S3_ACCESS_KEY'],",
+    "  aws_secret_access_key=os.environ['REELVAULT_TEST_S3_SECRET_KEY'],",
+    "  region_name='us-east-1').create_bucket(Bucket=os.environ['BUCKET'])",
+  ].join('\n')], { env: { ...process.env, BUCKET: bucket }, stdio: 'inherit' })
 }
 const server = spawn(resolve(backend, '.venv/bin/python'), ['-m', 'reelvault'], {
   cwd: backend,
@@ -27,6 +47,7 @@ const server = spawn(resolve(backend, '.venv/bin/python'), ['-m', 'reelvault'], 
     // Synthetic HTTP fixtures only; production keeps private destinations blocked.
     REELVAULT_LINK_IMPORT_ALLOW_PRIVATE: 'true',
     REELVAULT_ALLOW_SELF_UPDATE: 'false',
+    ...s3,
   },
 })
 for (const signal of ['SIGTERM', 'SIGINT']) {

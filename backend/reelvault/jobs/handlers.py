@@ -700,7 +700,23 @@ async def playable(ctx: JobContext, job: Job) -> None:
             target.unlink(missing_ok=True)
 
 
+async def original_cache(ctx: JobContext, job: Job) -> None:
+    """The manager has already fetched and pinned the original; confirm it."""
+    from ..object_library import cache_valid
+
+    with ctx.db() as db:
+        video = db.get(Video, job.video_ids[0])
+        if video is None:
+            raise RuntimeError("视频已被删除")
+        path = video.file_path
+    ref = ctx.settings.s3_objects.get(path)
+    if ref is not None and not cache_valid(abs_path(ctx.settings, path), ref):
+        raise RuntimeError("原视频本地副本校验失败")
+    ctx.set_progress(1, "原视频已保存到本地")
+
+
 HANDLERS: dict[str, Handler] = {
+    "original_cache": original_cache,
     "link_import": link_import,
     "ingest": ingest,
     "scenes": scenes,

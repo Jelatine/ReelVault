@@ -5,6 +5,7 @@ import base64
 import hashlib
 import io
 import json
+import zipfile
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -159,7 +160,7 @@ def test_other_library_cannot_claim_marker(registry, tmp_path):
     try:
         marker = dict(peer.objects)
         asyncio.run(object_library.initialize(other, sessions))
-        assert other.s3_current is None and "another video library" in other.s3_error
+        assert other.s3_current is None and other.s3_error == "对象存储前缀已属于其他视频库"
         assert peer.objects == marker
     finally:
         engine.dispose()
@@ -304,3 +305,126 @@ def test_pending_original_only_releases_its_own_transfer(registry, tmp_path):
     with sessions() as db:
         object_library.release_remote(db, settings, [db.get(type(video), video.id)])
     assert remote in peer.objects
+
+
+def _cached(settings, path, ref, pinned=False):
+    local = abs_path(settings, path)
+    local.parent.mkdir(parents=True, exist_ok=True)
+    local.write_bytes(b"original video bytes")
+    object_library.mark_cache(local, ref, pinned=pinned)
+    return local
+
+
+def test_release_after_job_respects_pins_busy_jobs_and_keep_local(registry, tmp_path):
+    settings, _, _ = registry
+    path, ref = publish(registry, tmp_path)
+    local = _cached(settings, path, ref)
+    object_library.release_after_job(settings, [path], busy={path})
+    assert object_library.cache_valid(local, ref)
+    settings.s3 = settings.s3.model_copy(update={"keep_local": True})
+    object_library.release_after_job(settings, [path], busy=set())
+    assert object_library.cache_valid(local, ref)
+    settings.s3 = settings.s3.model_copy(update={"keep_local": False})
+    local.unlink()
+    local = _cached(settings, path, ref, pinned=True)
+    object_library.release_after_job(settings, [path], busy=set())
+    assert object_library.cache_valid(local, ref) and object_library.cache_pinned(local)
+    local.unlink()
+    local = _cached(settings, path, ref)
+    object_library.release_after_job(settings, [path], busy=set())
+    assert not local.exists()
+
+
+def test_unarchived_original_is_never_released(registry):
+    settings, sessions, _ = registry
+    with sessions() as db:
+        path = object_library.reserve_original(db, settings, KEY)
+        db.commit()
+    local = abs_path(settings, path)
+    local.parent.mkdir(parents=True, exist_ok=True)
+    local.write_bytes(b"only copy")
+    object_library.release_after_job(settings, [path], busy=set())
+    assert not object_library.release_cache(settings, path)
+    assert local.read_bytes() == b"only copy"
+
+
+def test_backup_restore_keeps_s3_originals_without_local_copies(registry, tmp_path):
+    from reelvault.backup import BackupError, create_backup, restore_backup
+    from reelvault.models import RuntimeSetting, Video
+
+    settings, sessions, peer = registry
+    path, ref = publish(registry, tmp_path)
+    with sessions() as db:
+        db.add(_video(path, status="ready"))
+        db.add(
+            RuntimeSetting(
+                key="storage_locations", value={"storage_locations": {}, "storage_default": "s3"}
+            )
+        )
+        db.commit()
+    archive = create_backup(settings, tmp_path / "s3.zip")
+    config = json.loads(zipfile.ZipFile(archive).read("config.json"))
+    assert "s3" not in config and "private-secret" not in json.dumps(config)
+
+    target = Settings(data_dir=tmp_path / "target", update_check=False)
+    target.ensure_dirs()
+    restore_backup(archive, target)  # No local copy is required for archived originals.
+    restored = Settings(data_dir=target.data_dir, s3=settings.s3)
+    engine = make_engine(restored.db_path)
+    try:
+        asyncio.run(object_library.initialize(restored, make_sessionmaker(engine)))
+    finally:
+        engine.dispose()
+    assert restored.s3_current == settings.s3_current
+    assert restored.s3_objects[path] == ref
+
+    with sessions() as db:
+        db.query(Video).delete()
+        db.add(_video(f"s3/{settings.s3_current}/{'b' * 32}.mp4", status="ready"))
+        db.commit()
+    broken = create_backup(settings, tmp_path / "broken.zip")
+    with pytest.raises(BackupError, match="对象存储原视频记录"):
+        restore_backup(broken, target, replace=True)
+
+
+def test_startup_recovers_interrupted_upload_before_jobs(registry, tmp_path, monkeypatch):
+    from reelvault.media import object_transfer
+
+    settings, sessions, peer = registry
+    with sessions() as db:
+        path = object_library.reserve_original(db, settings, KEY)
+        db.commit()
+        token = db.get(OriginalObject, path).transfer_id
+    config = object_library.bound_config(settings, settings.s3_current)
+    source = tmp_path / "staged.mp4"
+    source.write_bytes(b"staged original")
+    # Crashed after publishing, before adoption: a journal and an owned object remain.
+    directory = settings.tmp_dir / ("s3-transfer-" + token)
+    directory.mkdir(mode=0o700)
+    object_transfer._request(
+        config, {"operation": "put", "key": KEY, "transfer_id": token}, directory
+    )
+    ObjectStore(config, client=peer).put(source, KEY, transfer_id=token)
+    monkeypatch.setattr(object_transfer, "ObjectStore", lambda c: ObjectStore(c, client=peer))
+    restarted = Settings(data_dir=settings.data_dir, s3=settings.s3)
+    asyncio.run(object_library.initialize(restarted, sessions))
+    assert settings.s3.prefix + "/" + KEY not in peer.objects and not directory.exists()
+    with sessions() as db:
+        assert db.get(OriginalObject, path).state == "pending"
+
+
+def test_missing_s3_dependency_is_reported_not_fatal(settings, monkeypatch):
+    def unavailable(config):
+        raise ObjectStoreError("S3 support requires the optional s3 dependency")
+
+    settings.s3 = S3Config(bucket="test-originals")
+    settings.ensure_dirs()
+    engine = make_engine(settings.db_path)
+    upgrade(engine)
+    monkeypatch.setattr(object_library, "ObjectStore", unavailable)
+    try:
+        asyncio.run(object_library.initialize(settings, make_sessionmaker(engine)))
+    finally:
+        engine.dispose()
+    assert settings.s3_current is None
+    assert settings.s3_error == "未安装对象存储组件（s3 可选依赖）"

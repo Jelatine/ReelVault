@@ -72,6 +72,18 @@ jobs:
       - name: Verify multipart, integrity, real subprocess pause/cancel and recovery
         working-directory: backend
         run: uv run --frozen --extra s3 pytest -q tests/test_object_store.py tests/test_object_transfer.py tests/test_object_integration.py
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Verify S3 originals in Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run build
+          npm run test:e2e -- s3.spec.ts
       - name: Stop owned S3 test server
         if: always()
         run: docker rm -f rv-s3 || true
@@ -255,6 +267,8 @@ jobs:
         run: |
           docker run --rm --entrypoint deno reelvault:ci --version
           docker run --rm --entrypoint python reelvault:ci -c "import yt_dlp, yt_dlp_ejs"
+          # S3 originals are usable from a pulled image without rebuilding.
+          docker run --rm --entrypoint python reelvault:ci -c "import boto3, reelvault.object_store"
           docker run -d --name rv -p 8080:8080 reelvault:ci
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:8080/healthz; then exit 0; fi

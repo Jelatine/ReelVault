@@ -452,6 +452,7 @@ class Updater:
         extras = (
             ("link-import", self.settings.link_import_enabled, "yt_dlp"),
             ("transcription", self.settings.transcription_enabled, "faster_whisper"),
+            ("s3", self.settings.s3 is not None, "boto3"),
         )
         if any(enabled or importlib.util.find_spec(module) for _, enabled, module in extras):
             try:

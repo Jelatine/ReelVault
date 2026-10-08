@@ -47,6 +47,24 @@ def test_uv_sync_preserves_link_extra_but_rollback_accepts_older_manifest(tmp_pa
     assert "--extra" not in calls[-1]
 
 
+def test_uv_sync_preserves_s3_extra_when_configured(tmp_path, monkeypatch):
+    import subprocess
+
+    from reelvault.config import S3Config
+
+    settings = Settings(data_dir=tmp_path / "data", s3=S3Config(bucket="private-originals"))
+    updater = Updater(settings, app_dir=tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        updates.subprocess,
+        "run",
+        lambda args, **_: calls.append(args) or subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    (tmp_path / "pyproject.toml").write_text('[project.optional-dependencies]\ns3=["boto3"]\n')
+    updater._uv_sync()
+    assert calls[-1][-2:] == ["--extra", "s3"]
+
+
 def test_version_ordering() -> None:
     assert is_newer("0.2.0", "0.1.0")
     assert is_newer("v1.0.0", "0.9.9")

@@ -12,6 +12,7 @@ const operationLabels = (): Record<string, string> => ({
   scenes: tr("场景检测"),
   duplicates: tr("重复视频检测"),
   playable: tr('生成兼容播放缓存'),
+  original_cache: tr('下载原视频本地副本'),
   transcribe: tr('转写语音'),
   vision_index: tr('生成画面索引'),
   ai_analyze: tr('AI 分析'),

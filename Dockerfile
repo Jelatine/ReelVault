@@ -27,17 +27,21 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 ARG REELVAULT_LINK_IMPORT_EXTRA=0
 ARG REELVAULT_TRANSCRIPTION_EXTRA=0
+# Small (boto3) and needed to use S3 originals with a pulled image; set 0 to omit.
+ARG REELVAULT_S3_EXTRA=1
 RUN --mount=from=deno,source=/deno,target=/tmp/deno \
     if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then install -m 755 /tmp/deno /usr/local/bin/deno; fi
 COPY backend/pyproject.toml backend/uv.lock ./
 RUN set --; \
     if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then set -- "$@" --extra link-import; fi; \
     if [ "$REELVAULT_TRANSCRIPTION_EXTRA" = "1" ]; then set -- "$@" --extra transcription; fi; \
+    if [ "$REELVAULT_S3_EXTRA" = "1" ]; then set -- "$@" --extra s3; fi; \
     uv sync --frozen --no-dev --no-install-project "$@"
 COPY backend/reelvault ./reelvault
 RUN set --; \
     if [ "$REELVAULT_LINK_IMPORT_EXTRA" = "1" ]; then set -- "$@" --extra link-import; fi; \
     if [ "$REELVAULT_TRANSCRIPTION_EXTRA" = "1" ]; then set -- "$@" --extra transcription; fi; \
+    if [ "$REELVAULT_S3_EXTRA" = "1" ]; then set -- "$@" --extra s3; fi; \
     uv sync --frozen --no-dev "$@"
 COPY --from=web /web/dist ./reelvault/static
 

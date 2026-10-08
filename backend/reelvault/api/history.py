@@ -50,7 +50,11 @@ def source_state(source: dict[str, Any], db: Session, settings: Settings) -> dic
         reason = "源文件版本已变化"
     elif video.status != "ready":
         reason = "源视频尚未就绪"
-    elif not abs_path(settings, video.file_path).is_file():
+    elif (
+        video.file_path not in settings.s3_objects
+        and not abs_path(settings, video.file_path).is_file()
+    ):
+        # Archived S3 originals are fetched by the replayed job itself.
         reason = "源文件缺失"
     elif source.get("cover_sha256"):
         cover = settings.derived_dir / video.id / "poster.jpg"
