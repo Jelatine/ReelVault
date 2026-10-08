@@ -22,8 +22,14 @@ if [[ ! -f "$SRC_DIR/backend/reelvault/static/index.html" ]]; then
 fi
 
 echo "==> 安装系统依赖 (ffmpeg)"
-apt-get update -qq
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg fonts-dejavu-core fonts-noto-cjk curl ca-certificates python3 >/dev/null
+APT_OPTIONS=(
+  -o Acquire::Retries=2
+  -o Acquire::http::Timeout=30
+  -o Acquire::https::Timeout=30
+  -o DPkg::Lock::Timeout=120
+)
+apt-get "${APT_OPTIONS[@]}" update -q
+DEBIAN_FRONTEND=noninteractive apt-get "${APT_OPTIONS[@]}" install -y -q ffmpeg fonts-dejavu-core fonts-noto-cjk curl ca-certificates python3
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "==> 安装 uv"
