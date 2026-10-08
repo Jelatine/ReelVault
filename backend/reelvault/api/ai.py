@@ -25,7 +25,7 @@ from ..models import (
     Video,
     VideoVectorIndex,
 )
-from ..storage import lock_budget
+from ..storage import budget_transaction
 from ..vision import MODEL_ID, VisionClient
 from ..visual_search import current
 from .deps import get_jobs, get_settings
@@ -149,19 +149,17 @@ def submit(
     jobs: JobManager = Depends(get_jobs),
 ) -> dict:
     check_ai(settings, faces=body.faces)
-    lock_budget(db)
-    ready_video(db, video_id)
-    pending = active(db, jobs, video_id)
-    if pending:
-        result = jobs.describe(db, pending[0])
-        db.rollback()
-        return result
-    if active(db, jobs, video_id, all_indexes=True):
-        raise APIError(409, "请先结束画面索引任务", code="vision_index_busy")
-    params = submission(db, settings, video_id, body)
-    return jobs.describe(
-        db, jobs.submit(db, "ai_analyze", params, [video_id], priority=body.priority)
-    )
+    with budget_transaction(db):
+        ready_video(db, video_id)
+        pending = active(db, jobs, video_id)
+        if pending:
+            return jobs.describe(db, pending[0])
+        if active(db, jobs, video_id, all_indexes=True):
+            raise APIError(409, "请先结束画面索引任务", code="vision_index_busy")
+        params = submission(db, settings, video_id, body)
+        return jobs.describe(
+            db, jobs.submit(db, "ai_analyze", params, [video_id], priority=body.priority)
+        )
 
 
 @router.delete("/videos/{video_id}/ai-analysis")
@@ -172,18 +170,18 @@ def clear(
     jobs: JobManager = Depends(get_jobs),
 ) -> dict:
     check_ai(settings)
-    lock_budget(db)
-    ready_video(db, video_id)
-    if active(db, jobs, video_id, all_indexes=True):
-        raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
-    row = db.get(AiAnalysis, video_id)
-    if row:
-        db.delete(row)
-        db.flush()
-        prune_groups(db)
-        revision(db, advance=True)
-        db.commit()
-    return {"ok": True}
+    with budget_transaction(db):
+        ready_video(db, video_id)
+        if active(db, jobs, video_id, all_indexes=True):
+            raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
+        row = db.get(AiAnalysis, video_id)
+        if row:
+            db.delete(row)
+            db.flush()
+            prune_groups(db)
+            revision(db, advance=True)
+            db.commit()
+        return {"ok": True}
 
 
 class Accept(BaseModel):
@@ -199,28 +197,28 @@ def accept(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings)
-    lock_budget(db)
-    video = ready_video(db, video_id)
-    index, analysis = db.get(VideoVectorIndex, video.id), db.get(AiAnalysis, video.id)
-    if (
-        not index
-        or not analysis
-        or body.generation != index.generation
-        or not current_analysis(settings, video, index, analysis)
-    ):
-        raise APIError(409, "AI 分析已过期，请重新分析", code="ai_stale")
-    if not set(body.names) <= {row["name"] for row in analysis.suggestions}:
-        raise APIError(422, "请选择当前分析的候选标签", code="ai_tags_invalid")
-    for name in dict.fromkeys(body.names):
-        tag = db.scalar(select(Tag).where(Tag.name == name))
-        if tag is None:
-            tag = Tag(name=name)
-            db.add(tag)
-            db.flush()
-        if tag not in video.tags:
-            video.tags.append(tag)
-    db.commit()
-    return {"ok": True}
+    with budget_transaction(db):
+        video = ready_video(db, video_id)
+        index, analysis = db.get(VideoVectorIndex, video.id), db.get(AiAnalysis, video.id)
+        if (
+            not index
+            or not analysis
+            or body.generation != index.generation
+            or not current_analysis(settings, video, index, analysis)
+        ):
+            raise APIError(409, "AI 分析已过期，请重新分析", code="ai_stale")
+        if not set(body.names) <= {row["name"] for row in analysis.suggestions}:
+            raise APIError(422, "请选择当前分析的候选标签", code="ai_tags_invalid")
+        for name in dict.fromkeys(body.names):
+            tag = db.scalar(select(Tag).where(Tag.name == name))
+            if tag is None:
+                tag = Tag(name=name)
+                db.add(tag)
+                db.flush()
+            if tag not in video.tags:
+                video.tags.append(tag)
+        db.commit()
+        return {"ok": True}
 
 
 def face_rows(
@@ -392,13 +390,13 @@ def create_group(
     body: Name, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
 ) -> dict:
     check_ai(settings, faces=True)
-    lock_budget(db)
-    row = FaceGroup(name=body.name)
-    db.add(row)
-    db.flush()
-    revision(db, advance=True)
-    db.commit()
-    return {"id": row.id, "name": row.name}
+    with budget_transaction(db):
+        row = FaceGroup(name=body.name)
+        db.add(row)
+        db.flush()
+        revision(db, advance=True)
+        db.commit()
+        return {"id": row.id, "name": row.name}
 
 
 @router.patch("/ai/face-groups/{group_id}")
@@ -409,12 +407,12 @@ def rename_group(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings, faces=True)
-    lock_budget(db)
-    row = group(db, group_id)
-    row.name = body.name
-    revision(db, advance=True)
-    db.commit()
-    return {"ok": True}
+    with budget_transaction(db):
+        row = group(db, group_id)
+        row.name = body.name
+        revision(db, advance=True)
+        db.commit()
+        return {"ok": True}
 
 
 class Target(BaseModel):
@@ -429,19 +427,19 @@ def merge_group(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings, faces=True)
-    lock_budget(db)
-    source, target = group(db, group_id), group(db, body.target_id)
-    if source.id == target.id:
-        raise APIError(422, "请选择另一个人脸分组", code="ai_group_target_invalid")
-    db.execute(
-        update(FaceObservation)
-        .where(FaceObservation.group_id == source.id)
-        .values(group_id=target.id, manual=True)
-    )
-    db.delete(source)
-    revision(db, advance=True)
-    db.commit()
-    return {"ok": True}
+    with budget_transaction(db):
+        source, target = group(db, group_id), group(db, body.target_id)
+        if source.id == target.id:
+            raise APIError(422, "请选择另一个人脸分组", code="ai_group_target_invalid")
+        db.execute(
+            update(FaceObservation)
+            .where(FaceObservation.group_id == source.id)
+            .values(group_id=target.id, manual=True)
+        )
+        db.delete(source)
+        revision(db, advance=True)
+        db.commit()
+        return {"ok": True}
 
 
 @router.delete("/ai/face-groups/{group_id}")
@@ -449,17 +447,17 @@ def delete_group(
     group_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
 ) -> dict:
     check_ai(settings, faces=True)
-    lock_budget(db)
-    source = group(db, group_id)
-    db.execute(
-        update(FaceObservation)
-        .where(FaceObservation.group_id == source.id)
-        .values(group_id=None, ignored=True, manual=True)
-    )
-    db.delete(source)
-    revision(db, advance=True)
-    db.commit()
-    return {"ok": True}
+    with budget_transaction(db):
+        source = group(db, group_id)
+        db.execute(
+            update(FaceObservation)
+            .where(FaceObservation.group_id == source.id)
+            .values(group_id=None, ignored=True, manual=True)
+        )
+        db.delete(source)
+        revision(db, advance=True)
+        db.commit()
+        return {"ok": True}
 
 
 class Assignment(BaseModel):
@@ -490,30 +488,30 @@ def assign(
     body: Assignment, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
 ) -> dict:
     check_ai(settings, faces=True)
-    lock_budget(db)
-    rows = list(db.scalars(select(FaceObservation).where(FaceObservation.id.in_(body.ids))))
-    if len(rows) != len(body.ids):
-        raise APIError(404, "人脸记录不存在或已过期", code="ai_face_missing")
-    for row in rows:
-        video = ready_video(db, row.video_id)
-        index, analysis = db.get(VideoVectorIndex, video.id), db.get(AiAnalysis, video.id)
-        if (
-            not index
-            or not analysis
-            or analysis.face_model != FACE_MODEL_ID
-            or not current_analysis(settings, video, index, analysis)
-        ):
-            raise APIError(409, "人脸记录已过期，请重新分析", code="ai_stale")
-    target = group(db, body.group_id) if body.group_id else None
-    if body.name:
-        target = FaceGroup(name=body.name)
-        db.add(target)
+    with budget_transaction(db):
+        rows = list(db.scalars(select(FaceObservation).where(FaceObservation.id.in_(body.ids))))
+        if len(rows) != len(body.ids):
+            raise APIError(404, "人脸记录不存在或已过期", code="ai_face_missing")
+        for row in rows:
+            video = ready_video(db, row.video_id)
+            index, analysis = db.get(VideoVectorIndex, video.id), db.get(AiAnalysis, video.id)
+            if (
+                not index
+                or not analysis
+                or analysis.face_model != FACE_MODEL_ID
+                or not current_analysis(settings, video, index, analysis)
+            ):
+                raise APIError(409, "人脸记录已过期，请重新分析", code="ai_stale")
+        target = group(db, body.group_id) if body.group_id else None
+        if body.name:
+            target = FaceGroup(name=body.name)
+            db.add(target)
+            db.flush()
+        for row in rows:
+            row.group_id = target.id if target else None
+            row.manual, row.ignored = True, body.ignore
         db.flush()
-    for row in rows:
-        row.group_id = target.id if target else None
-        row.manual, row.ignored = True, body.ignore
-    db.flush()
-    prune_groups(db)
-    revision(db, advance=True)
-    db.commit()
-    return {"ok": True}
+        prune_groups(db)
+        revision(db, advance=True)
+        db.commit()
+        return {"ok": True}

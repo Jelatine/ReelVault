@@ -20,7 +20,7 @@ from ..jobs.manager import JobManager
 from ..jobs.vision import estimate
 from ..media.ffmpeg import FFmpegError, ffmpeg_args, run_command
 from ..models import Job, VectorFrame, VideoVectorIndex, new_id
-from ..storage import lock_budget
+from ..storage import budget_transaction
 from ..vision import MODEL_ID, VisionClient, VisionParams, check_enabled
 from ..visual_search import current, directory, rank
 from .deps import get_jobs, get_settings
@@ -111,27 +111,25 @@ def submit(
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     check_enabled(settings)
-    lock_budget(db)
-    video = ready_video(db, video_id)
-    if not math.isfinite(video.duration) or not 0 < video.duration <= 24 * 3600:
-        raise APIError(422, "画面索引仅支持最长 24 小时的视频", code="vision_duration_invalid")
-    pending = active(db, jobs, video_id)
-    if pending:
-        result = jobs.describe(db, pending[0])
-        db.rollback()
-        return result
-    from .ai import active as ai_active
+    with budget_transaction(db):
+        video = ready_video(db, video_id)
+        if not math.isfinite(video.duration) or not 0 < video.duration <= 24 * 3600:
+            raise APIError(422, "画面索引仅支持最长 24 小时的视频", code="vision_duration_invalid")
+        pending = active(db, jobs, video_id)
+        if pending:
+            return jobs.describe(db, pending[0])
+        from .ai import active as ai_active
 
-    if ai_active(db, jobs, video_id):
-        raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
-    params = {
-        **body.model_dump(exclude={"priority"}),
-        "signature": signature(settings, video),
-        "storage_bytes": estimate(video.duration, body, settings.vision_max_frames),
-    }
-    return jobs.describe(
-        db, jobs.submit(db, "vision_index", params, [video_id], priority=body.priority)
-    )
+        if ai_active(db, jobs, video_id):
+            raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
+        params = {
+            **body.model_dump(exclude={"priority"}),
+            "signature": signature(settings, video),
+            "storage_bytes": estimate(video.duration, body, settings.vision_max_frames),
+        }
+        return jobs.describe(
+            db, jobs.submit(db, "vision_index", params, [video_id], priority=body.priority)
+        )
 
 
 @router.delete("/videos/{video_id}/visual-index")
@@ -141,26 +139,26 @@ async def clear(
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, bool]:
-    lock_budget(db)
-    ready_video(db, video_id)
-    if active(db, jobs, video_id):
-        raise APIError(409, "请先结束画面索引任务", code="vision_index_busy")
-    from .ai import active as ai_active
+    with budget_transaction(db):
+        ready_video(db, video_id)
+        if active(db, jobs, video_id):
+            raise APIError(409, "请先结束画面索引任务", code="vision_index_busy")
+        from .ai import active as ai_active
 
-    if ai_active(db, jobs, video_id):
-        raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
-    index = db.get(VideoVectorIndex, video_id)
-    if index:
-        path = directory(settings, index)
-        db.delete(index)
-        db.flush()
-        from ..ai import prune_groups, revision
+        if ai_active(db, jobs, video_id):
+            raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
+        index = db.get(VideoVectorIndex, video_id)
+        if index:
+            path = directory(settings, index)
+            db.delete(index)
+            db.flush()
+            from ..ai import prune_groups, revision
 
-        prune_groups(db)
-        revision(db, advance=True)
-        db.commit()
-        await asyncio.to_thread(shutil.rmtree, path, ignore_errors=True)
-    return {"ok": True}
+            prune_groups(db)
+            revision(db, advance=True)
+            db.commit()
+            await asyncio.to_thread(shutil.rmtree, path, ignore_errors=True)
+        return {"ok": True}
 
 
 @router.get("/visual-search")

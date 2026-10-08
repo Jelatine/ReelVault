@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 import shutil
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -25,6 +27,20 @@ def lock_budget(db: Session) -> None:
     connection = db.connection()
     if not getattr(connection.connection.driver_connection, "in_transaction", False):
         connection.exec_driver_sql("BEGIN IMMEDIATE")
+
+
+@contextmanager
+def budget_transaction(db: Session) -> Iterator[None]:
+    """Release reservations' writer lock before a handler returns or raises.
+
+    Successful mutations commit explicitly. Read-only/deduplicated responses and
+    failures must not keep a SQLite writer while response cleanup is scheduled.
+    """
+    try:
+        lock_budget(db)
+        yield
+    finally:
+        db.rollback()
 
 
 def upload_bytes(size: int) -> int:

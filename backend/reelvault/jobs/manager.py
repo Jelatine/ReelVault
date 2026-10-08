@@ -20,7 +20,7 @@ from ..media.encoding import EncoderRuntime
 from ..media.ffmpeg import Canceled, ProcessHandle
 from ..models import Job, Video, utcnow
 from ..observability import record_job
-from ..storage import check_budget, job_bytes, job_requirements, lock_budget
+from ..storage import budget_transaction, check_budget, job_bytes, job_requirements, lock_budget
 
 log = logging.getLogger("reelvault.jobs")
 
@@ -185,54 +185,54 @@ class JobManager:
         *,
         priority: int = 1,
     ) -> list[Job]:
-        lock_budget(db)
-        budgeted = []
-        for kind, params, ids in requests:
-            if kind == "edit":
-                output = dict(params.get("output", {}))
-                if params["edit"]["op"] in ("animation", "extract_audio"):
-                    target = "local"
-                elif output.get("mode") == "replace" or (
-                    params["edit"]["op"] == "embed_cover" and not params.get("history_replay")
-                ):
-                    source = db.get(Video, ids[0])
-                    target = location_of(source.file_path) if source else "local"
-                else:
-                    target = output.get("storage_id") or self.settings.storage_default
-                library_root(self.settings, target)
-                params = {**params, "output": {**output, "storage_id": target}}
-            estimate = job_bytes(db, kind, params, ids)
-            budgeted.append(
-                (
-                    kind,
-                    {
-                        **params,
-                        "storage_bytes": estimate,
-                        "storage_plan": job_requirements(self.settings, kind, params, estimate),
-                    }
-                    if estimate
-                    else params,
-                    ids,
+        with budget_transaction(db):
+            budgeted = []
+            for kind, params, ids in requests:
+                if kind == "edit":
+                    output = dict(params.get("output", {}))
+                    if params["edit"]["op"] in ("animation", "extract_audio"):
+                        target = "local"
+                    elif output.get("mode") == "replace" or (
+                        params["edit"]["op"] == "embed_cover" and not params.get("history_replay")
+                    ):
+                        source = db.get(Video, ids[0])
+                        target = location_of(source.file_path) if source else "local"
+                    else:
+                        target = output.get("storage_id") or self.settings.storage_default
+                    library_root(self.settings, target)
+                    params = {**params, "output": {**output, "storage_id": target}}
+                estimate = job_bytes(db, kind, params, ids)
+                budgeted.append(
+                    (
+                        kind,
+                        {
+                            **params,
+                            "storage_bytes": estimate,
+                            "storage_plan": job_requirements(self.settings, kind, params, estimate),
+                        }
+                        if estimate
+                        else params,
+                        ids,
+                    )
                 )
-            )
-        requests = budgeted
-        required = sum(params.get("storage_bytes", 0) for _, params, _ in requests)
-        if required:
-            plan: dict[str, int] = {}
-            for _, params, _ in requests:
-                for key, amount in params.get("storage_plan", {}).items():
-                    plan[key] = plan.get(key, 0) + amount
-            check_budget(db, self.settings, required, requirements=plan)
-        jobs = [
-            Job(kind=kind, params=params, video_ids=ids, priority=priority, message="排队中")
-            for kind, params, ids in requests
-        ]
-        db.add_all(jobs)
-        db.commit()
-        for job in jobs:
-            self.enqueue(job.id)
-            self.publish(job)
-        return jobs
+            requests = budgeted
+            required = sum(params.get("storage_bytes", 0) for _, params, _ in requests)
+            if required:
+                plan: dict[str, int] = {}
+                for _, params, _ in requests:
+                    for key, amount in params.get("storage_plan", {}).items():
+                        plan[key] = plan.get(key, 0) + amount
+                check_budget(db, self.settings, required, requirements=plan)
+            jobs = [
+                Job(kind=kind, params=params, video_ids=ids, priority=priority, message="排队中")
+                for kind, params, ids in requests
+            ]
+            db.add_all(jobs)
+            db.commit()
+            for job in jobs:
+                self.enqueue(job.id)
+                self.publish(job)
+            return jobs
 
     def submit_from_worker(
         self,

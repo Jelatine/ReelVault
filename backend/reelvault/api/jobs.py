@@ -21,7 +21,7 @@ from ..library import abs_path
 from ..media import ops
 from ..media.assets import AssetError, audio_asset, image_asset, lut_asset, subtitle_asset
 from ..models import EditPreset, Job, Video
-from ..storage import check_budget, job_bytes, job_requirements, lock_budget
+from ..storage import budget_transaction, check_budget, job_bytes, job_requirements
 from .deps import get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["jobs"], dependencies=[Depends(require_auth)])
@@ -336,121 +336,127 @@ async def retry_job(
     db: Session = Depends(get_db),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
-    lock_budget(db)
-    old = _get(db, job_id)
-    if old.status != "failed":
-        raise APIError(409, "只有失败任务可以重试", code="job_retry_requires_failure")
-    if old.result_video_id or old.result_file:
-        raise APIError(
-            409, "该任务已保存输出，请查看结果，避免重复修改", code="job_output_already_saved"
-        )
-    if old.kind not in jobs.handlers:
-        raise APIError(409, "此任务类型不支持重试", code="job_retry_unsupported")
-    if db.scalar(
-        select(Job.id).where(
-            Job.retry_of == old.id, Job.status.in_(["queued", "running", "paused"])
-        )
-    ):
-        raise APIError(409, "该任务已有未结束的重试", code="job_retry_pending")
-    for vid in old.video_ids:
-        video = db.get(Video, vid)
-        if video is None or (
-            video.deleted_at and not old.params.get("history_replay") and old.kind != "ingest"
-        ):
-            raise APIError(404, "源视频不存在或已删除", code="source_video_not_found")
-        if old.kind == "ingest":
-            video.status, video.error = "processing", None
-    params = copy.deepcopy(old.params)
-    if old.kind == "ai_analyze":
-        from ..ai import AiParams
-        from .ai import active as ai_active
-        from .ai import submission as ai_submission
-
-        if ai_active(db, jobs, old.video_ids[0], all_indexes=True):
-            raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
-        params = ai_submission(db, jobs.settings, old.video_ids[0], AiParams.model_validate(params))
-    if old.kind == "vision_index":
-        from ..jobs.vision import estimate as vision_estimate
-        from ..vision import VisionParams
-        from ..vision import check_enabled as vision_check_enabled
-        from .scenes import ready_video, signature
-        from .visual_search import active
-
-        vision_check_enabled(jobs.settings)
-        video = ready_video(db, old.video_ids[0])
-        if active(db, jobs, video.id):
-            raise APIError(409, "请先结束画面索引任务", code="vision_index_busy")
-        from .ai import active as ai_active
-
-        if ai_active(db, jobs, video.id):
-            raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
-        params["signature"] = signature(jobs.settings, video)
-        params["storage_bytes"] = vision_estimate(
-            video.duration, VisionParams.model_validate(params), jobs.settings.vision_max_frames
-        )
-    if old.kind == "transcribe":
-        from ..transcription import check_enabled, estimate
-        from .scenes import ready_video, signature
-        from .transcription import active
-
-        video = ready_video(db, old.video_ids[0])
-        check_enabled(jobs.settings, video)
-        if active(db, jobs, video.id):
-            raise APIError(409, "请先结束语音转写任务", code="transcription_busy")
-        params["signature"] = signature(jobs.settings, video)
-        params["storage_bytes"] = estimate(video)
-    if old.kind == "playable":
-        from ..playback_cache import cached_path, estimate, needs_copy
-        from .playback_cache import active
-        from .scenes import ready_video, signature
-
-        video = ready_video(db, old.video_ids[0])
-        if active(db, jobs, video.id):
-            raise APIError(409, "请先结束播放缓存生成任务", code="playback_cache_busy")
-        if not needs_copy(video) or cached_path(jobs.settings, video):
+    with budget_transaction(db):
+        old = _get(db, job_id)
+        if old.status != "failed":
+            raise APIError(409, "只有失败任务可以重试", code="job_retry_requires_failure")
+        if old.result_video_id or old.result_file:
             raise APIError(
                 409, "该任务已保存输出，请查看结果，避免重复修改", code="job_output_already_saved"
             )
-        params["signature"] = signature(jobs.settings, video)
-        params["storage_bytes"] = estimate(video)
-    if old.kind == "link_import":
-        from ..link_download import downloader_command
-        from ..storage import MIB
+        if old.kind not in jobs.handlers:
+            raise APIError(409, "此任务类型不支持重试", code="job_retry_unsupported")
+        if db.scalar(
+            select(Job.id).where(
+                Job.retry_of == old.id, Job.status.in_(["queued", "running", "paused"])
+            )
+        ):
+            raise APIError(409, "该任务已有未结束的重试", code="job_retry_pending")
+        for vid in old.video_ids:
+            video = db.get(Video, vid)
+            if video is None or (
+                video.deleted_at and not old.params.get("history_replay") and old.kind != "ingest"
+            ):
+                raise APIError(404, "源视频不存在或已删除", code="source_video_not_found")
+            if old.kind == "ingest":
+                video.status, video.error = "processing", None
+        params = copy.deepcopy(old.params)
+        if old.kind == "ai_analyze":
+            from ..ai import AiParams
+            from .ai import active as ai_active
+            from .ai import submission as ai_submission
 
-        if not jobs.settings.link_import_enabled:
-            raise APIError(403, "链接导入尚未启用", code="link_import_disabled")
-        if not downloader_command(jobs.settings):
-            raise APIError(409, "未安装 yt-dlp，无法导入链接", code="link_import_unavailable")
-        params["limit_bytes"] = min(params["limit_bytes"], jobs.settings.link_import_max_mb * MIB)
-        params["timeout_minutes"] = min(
-            params["timeout_minutes"], jobs.settings.link_import_timeout_minutes
+            if ai_active(db, jobs, old.video_ids[0], all_indexes=True):
+                raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
+            params = ai_submission(
+                db, jobs.settings, old.video_ids[0], AiParams.model_validate(params)
+            )
+        if old.kind == "vision_index":
+            from ..jobs.vision import estimate as vision_estimate
+            from ..vision import VisionParams
+            from ..vision import check_enabled as vision_check_enabled
+            from .scenes import ready_video, signature
+            from .visual_search import active
+
+            vision_check_enabled(jobs.settings)
+            video = ready_video(db, old.video_ids[0])
+            if active(db, jobs, video.id):
+                raise APIError(409, "请先结束画面索引任务", code="vision_index_busy")
+            from .ai import active as ai_active
+
+            if ai_active(db, jobs, video.id):
+                raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
+            params["signature"] = signature(jobs.settings, video)
+            params["storage_bytes"] = vision_estimate(
+                video.duration, VisionParams.model_validate(params), jobs.settings.vision_max_frames
+            )
+        if old.kind == "transcribe":
+            from ..transcription import check_enabled, estimate
+            from .scenes import ready_video, signature
+            from .transcription import active
+
+            video = ready_video(db, old.video_ids[0])
+            check_enabled(jobs.settings, video)
+            if active(db, jobs, video.id):
+                raise APIError(409, "请先结束语音转写任务", code="transcription_busy")
+            params["signature"] = signature(jobs.settings, video)
+            params["storage_bytes"] = estimate(video)
+        if old.kind == "playable":
+            from ..playback_cache import cached_path, estimate, needs_copy
+            from .playback_cache import active
+            from .scenes import ready_video, signature
+
+            video = ready_video(db, old.video_ids[0])
+            if active(db, jobs, video.id):
+                raise APIError(409, "请先结束播放缓存生成任务", code="playback_cache_busy")
+            if not needs_copy(video) or cached_path(jobs.settings, video):
+                raise APIError(
+                    409,
+                    "该任务已保存输出，请查看结果，避免重复修改",
+                    code="job_output_already_saved",
+                )
+            params["signature"] = signature(jobs.settings, video)
+            params["storage_bytes"] = estimate(video)
+        if old.kind == "link_import":
+            from ..link_download import downloader_command
+            from ..storage import MIB
+
+            if not jobs.settings.link_import_enabled:
+                raise APIError(403, "链接导入尚未启用", code="link_import_disabled")
+            if not downloader_command(jobs.settings):
+                raise APIError(409, "未安装 yt-dlp，无法导入链接", code="link_import_unavailable")
+            params["limit_bytes"] = min(
+                params["limit_bytes"], jobs.settings.link_import_max_mb * MIB
+            )
+            params["timeout_minutes"] = min(
+                params["timeout_minutes"], jobs.settings.link_import_timeout_minutes
+            )
+        for field in ("encoding", "preview_encoding", "playable_encoding", "name"):
+            params.pop(field, None)
+        if "requested_edit" in params:
+            params["edit"] = params.pop("requested_edit")
+        params["storage_bytes"] = job_bytes(db, old.kind, params, list(old.video_ids))
+        params["storage_plan"] = job_requirements(
+            jobs.settings, old.kind, params, params["storage_bytes"]
         )
-    for field in ("encoding", "preview_encoding", "playable_encoding", "name"):
-        params.pop(field, None)
-    if "requested_edit" in params:
-        params["edit"] = params.pop("requested_edit")
-    params["storage_bytes"] = job_bytes(db, old.kind, params, list(old.video_ids))
-    params["storage_plan"] = job_requirements(
-        jobs.settings, old.kind, params, params["storage_bytes"]
-    )
-    if params["storage_bytes"]:
-        check_budget(
-            db, jobs.settings, params["storage_bytes"], requirements=params["storage_plan"]
+        if params["storage_bytes"]:
+            check_budget(
+                db, jobs.settings, params["storage_bytes"], requirements=params["storage_plan"]
+            )
+        # Persist the complete retry before waking a worker; keep the failed record.
+        new = Job(
+            kind=old.kind,
+            params=params,
+            video_ids=list(old.video_ids),
+            priority=old.priority,
+            retry_of=old.id,
+            message="重试排队中",
         )
-    # Persist the complete retry before waking a worker; keep the failed record.
-    new = Job(
-        kind=old.kind,
-        params=params,
-        video_ids=list(old.video_ids),
-        priority=old.priority,
-        retry_of=old.id,
-        message="重试排队中",
-    )
-    db.add(new)
-    db.commit()
-    jobs.enqueue(new.id)
-    jobs.publish(new)
-    return jobs.describe(db, new)
+        db.add(new)
+        db.commit()
+        jobs.enqueue(new.id)
+        jobs.publish(new)
+        return jobs.describe(db, new)
 
 
 @router.get("/jobs/{job_id}/download")

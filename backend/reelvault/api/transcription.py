@@ -13,7 +13,7 @@ from ..db import get_db
 from ..errors import APIError
 from ..jobs.manager import JobManager
 from ..models import Job, SubtitleCue, SubtitleTrack
-from ..storage import lock_budget
+from ..storage import budget_transaction
 from ..transcription import TranscriptionParams, available, check_enabled, estimate
 from .deps import get_jobs, get_settings
 from .scenes import ready_video, signature
@@ -88,42 +88,42 @@ def submit(
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
-    lock_budget(db)
-    video = ready_video(db, video_id)
-    check_enabled(settings, video)
-    pending = active(db, jobs, video_id)
-    if pending:
-        return jobs.describe(db, pending[0])
-    job = jobs.submit(
-        db,
-        "transcribe",
-        {
-            "signature": signature(settings, video),
-            "language": body.language,
-            "storage_bytes": estimate(video),
-        },
-        [video_id],
-        priority=body.priority,
-    )
-    return jobs.describe(db, job)
+    with budget_transaction(db):
+        video = ready_video(db, video_id)
+        check_enabled(settings, video)
+        pending = active(db, jobs, video_id)
+        if pending:
+            return jobs.describe(db, pending[0])
+        job = jobs.submit(
+            db,
+            "transcribe",
+            {
+                "signature": signature(settings, video),
+                "language": body.language,
+                "storage_bytes": estimate(video),
+            },
+            [video_id],
+            priority=body.priority,
+        )
+        return jobs.describe(db, job)
 
 
 @router.delete("/videos/{video_id}/transcription")
 def clear(
     video_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
 ) -> dict[str, bool]:
-    lock_budget(db)
-    ready_video(db, video_id)
-    if active(db, jobs, video_id):
-        raise APIError(409, "请先结束语音转写任务", code="transcription_busy")
-    for track in db.scalars(
-        select(SubtitleTrack).where(
-            SubtitleTrack.video_id == video_id, SubtitleTrack.generated.is_(True)
-        )
-    ):
-        db.delete(track)
-    db.commit()
-    return {"ok": True}
+    with budget_transaction(db):
+        ready_video(db, video_id)
+        if active(db, jobs, video_id):
+            raise APIError(409, "请先结束语音转写任务", code="transcription_busy")
+        for track in db.scalars(
+            select(SubtitleTrack).where(
+                SubtitleTrack.video_id == video_id, SubtitleTrack.generated.is_(True)
+            )
+        ):
+            db.delete(track)
+        db.commit()
+        return {"ok": True}
 
 
 @router.get("/content-search")

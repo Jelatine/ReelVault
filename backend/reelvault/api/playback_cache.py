@@ -14,7 +14,7 @@ from ..jobs.manager import JobManager
 from ..library import abs_path
 from ..models import Job
 from ..playback_cache import cached_path, estimate, needs_copy, remove_copy
-from ..storage import lock_budget
+from ..storage import budget_transaction
 from .deps import get_jobs, get_settings
 from .scenes import ready_video, signature
 
@@ -72,25 +72,25 @@ def submit(
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
-    lock_budget(db)
-    video = ready_video(db, video_id)
-    pending = active(db, jobs, video_id)
-    if pending:
-        return jobs.describe(db, pending[0])
-    if not needs_copy(video) or cached_path(settings, video):
-        return {"cached": True}
-    return jobs.describe(
-        db,
-        jobs.submit(
+    with budget_transaction(db):
+        video = ready_video(db, video_id)
+        pending = active(db, jobs, video_id)
+        if pending:
+            return jobs.describe(db, pending[0])
+        if not needs_copy(video) or cached_path(settings, video):
+            return {"cached": True}
+        return jobs.describe(
             db,
-            "playable",
-            {
-                "signature": signature(settings, video),
-                "storage_bytes": estimate(video),
-            },
-            [video_id],
-        ),
-    )
+            jobs.submit(
+                db,
+                "playable",
+                {
+                    "signature": signature(settings, video),
+                    "storage_bytes": estimate(video),
+                },
+                [video_id],
+            ),
+        )
 
 
 @router.delete("/{video_id}/playback-cache")
@@ -100,20 +100,22 @@ def clear(
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, bool]:
-    lock_budget(db)
-    video = ready_video(db, video_id)
-    # Ingest writes the legacy eager path, so it must also finish before cleanup.
-    if active(db, jobs, video_id) or any(
-        video_id in j.video_ids
-        for j in db.scalars(
-            select(Job).where(Job.kind == "ingest", Job.status.in_(["queued", "running", "paused"]))
-        )
-    ):
-        raise APIError(409, "请先结束播放缓存生成任务", code="playback_cache_busy")
-    old = abs_path(settings, video.playable_path) if video.playable_path else None
-    remove_copy(settings, video_id, old)
-    video.playable_path = None
-    video.meta = {k: v for k, v in (video.meta or {}).items() if k != "playable_signature"}
-    video.asset_version += 1
-    db.commit()
-    return {"cleared": True}
+    with budget_transaction(db):
+        video = ready_video(db, video_id)
+        # Ingest writes the legacy eager path, so it must also finish before cleanup.
+        if active(db, jobs, video_id) or any(
+            video_id in j.video_ids
+            for j in db.scalars(
+                select(Job).where(
+                    Job.kind == "ingest", Job.status.in_(["queued", "running", "paused"])
+                )
+            )
+        ):
+            raise APIError(409, "请先结束播放缓存生成任务", code="playback_cache_busy")
+        old = abs_path(settings, video.playable_path) if video.playable_path else None
+        remove_copy(settings, video_id, old)
+        video.playable_path = None
+        video.meta = {k: v for k, v in (video.meta or {}).items() if k != "playable_signature"}
+        video.asset_version += 1
+        db.commit()
+        return {"cleared": True}
