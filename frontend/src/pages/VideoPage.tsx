@@ -70,6 +70,7 @@ import type { Video } from '../lib/types'
 import MetadataPanel from '../components/MetadataPanel'
 import TranscriptionPanel from '../components/TranscriptionPanel'
 import VisualIndexPanel from '../components/VisualIndexPanel'
+import AiPanel from '../components/AiPanel'
 
 import { ShareButton } from '../components/SharePanel'
 
@@ -342,6 +343,7 @@ export default function VideoPage() {
             {ready && <BookmarkPanel key={`bookmarks:${video.stream_url}`} video={video} currentTime={time} seek={seek} />}
             {ready && <TranscriptionPanel key={`transcription:${video.id}`} video={video} />}
             {ready && <VisualIndexPanel key={`visual-index:${video.id}`} video={video} />}
+            {ready && <AiPanel key={`ai-analysis:${video.id}`} video={video} />}
 
             {ready && tool === 'trim' && <FrameControls video={video} currentTime={time} seek={seek} pause={pause} />}
 

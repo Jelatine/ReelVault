@@ -146,6 +146,10 @@ async def index_vision(ctx: JobContext, job: Job) -> None:
             )
             db.flush()
             db.execute(delete(VectorFrame).where(VectorFrame.video_id == video.id))
+            from ..ai import prune_groups, revision
+
+            prune_groups(db)
+            revision(db, advance=True)
             db.execute(insert(VectorFrame), [{**frame, "video_id": video.id} for frame in frames])
             target.parent.mkdir(parents=True, exist_ok=True)
             frames_dir.replace(target)

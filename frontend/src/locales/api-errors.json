@@ -710,5 +710,41 @@
   "vision_frame_missing": {
     "en": "The indexed frame is missing or stale. Rebuild the visual index.",
     "zh": "画面索引不存在或已过期，请重新生成"
+  },
+  "ai_disabled": {
+    "zh": "管理员尚未启用 AI 分析",
+    "en": "AI analysis has not been enabled."
+  },
+  "ai_faces_disabled": {
+    "zh": "管理员尚未启用人脸分析",
+    "en": "Face analysis has not been enabled."
+  },
+  "ai_index_required": {
+    "zh": "请先生成有效的画面索引",
+    "en": "Generate a valid visual index first."
+  },
+  "ai_busy": {
+    "zh": "请先结束 AI 分析任务",
+    "en": "Finish the AI analysis task first."
+  },
+  "ai_stale": {
+    "zh": "分析记录已过期，请重新分析",
+    "en": "The analysis has expired. Analyze the video again."
+  },
+  "ai_tags_invalid": {
+    "zh": "请选择当前分析提出的标签",
+    "en": "Choose tags suggested by the current analysis."
+  },
+  "ai_group_missing": {
+    "zh": "人脸分组不存在",
+    "en": "The face group does not exist."
+  },
+  "ai_group_target_invalid": {
+    "zh": "请选择另一个人脸分组",
+    "en": "Choose a different face group."
+  },
+  "ai_face_missing": {
+    "zh": "人脸记录不存在或已过期",
+    "en": "The face observation is missing or expired."
   }
 }

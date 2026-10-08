@@ -361,6 +361,14 @@ async def retry_job(
         if old.kind == "ingest":
             video.status, video.error = "processing", None
     params = copy.deepcopy(old.params)
+    if old.kind == "ai_analyze":
+        from ..ai import AiParams
+        from .ai import active as ai_active
+        from .ai import submission as ai_submission
+
+        if ai_active(db, jobs, old.video_ids[0], all_indexes=True):
+            raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
+        params = ai_submission(db, jobs.settings, old.video_ids[0], AiParams.model_validate(params))
     if old.kind == "vision_index":
         from ..jobs.vision import estimate as vision_estimate
         from ..vision import VisionParams
@@ -372,6 +380,10 @@ async def retry_job(
         video = ready_video(db, old.video_ids[0])
         if active(db, jobs, video.id):
             raise APIError(409, "请先结束画面索引任务", code="vision_index_busy")
+        from .ai import active as ai_active
+
+        if ai_active(db, jobs, video.id):
+            raise APIError(409, "请先结束 AI 分析任务", code="ai_busy")
         params["signature"] = signature(jobs.settings, video)
         params["storage_bytes"] = vision_estimate(
             video.duration, VisionParams.model_validate(params), jobs.settings.vision_max_frames

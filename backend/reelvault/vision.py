@@ -43,10 +43,10 @@ def sample_times(duration: float, interval: float, maximum: int, start: float = 
     return [round(start + i * step, 6) for i in range(count)]
 
 
-def vector(values: Any) -> list[float]:
+def vector(values: Any, dimension: int = DIMENSION) -> list[float]:
     if (
         not isinstance(values, list)
-        or len(values) != DIMENSION
+        or len(values) != dimension
         or any(
             isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
             for v in values

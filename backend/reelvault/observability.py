@@ -25,6 +25,7 @@ KINDS = (
     "playable",
     "transcribe",
     "vision_index",
+    "ai_analyze",
     "other",
 )
 STATES = ("queued", "running", "paused", "succeeded", "failed", "canceled")

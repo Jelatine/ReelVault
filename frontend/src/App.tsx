@@ -11,6 +11,7 @@ const JobsPage = lazy(() => import('./pages/JobsPage'))
 const LibraryPage = lazy(() => import('./pages/LibraryPage'))
 const ContentSearchPage = lazy(() => import('./pages/ContentSearchPage'))
 const VisualSearchPage = lazy(() => import('./pages/VisualSearchPage'))
+const PeoplePage = lazy(() => import('./pages/PeoplePage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
@@ -48,6 +49,7 @@ function AppRoutes() {
         <Route path="library" element={<LibraryPage />} />
         <Route path="content" element={<ContentSearchPage />} />
         <Route path="visual-search" element={<VisualSearchPage />} />
+        <Route path="people" element={<PeoplePage />} />
         <Route path="videos/:id" element={<VideoPage />} />
         <Route path="collections/:id" element={<CollectionPage />} />
         <Route path="jobs" element={<JobsPage />} />

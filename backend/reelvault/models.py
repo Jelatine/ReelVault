@@ -425,6 +425,50 @@ class VectorFrame(Base):
     embedding: Mapped[bytes] = mapped_column(LargeBinary)
 
 
+class AiAnalysis(Base):
+    __tablename__ = "ai_analyses"
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("video_vector_indexes.video_id", ondelete="CASCADE"), primary_key=True
+    )
+    generation: Mapped[str] = mapped_column(String(32))
+    model: Mapped[str] = mapped_column(String(80))
+    face_model: Mapped[str | None] = mapped_column(String(80))
+    suggestions: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    analyzed_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class FaceGroup(Base):
+    __tablename__ = "face_groups"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class FaceObservation(Base):
+    __tablename__ = "face_observations"
+    __table_args__ = (
+        UniqueConstraint("frame_id", "ordinal"),
+        CheckConstraint("ordinal >= 0 AND ordinal < 16"),
+        CheckConstraint("length(embedding) = 512"),
+    )
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("ai_analyses.video_id", ondelete="CASCADE"), index=True
+    )
+    frame_id: Mapped[int] = mapped_column(
+        ForeignKey("vector_frames.id", ondelete="CASCADE"), index=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer)
+    box: Mapped[list[float]] = mapped_column(JSON)
+    score: Mapped[float] = mapped_column(Float)
+    embedding: Mapped[bytes] = mapped_column(LargeBinary)
+    group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("face_groups.id", ondelete="SET NULL"), index=True
+    )
+    manual: Mapped[bool] = mapped_column(Boolean, default=False)
+    ignored: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class DuplicateMatch(Base):
     __tablename__ = "duplicate_matches"
     # Content identifiers survive source deletion and avoid quadratic identical-file pairs.

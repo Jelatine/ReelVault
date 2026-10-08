@@ -122,15 +122,35 @@ jobs:
           curl -fsS --max-time 30 -H 'Authorization: Bearer ci-vision-token-0123456789abcdef0123456789abcdef' -H 'Content-Type: image/jpeg' --data-binary "@$RUNNER_TEMP/face-fixture.jpg" http://127.0.0.1:8091/embed/faces -o "$RUNNER_TEMP/face-result.json"
           python -c 'import json, math, os; data=json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "face-result.json"))); assert data["face_dimension"] == 128; assert data["face_model"] == "yunet-sface-4f3f83ee562f91109d0098a7"; assert data["faces"]; vector=data["faces"][0]["vector"]; assert len(vector) == 128 and all(math.isfinite(v) for v in vector); assert abs(sum(v*v for v in vector)-1) < 0.0001'
 
-      - name: Verify frame indexing and search against the real private container
+      - name: Verify indexing, search and reviewed AI analysis against the real private container
         working-directory: backend
         env:
           REELVAULT_TEST_VISION_URL: http://127.0.0.1:8091
           REELVAULT_TEST_VISION_TOKEN: ci-vision-token-0123456789abcdef0123456789abcdef
+          REELVAULT_TEST_FACE_IMAGE: ${{ runner.temp }}/face-fixture.jpg
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
           uv sync --frozen --extra link-import
-          uv run --frozen pytest -q tests/test_visual_search.py
+          uv run --frozen pytest -q tests/test_visual_search.py tests/test_ai.py
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Verify reviewed AI features in Chromium with real private models
+        working-directory: frontend
+        env:
+          REELVAULT_AI_ENABLED: "true"
+          REELVAULT_AI_FACES_ENABLED: "true"
+          REELVAULT_VISION_ENABLED: "true"
+          REELVAULT_VISION_URL: http://127.0.0.1:8091
+          REELVAULT_VISION_TOKEN: ci-vision-token-0123456789abcdef0123456789abcdef
+          REELVAULT_TEST_FACE_IMAGE: ${{ runner.temp }}/face-fixture.jpg
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run build
+          npm run test:e2e -- ai.spec.ts
 
   e2e:
     runs-on: ubuntu-latest

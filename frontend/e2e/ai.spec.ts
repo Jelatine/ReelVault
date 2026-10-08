@@ -1,0 +1,83 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { expect, test, type Page } from '@playwright/test'
+
+async function login(page: Page) {
+  await page.goto('/')
+  await page.getByRole('textbox', { name: '用户名', exact: true }).fill('e2e-admin')
+  await page.getByLabel(/^密码/).fill('e2e-secret123')
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page.getByRole('button', { name: '上传', exact: true })).toBeVisible()
+}
+
+test('AI 默认关闭，不暴露人脸记录', async ({ page }) => {
+  test.skip(process.env.REELVAULT_AI_ENABLED === 'true', 'Explicit optional AI deployment')
+  await login(page)
+  await page.goto('/people')
+  await expect(page.getByText('管理员尚未启用 AI 人脸分析。请在视频详情页生成画面索引并分析人脸。')).toBeVisible()
+  expect((await page.request.get('/api/ai/faces')).status()).toBe(403)
+})
+
+test('真实 CLIP 与人脸模型：人工采纳标签、命名、忽略及恢复，手机布局', async ({ page }, testInfo) => {
+  test.skip(!process.env.REELVAULT_TEST_FACE_IMAGE || process.env.REELVAULT_AI_ENABLED !== 'true', 'Prepared private CLIP and face service required')
+  await login(page)
+  const directory = mkdtempSync(join(tmpdir(), 'reelvault-ai-browser-'))
+  try {
+    const sample = join(directory, 'portrait.mp4')
+    execFileSync('ffmpeg', ['-v', 'error', '-loop', '1', '-i', process.env.REELVAULT_TEST_FACE_IMAGE!, '-t', '2', '-r', '10', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', sample])
+    const data = readFileSync(sample), headers = { 'X-Requested-With': 'ReelVault' }
+    const up = await (await page.request.post('/api/uploads', { headers, data: { filename: 'AI portrait.mp4', size: data.length } })).json()
+    expect((await page.request.put(`/api/uploads/${up.id}?offset=0`, { headers, data })).ok()).toBe(true)
+    const video = await (await page.request.post(`/api/uploads/${up.id}/complete`, { headers })).json()
+    await expect.poll(async () => (await (await page.request.get(`/api/videos/${video.id}`)).json()).status).toBe('ready')
+    const indexed = await (await page.request.post(`/api/videos/${video.id}/visual-index`, { headers, data: { interval: 1 } })).json()
+    await expect.poll(async () => (await (await page.request.get(`/api/jobs/${indexed.id}`)).json()).status, { timeout: 30000 }).toBe('succeeded')
+    await page.goto(`/videos/${video.id}`)
+    const panel = page.getByText('AI 标签与人脸', { exact: true }).locator('..')
+    await panel.getByRole('textbox', { name: '候选场景标签', exact: true }).fill('a portrait of a person,an empty beach')
+    await panel.getByRole('textbox', { name: '最低标签相似度', exact: true }).fill('0.1')
+    await panel.getByRole('checkbox', { name: '同时分析人脸', exact: true }).check()
+    await panel.getByRole('button', { name: '开始 AI 分析', exact: true }).click()
+    const portrait = panel.getByRole('checkbox', { name: 'a portrait of a person', exact: true })
+    await expect(portrait).toBeVisible({ timeout: 30000 })
+    expect((await (await page.request.get(`/api/videos/${video.id}`)).json()).tags).toEqual([])
+    await portrait.check()
+    await panel.getByRole('button', { name: '采纳选中的标签', exact: true }).click()
+    await expect.poll(async () => (await (await page.request.get(`/api/videos/${video.id}`)).json()).tags).toContain('a portrait of a person')
+    await panel.getByRole('link', { name: '查看此视频的人脸（2）', exact: true }).click()
+    await page.getByRole('checkbox', { name: '选择本页全部人脸', exact: true }).check()
+    await page.getByRole('textbox', { name: '或新建命名分组', exact: true }).fill('测试人物')
+    await page.getByRole('button', { name: '移动选中人脸', exact: true }).click()
+    await expect(page.getByText('人工确认', { exact: true })).toHaveCount(2)
+    await page.getByRole('checkbox', { name: /^选择人脸 / }).first().check()
+    await page.getByRole('button', { name: '忽略选中的人脸', exact: true }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '确定', exact: true }).click()
+    await expect(page.getByRole('checkbox', { name: /^选择人脸 / })).toHaveCount(1)
+    await page.getByText('已忽略', { exact: true }).first().click()
+    await expect(page.getByRole('checkbox', { name: /^选择人脸 / })).toHaveCount(1)
+    await page.getByRole('checkbox', { name: '选择本页全部人脸', exact: true }).check()
+    await page.getByRole('combobox', { name: '目标人脸分组', exact: true }).click()
+    await page.getByRole('option', { name: /^测试人物/ }).click()
+    await page.getByRole('button', { name: '恢复并分组', exact: true }).click()
+    await expect(page.getByText('没有符合条件的人脸记录或分组。')).toBeVisible()
+    await page.goto('/people')
+    await page.getByRole('link', { name: '测试人物', exact: true }).click()
+    await page.getByRole('button', { name: '命名人脸分组', exact: true }).click()
+    await page.getByRole('dialog').getByRole('textbox', { name: '分组名称', exact: true }).fill('家人：已经人工核对')
+    await page.getByRole('dialog').getByRole('button', { name: '确定', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(page.getByText('家人：已经人工核对', { exact: true }).first()).toBeVisible()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect.poll(() => page.locator('#sidebar-navigation').evaluate(node => node.getBoundingClientRect().right)).toBeLessThanOrEqual(0)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await expect.poll(() => page.locator('img[alt="检测到的人脸画面"]').first().evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath('ai-faces-mobile.png'), fullPage: true })
+    await page.goto(`/videos/${video.id}`)
+    await panel.getByRole('button', { name: '移除 AI 分析', exact: true }).click()
+    await page.getByRole('dialog').getByRole('button', { name: '确定', exact: true }).click()
+    await expect.poll(async () => (await (await page.request.get(`/api/videos/${video.id}/ai-analysis`)).json()).has_analysis).toBe(false)
+    expect((await (await page.request.get(`/api/videos/${video.id}`)).json()).tags).toEqual(['a portrait of a person'])
+  } finally { rmSync(directory, { recursive: true, force: true }) }
+})

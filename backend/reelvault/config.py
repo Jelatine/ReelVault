@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     vision_url: str = Field("http://127.0.0.1:8091", exclude=True)
     vision_token: str = Field("", repr=False, exclude=True)
     vision_max_frames: int = Field(240, ge=1, le=1000)
+    ai_enabled: bool = Field(False, exclude=True)
+    ai_faces_enabled: bool = Field(False, exclude=True)
 
     @field_validator("vision_url")
     @classmethod

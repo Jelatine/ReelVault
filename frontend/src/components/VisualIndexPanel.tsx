@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { api, errorText } from '../lib/api'
+import { useAiAnalysis } from '../lib/ai'
 import { tr } from '../lib/i18n'
 import type { Video } from '../lib/types'
 import { useVisionService, useVisualIndex } from '../lib/visual-search'
@@ -14,6 +15,7 @@ export default function VisualIndexPanel({ video }: { video: Video }) {
   useTranslation()
   const query = useVisualIndex(video)
   const service = useVisionService()
+  const ai = useAiAnalysis(video)
   const qc = useQueryClient()
   const [interval, setInterval] = useState<number | string>(30)
   const [maximum, setMaximum] = useState<number | string>(240)
@@ -24,13 +26,14 @@ export default function VisualIndexPanel({ video }: { video: Video }) {
   const limit = Math.min(Number(maximum), data?.max_frames ?? 240)
   const valid = Number(interval) >= 1 && Number(interval) <= 3600 && Number.isInteger(limit) && limit >= 1
   const act = async (clear: boolean) => {
-    if (clear && !await confirmAction({ title: tr('移除画面索引'), message: tr('移除画面搜索索引和缓存图片，原视频保留。'), confirm: tr('移除'), danger: true })) return
+    if (ai.data?.has_analysis && !await confirmAction({ title: clear ? tr('移除画面索引') : tr('重新生成画面索引'), message: tr('此操作会移除现有人脸记录和人工纠正，并使 AI 分析过期。已采纳的视频标签保留。'), danger: true })) return
+    if (clear && !ai.data?.has_analysis && !await confirmAction({ title: tr('移除画面索引'), message: tr('移除画面搜索索引和缓存图片，原视频保留。'), confirm: tr('移除'), danger: true })) return
     setBusy(true); setFailure('')
     try {
       const url = `/api/videos/${video.id}/visual-index`
       if (clear) await api.del(url)
       else await api.post(url, { interval: Number(interval), max_frames: limit })
-      await Promise.all(['visual-index', 'visual-search', 'jobs'].map(key => qc.invalidateQueries({ queryKey: [key] })))
+      await Promise.all(['visual-index', 'visual-search', 'jobs', 'ai-analysis', 'ai-faces', 'ai-face-groups'].map(key => qc.invalidateQueries({ queryKey: [key] })))
     } catch (e) { setFailure(e instanceof Error ? e : String(e)) }
     finally { setBusy(false) }
   }

@@ -32,6 +32,7 @@ from ..media.watermark import plan_watermark
 from ..models import Job, SceneAnalysis, Video, new_id, utcnow
 from ..playback_cache import remove_copy
 from ..storage import MIB, check_budget
+from .ai import analyse_ai
 from .duplicates import duplicates
 from .links import link_import
 from .manager import Handler, JobContext
@@ -696,6 +697,7 @@ HANDLERS: dict[str, Handler] = {
     "playable": playable,
     "transcribe": transcribe,
     "vision_index": index_vision,
+    "ai_analyze": analyse_ai,
     "edit": edit,
     "duplicates": duplicates,
 }

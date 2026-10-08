@@ -11,9 +11,10 @@ import sqlite_vec
 
 
 def cosine(a: bytes, b: bytes) -> float:
-    if len(a) != 2048 or len(b) != 2048:
+    if len(a) not in (512, 2048) or len(a) != len(b):
         raise ValueError("Invalid vector size")
-    left, right = struct.unpack("<512f", a), struct.unpack("<512f", b)
+    dimension = len(a) // 4
+    left, right = struct.unpack(f"<{dimension}f", a), struct.unpack(f"<{dimension}f", b)
     norm = math.sqrt(sum(x * x for x in left) * sum(y * y for y in right))
     return 1 - sum(x * y for x, y in zip(left, right, strict=True)) / norm
 
