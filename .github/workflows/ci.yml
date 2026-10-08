@@ -269,9 +269,9 @@ jobs:
           docker run --rm --entrypoint python reelvault:ci -c "import yt_dlp, yt_dlp_ejs"
           # S3 originals are usable from a pulled image without rebuilding.
           docker run --rm --entrypoint python reelvault:ci -c "import boto3, reelvault.object_store"
-          docker run -d --name rv -p 8080:8080 reelvault:ci
+          docker run -d --name rv -p 34123:34123 reelvault:ci
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8080/healthz; then exit 0; fi
+            if curl -fsS http://localhost:34123/healthz; then exit 0; fi
             sleep 2
           done
           docker logs rv

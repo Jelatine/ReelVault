@@ -48,5 +48,5 @@ echo "$PLIST" > "$TARGET"
 plutil -lint "$TARGET" >/dev/null
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$TARGET"
-echo "ReelVault 已在后台运行: http://localhost:8080"
+echo "ReelVault 已在后台运行: http://localhost:34123"
 echo "数据目录: $DATA   日志: $DATA/reelvault.log"

@@ -92,7 +92,7 @@ def instructions(mode: str, repo: str, version: str | None) -> str:
             "docker compose pull && docker compose up -d\n\n"
             "# 或 docker run\n"
             f"docker pull ghcr.io/{repo.lower()}:{tag}\n"
-            "docker rm -f reelvault && docker run -d --name reelvault -p 8080:8080 \\\n"
+            "docker rm -f reelvault && docker run -d --name reelvault -p 34123:34123 \\\n"
             f"  -v $PWD/data:/data ghcr.io/{repo.lower()}:{tag}"
         )
     if mode == "source":

@@ -6,7 +6,7 @@ install:
 	cd backend && uv sync
 	cd frontend && npm ci
 
-# Backend on :8080 and Vite dev server (proxying /api) on :5173
+# Backend on :34123 and Vite dev server (proxying /api) on :5173
 dev:
 	@trap 'kill 0' INT; \
 	(cd backend && REELVAULT_DATA_DIR=../data uv run python -m reelvault) & \
