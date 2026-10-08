@@ -1658,5 +1658,22 @@
   "对象存储 (S3)": "Object storage (S3)",
   "容量未知。上传暂存与本地缓存使用主存储{{free}}；连接信息由部署环境配置，不在此修改。": "Capacity unknown. Upload staging and the local cache use primary storage{{free}}; connection settings come from the deployment environment and cannot be changed here.",
   "（剩余 {{free}}）": " ({{free}} free)",
-  "对象存储不可用：{{error}}": "Object storage unavailable: {{error}}"
+  "对象存储不可用：{{error}}": "Object storage unavailable: {{error}}",
+  "原视频本地副本": "Local copy of original",
+  "原视频保存在对象存储中，播放与下载直接读取。截图、设置封面、逐帧定位和读取内封字幕需要本地副本；编辑等任务会自动下载并在完成后释放。": "The original is stored in object storage and is played and downloaded from there. Screenshots, setting a cover, frame-accurate seeking and reading embedded subtitles need a local copy; edits and other tasks download one automatically and release it when finished.",
+  "正在保存到对象存储，完成前保留本地文件。": "Saving to object storage. The local file is kept until this finishes.",
+  "本地副本已就绪": "Local copy ready",
+  "本地副本暂时保留，任务完成后会释放": "Local copy kept temporarily; it is released when tasks finish",
+  "下载本地副本": "Download local copy",
+  "释放本地副本": "Release local copy",
+  "释放只删除本机副本，对象存储中的原视频保留；断网时需要本地副本才能播放和编辑。": "Releasing deletes only the copy on this server; the original stays in object storage. Without network access, a local copy is needed to play or edit.",
+  "请先下载原视频本地副本": "Download a local copy of the original first",
+  "下载原视频本地副本": "Download local copy of original",
+  "对象存储前缀已属于其他视频库": "The object storage prefix belongs to another video library",
+  "对象存储标识已绑定到其他地址": "The object storage identity is bound to a different endpoint",
+  "对象存储标识文件无效": "The object storage identity file is invalid",
+  "对象存储标识与此视频库不一致": "The object storage identity does not match this video library",
+  "对象存储未配置或未绑定到此视频库": "Object storage is not configured or not bound to this video library",
+  "无法连接对象存储（{{code}}）": "Cannot connect to object storage ({{code}})",
+  "未安装对象存储组件（s3 可选依赖）": "The object storage component is not installed (optional s3 dependency)"
 }

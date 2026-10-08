@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { api, errorText } from '../lib/api'
 import { formatBytes } from '../lib/format'
 import { tr } from '../lib/i18n'
+import { serverText } from '../lib/server-text'
 import { locationName, useLocations, type StorageLocation } from '../lib/locations'
 
 function Entry({ item, defaultId, refresh }: { item: StorageLocation; defaultId: string; refresh: () => Promise<void> }) {
@@ -21,7 +22,7 @@ function Entry({ item, defaultId, refresh }: { item: StorageLocation; defaultId:
     <Text size="sm" style={{ overflowWrap: 'anywhere' }}>{item.path}</Text>
     <Text size="sm">{tr('视频数量：{{count}}（含回收站）', { count: item.video_count })}{item.free !== null && ` · ${tr('剩余 {{free}}', { free: formatBytes(item.free) })}`}</Text>
     {item.kind === 's3' && <Text size="sm" c="dimmed">{tr('容量未知。上传暂存与本地缓存使用主存储{{free}}；连接信息由部署环境配置，不在此修改。', { free: item.cache_free != null ? tr('（剩余 {{free}}）', { free: formatBytes(item.cache_free) }) : '' })}</Text>}
-    {item.kind === 's3' && item.error && <Alert color="orange">{tr('对象存储不可用：{{error}}', { error: item.error })}</Alert>}
+    {item.kind === 's3' && item.error && <Alert color="orange">{tr('对象存储不可用：{{error}}', { error: serverText(item.error) })}</Alert>}
     {item.id !== 'local' && item.kind !== 's3' && <>
       <TextInput label={tr('存储名称')} value={name} onChange={e => setName(e.currentTarget.value)} />
       <TextInput label={tr('挂载目录')} value={path} onChange={e => setPath(e.currentTarget.value)} />

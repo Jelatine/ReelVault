@@ -16,7 +16,7 @@ from reelvault.models import OriginalObject, Video
 from reelvault.object_library import cache_valid
 from reelvault.object_store import ObjectStore, ObjectStoreError
 
-from .conftest import HEADERS, login, upload_ready, wait_ready
+from .conftest import HEADERS, login, upload_ready, wait_job, wait_ready
 
 
 @pytest.fixture
@@ -63,21 +63,40 @@ def test_upload_archive_proxy_redownload_and_purge(settings, minio, samples):
         ref = settings.s3_objects[path]
         assert ref.size == len(data)
         local = abs_path(settings, path)
-        assert cache_valid(local, ref)
+        # Archived originals are offloaded: the local copy is released after ingest.
+        assert not local.exists()
         with ObjectStore(minio) as store:
             assert store.head(ref.key).sha256 == ref.sha256
+        base = f"/api/videos/{video['id']}"
+        state = client.get(base + "/original-cache").json()
+        assert state["remote"] and state["archived"] and not state["cached"]
 
         # Without a local copy, playback is a pinned-version proxy.
-        local.unlink()
-        assert not cache_valid(local, ref)
-        part = client.get(f"/api/videos/{video['id']}/stream", headers={"Range": "bytes=100-299"})
+        part = client.get(base + "/stream", headers={"Range": "bytes=100-299"})
         assert part.status_code == 206 and part.content == data[100:300]
         assert minio.endpoint not in str(part.headers) and minio.bucket not in str(part.headers)
+        # Request-time ffmpeg readers ask for an explicit, controllable fetch.
+        frame = client.get(base + "/frame", params={"t": 1})
+        assert frame.status_code == 409 and frame.json()["code"] == "original_not_cached"
 
-        # Jobs that need bytes download and verify a fresh cache.
-        assert client.post(f"/api/videos/{video['id']}/reprocess").status_code == 200
+        # Jobs download and verify a copy, then release it again.
+        assert client.post(base + "/reprocess").status_code == 200
         wait_ready(client, video["id"])
+        assert not local.exists()
+
+        # A user-requested copy is pinned across jobs until released.
+        job = client.post(base + "/original-cache").json()
+        assert wait_job(client, job["id"])["status"] == "succeeded"
+        state = client.get(base + "/original-cache").json()
+        assert state["cached"] and state["pinned"]
         assert cache_valid(local, ref) and local.read_bytes() == data
+        assert client.get(base + "/frame", params={"t": 1}).status_code == 200
+        assert client.post(base + "/reprocess").status_code == 200
+        wait_ready(client, video["id"])
+        assert cache_valid(local, ref)
+        assert client.delete(base + "/original-cache").json() == {"released": True}
+        assert not local.exists()
+        assert client.get(base + "/stream").content == data
 
         assert client.delete(f"/api/videos/{video['id']}?permanent=true").status_code == 200
         with ObjectStore(minio) as store, pytest.raises(ObjectStoreError):

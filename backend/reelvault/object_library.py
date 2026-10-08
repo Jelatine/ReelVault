@@ -62,6 +62,7 @@ async def initialize(settings: Settings, sessions: sessionmaker[Session]) -> Non
             # Existing bindings need no network at startup: every subsequent remote
             # client validates the marker before accessing an original. Offline
             # cached originals remain usable and the website starts independently.
+            await _recover(settings)
             return
         library_id = settings.s3_library_id
         assert library_id is not None
@@ -89,8 +90,38 @@ async def initialize(settings: Settings, sessions: sessionmaker[Session]) -> Non
                 db.commit()
             load_registry(db, settings)
         settings.s3_error = None
+        await _recover(settings)
     except ObjectStoreError as error:
-        settings.s3_error = str(error)
+        settings.s3_error = describe_error(error)
+
+
+async def _recover(settings: Settings) -> None:
+    """Abort or remove transfers a previous process left behind, before any job runs.
+
+    An interrupted ingest still has its local staging copy (pending originals are
+    never released), so it simply re-uploads under the same reserved key.
+    """
+    if settings.s3_current is None or not any(settings.tmp_dir.glob("s3-transfer-*")):
+        return
+    from .media.object_transfer import recover_transfers
+
+    await recover_transfers(bound_config(settings, settings.s3_current), settings.tmp_dir)
+
+
+def describe_error(error: ObjectStoreError) -> str:
+    """User-facing (zh, translated by the client) text; never includes credentials."""
+    message = str(error)
+    if "optional s3 dependency" in message:
+        return "未安装对象存储组件（s3 可选依赖）"
+    if "another video library" in message:
+        return "对象存储前缀已属于其他视频库"
+    if "already bound to another origin" in message:
+        return "对象存储标识已绑定到其他地址"
+    if "identity is invalid" in message:
+        return "对象存储标识文件无效"
+    if "identity mismatch" in message:
+        return "对象存储标识与此视频库不一致"
+    return f"无法连接对象存储（{error.code or 'unavailable'}）"
 
 
 def bound_config(settings: Settings, namespace_id: str) -> S3Config:
@@ -212,8 +243,11 @@ async def archive_original(ctx: Any, path: str) -> Any:
     return abs_path(ctx.settings, path)
 
 
-async def ensure_original(ctx: Any, path: str) -> Any:
-    """Get canonical original bytes for a job with an explicit staging reservation."""
+async def ensure_original(ctx: Any, path: str, *, pin: bool = False) -> Any:
+    """Get canonical original bytes for a job with an explicit staging reservation.
+
+    ``pin`` marks the copy as user-requested so it survives post-job release.
+    """
     from .library import abs_path
     from .media.object_transfer import download_original
     from .models import Job
@@ -221,8 +255,12 @@ async def ensure_original(ctx: Any, path: str) -> Any:
 
     local = abs_path(ctx.settings, path)
     ref = ctx.settings.s3_objects.get(path)
-    if ref is None or cache_valid(local, ref):
+    if ref is None:
         return local
+    if cache_valid(local, ref):
+        if pin and not cache_pinned(local):
+            mark_cache(local, ref, pinned=True)
+        return abs_path(ctx.settings, path)
     namespace_id = path.split("/")[1]
     config = bound_config(ctx.settings, namespace_id)
     local.parent.mkdir(parents=True, exist_ok=True)
@@ -250,7 +288,7 @@ async def ensure_original(ctx: Any, path: str) -> Any:
             handle=ctx.handle,
             on_progress=lambda value: ctx.set_progress(value * 0.12),
         )
-        mark_cache(local, ref)
+        mark_cache(local, ref, pinned=pin)
     finally:
         with ctx.db() as db, budget_transaction(db):
             job = db.get(Job, ctx.job_id)
@@ -278,14 +316,45 @@ def cache_valid(path: Any, ref: ObjectRef) -> bool:
             return False
         value = json.loads(marker.read_text())
         return (
-            value == {"sha256": ref.sha256, "stat": _cache_stat(path)}
+            isinstance(value, dict)
+            and value.get("sha256") == ref.sha256
+            and value.get("stat") == _cache_stat(path)
             and path.stat().st_size == ref.size
         )
     except (OSError, ValueError):
         return False
 
 
-def mark_cache(path: Any, ref: ObjectRef) -> None:
+def cache_pinned(path: Any) -> bool:
+    """A user-requested local copy, kept until explicitly released."""
+    import json
+
+    marker = path.parent / (path.name + ".verified.json")
+    try:
+        if marker.is_symlink() or marker.stat().st_size > 1024:
+            return False
+        value = json.loads(marker.read_text())
+        return isinstance(value, dict) and value.get("pinned") is True
+    except (OSError, ValueError):
+        return False
+
+
+def release_cache(settings: Settings, path: str) -> bool:
+    """Remove the local copy of an archived original; remote bytes stay pinned."""
+    from .library import abs_path
+
+    if path not in settings.s3_objects:
+        return False  # Not yet archived: the local file is the only copy.
+    try:
+        local = abs_path(settings, path)
+    except (OSError, ValueError):
+        return False
+    local.unlink(missing_ok=True)
+    (local.parent / (local.name + ".verified.json")).unlink(missing_ok=True)
+    return True
+
+
+def mark_cache(path: Any, ref: ObjectRef, *, pinned: bool = False) -> None:
     import os
 
     from .media.object_worker import write_state
@@ -296,7 +365,10 @@ def mark_cache(path: Any, ref: ObjectRef) -> None:
     os.utime(path, (timestamp, timestamp))
     path.chmod(0o400)
     marker = path.parent / (path.name + ".verified.json")
-    write_state(marker, {"sha256": ref.sha256, "stat": _cache_stat(path)})
+    value: dict[str, Any] = {"sha256": ref.sha256, "stat": _cache_stat(path)}
+    if pinned:
+        value["pinned"] = True
+    write_state(marker, value)
 
 
 MISSING = {"404", "NoSuchKey", "NotFound", "NoSuchVersion"}
@@ -365,3 +437,20 @@ def forget_original(db: Session, settings: Settings, path: str) -> None:
         return
     local.unlink(missing_ok=True)
     (local.parent / (local.name + ".verified.json")).unlink(missing_ok=True)
+
+
+def release_after_job(settings: Settings, paths: list[str], busy: set[str]) -> None:
+    """Drop unpinned copies fetched for a finished job unless another job uses them."""
+    if settings.s3 is not None and settings.s3.keep_local:
+        return
+    from .library import abs_path
+
+    for path in dict.fromkeys(paths):
+        if path in busy or path not in settings.s3_objects:
+            continue
+        try:
+            if cache_pinned(abs_path(settings, path)):
+                continue
+        except (OSError, ValueError):
+            continue
+        release_cache(settings, path)

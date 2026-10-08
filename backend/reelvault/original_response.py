@@ -122,3 +122,23 @@ def original_response(
             await run_in_threadpool(source.close)
 
     return StreamingResponse(stream(), status_code=status, headers=out, media_type=media_type)
+
+
+def local_original(settings: Settings, rel: str) -> Path:
+    """The original as a readable local file, for request-time ffmpeg readers.
+
+    Archived S3 originals without a verified local copy are not fetched inside a
+    request: the client is told to fetch one through the controllable job.
+    """
+    from .library import abs_path
+    from .object_library import cache_valid
+
+    path = abs_path(settings, rel)
+    ref = settings.s3_objects.get(rel) if location_of(rel) == "s3" else None
+    if ref is not None and not cache_valid(path, ref):
+        raise APIError(
+            409,
+            "原视频保存在对象存储中，请先在视频详情下载本地副本",
+            code="original_not_cached",
+        )
+    return path

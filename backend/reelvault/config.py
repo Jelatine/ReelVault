@@ -31,6 +31,9 @@ class S3Config(BaseModel):
     session_token: SecretStr | None = None
     addressing_style: Literal["auto", "path", "virtual"] = "path"
     part_size_mb: int = Field(default=8, ge=5, le=128)
+    # False: local copies are released after archiving and after each job that
+    # fetched them; True keeps every downloaded original on the primary disk.
+    keep_local: bool = False
     namespace_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     library_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
 
@@ -94,7 +97,13 @@ class StorageRoot(BaseModel):
 class Settings(BaseSettings):
     """Runtime configuration, read from REELVAULT_* environment variables."""
 
-    model_config = SettingsConfigDict(env_prefix="REELVAULT_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="REELVAULT_",
+        env_file=".env",
+        extra="ignore",
+        # REELVAULT_S3__BUCKET=...: survives systemd and Docker env files unquoted.
+        env_nested_delimiter="__",
+    )
 
     @classmethod
     def settings_customise_sources(

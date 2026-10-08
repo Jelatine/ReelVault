@@ -459,7 +459,7 @@ class JobManager:
                     for v in db.scalars(select(Video).where(Video.id.in_(job.video_ids)))
                 ]
             for path in dict.fromkeys(paths):
-                await ensure_original(ctx, path)
+                await ensure_original(ctx, path, pin=job.kind == "original_cache")
             await handler(ctx, job)
         except Canceled:
             status, message = "canceled", "已取消"
@@ -468,6 +468,7 @@ class JobManager:
             status, error, message = "failed", str(e) or type(e).__name__, "失败"
         finally:
             self.running.pop(job_id, None)
+            self._release_originals(job)
 
         with self.sessionmaker() as db:
             final = db.get(Job, job_id)
@@ -488,6 +489,25 @@ class JobManager:
             record_job(db, final)
             db.commit()
             self.publish(final)
+
+    def _release_originals(self, job: Job) -> None:
+        if not self.settings.s3_objects:
+            return
+        from ..object_library import release_after_job
+
+        try:
+            with self.sessionmaker() as db:
+                running = {i for ctx in self.running.values() for i in ctx.video_ids}
+                rows = db.execute(
+                    select(Video.id, Video.file_path).where(
+                        Video.id.in_([*job.video_ids, *running])
+                    )
+                ).all()
+            paths = {vid: path for vid, path in rows}
+            busy = {paths[i] for i in running if i in paths}
+            release_after_job(self.settings, [paths[i] for i in job.video_ids if i in paths], busy)
+        except Exception:
+            log.exception("cannot release local S3 original copies for job %s", job.id)
 
     async def wait_idle(self, timeout: float = 60) -> None:
         """Wait for runnable and running work; queued paused tasks remain dormant."""

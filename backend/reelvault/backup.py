@@ -23,7 +23,7 @@ from . import __version__
 from .auth_keys import KEY_FILE, decrypt_secret, read_key
 from .config import Settings
 from .db import make_engine
-from .locations import resolve_path
+from .locations import location_of, resolve_path
 from .migrate import alembic_config, upgrade
 from .models import new_id
 
@@ -247,7 +247,7 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
                     configured = Settings(**registry)
                     roots = {**configured.storage_locations, **settings.storage_locations}
                     if (
-                        configured.storage_default != "local"
+                        configured.storage_default not in {"local", "s3"}
                         and configured.storage_default not in roots
                     ):
                         raise ValueError("存储默认位置无效")
@@ -270,6 +270,21 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
                 ):
                     for rel in (original, playable):
                         if not rel:
+                            continue
+                        if rel.startswith("s3/"):
+                            # Archived originals live in object storage; only an
+                            # unarchived one needs its local staging file restored.
+                            try:
+                                location_of(rel)
+                            except ValueError as error:
+                                raise BackupError("数据库包含非法媒体路径") from error
+                            state = db.execute(
+                                "SELECT state FROM original_objects WHERE path=?", (rel,)
+                            ).fetchone()
+                            if state is None:
+                                raise BackupError("数据库缺少对象存储原视频记录")
+                            if state[0] != "ready" and not (root / "objects" / rel[3:]).is_file():
+                                missing.append(rel)
                             continue
                         try:
                             path = resolve_path(media_settings, rel)

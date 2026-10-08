@@ -22,6 +22,7 @@ from ..media.ffmpeg import FFmpegError, ffprobe_json
 from ..media.probe import subtitle_streams
 from ..media.subtitles import FORMATS, to_vtt
 from ..models import EditPreset, Job, MediaAsset, SubtitleTrack, Video, new_id
+from ..original_response import local_original
 from .deps import get_settings
 from .scenes import signature
 from .videos import get_video
@@ -189,7 +190,7 @@ async def embedded_tracks(db: Session, settings: Settings, video: Video) -> list
         source, version = video.file_path, video.asset_version
         try:
             data = await asyncio.wait_for(
-                ffprobe_json(settings.ffprobe, str(abs_path(settings, source))), 30
+                ffprobe_json(settings.ffprobe, str(local_original(settings, source))), 30
             )
         except (FFmpegError, TimeoutError) as error:
             raise APIError(
@@ -257,7 +258,7 @@ async def embedded_vtt(
     if not stream["text"]:
         raise APIError(400, "图像字幕无法转换为文本，可选择烧录", code="subtitle_image_not_text")
     try:
-        data = await to_vtt(settings.ffmpeg, abs_path(settings, video.file_path), index)
+        data = await to_vtt(settings.ffmpeg, local_original(settings, video.file_path), index)
     except (FFmpegError, TimeoutError) as error:
         raise APIError(
             400, "内封字幕无法转换，请检查文件与 FFmpeg", code="subtitle_conversion_failed"

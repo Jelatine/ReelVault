@@ -447,6 +447,18 @@
     "en": "The request contains invalid values. Check the form and try again.",
     "zh": "请求包含无效参数，请检查表单后重试"
   },
+  "original_cache_busy": {
+    "en": "Finish the tasks using this video first.",
+    "zh": "请先结束使用该视频的任务"
+  },
+  "original_not_cached": {
+    "en": "The original is in object storage. Download a local copy from the video details first.",
+    "zh": "原视频保存在对象存储中，请先在视频详情下载本地副本"
+  },
+  "original_not_remote": {
+    "en": "This original is not (yet) stored in object storage.",
+    "zh": "该视频的原文件不在对象存储中"
+  },
   "object_storage_unavailable": {
     "en": "Object storage is unavailable or the original was changed externally. Nothing was deleted; please try again later.",
     "zh": "对象存储暂不可用，请稍后重试"

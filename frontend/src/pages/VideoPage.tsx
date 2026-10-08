@@ -47,6 +47,8 @@ import EditHistory from '../components/EditHistory'
 import HlsPanel from '../components/HlsPanel'
 import PlaybackCachePanel from '../components/PlaybackCachePanel'
 import { usePlaybackCache } from '../lib/playback-cache'
+import { useOriginalCache } from '../lib/original-cache'
+import OriginalCachePanel from '../components/OriginalCachePanel'
 import { useHls } from '../lib/hls'
 import PlaybackPanel from '../components/PlaybackPanel'
 import { usePlaybackPreferences, type LoopRange } from '../lib/playback'
@@ -200,6 +202,8 @@ export default function VideoPage() {
   if (loopKey !== video?.stream_url) { setLoopKey(video?.stream_url); setLoopRange(undefined) }
   const hls = useHls(video)
   const playbackCache = usePlaybackCache(video)
+  const originalCache = useOriginalCache(video)
+  const originalLocal = video?.storage_id !== 's3' || !!originalCache.data?.cached
   const [sourceMode, setSourceMode] = useState<boolean>()
   const [resumeSource, setResumeSource] = useState<{ position: number; playing: boolean; token: number }>()
   const [sourceKey, setSourceKey] = useState(video?.stream_url)
@@ -324,9 +328,12 @@ export default function VideoPage() {
                 component="a"
                 target="_blank"
                 href={`/api/videos/${video.id}/frame?t=${time.toFixed(2)}`}
+                disabled={!originalLocal}
+                title={originalLocal ? undefined : tr('请先下载原视频本地副本')}
               >{tr("截图")}</Button>
             </Group>
 
+            {ready && <OriginalCachePanel video={video} data={originalCache.data} error={originalCache.error} refetch={originalCache.refetch} />}
             {ready && <PlaybackCachePanel video={video} data={playbackCache.data} error={playbackCache.error} refetch={playbackCache.refetch} />}
             {ready && <HlsPanel key={`hls:${video.stream_url}`} video={video} data={hls.data}
               queryError={hls.error} refetch={hls.refetch} usingHls={usingHls} switchSource={switchSource} />}
