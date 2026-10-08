@@ -32,9 +32,9 @@ docker:
 package: build
 	rm -rf dist/reelvault-$(VERSION) && mkdir -p dist/reelvault-$(VERSION)/backend
 	cp -r backend/reelvault backend/pyproject.toml backend/uv.lock backend/.python-version dist/reelvault-$(VERSION)/backend/
+	cp -r deploy README.md LICENSE docker-compose.yml dist/reelvault-$(VERSION)/
 	find dist/reelvault-$(VERSION) -name __pycache__ -type d -prune -exec rm -rf {} +
 	find dist/reelvault-$(VERSION) -name '._*' -delete
-	cp -r deploy README.md LICENSE docker-compose.yml dist/reelvault-$(VERSION)/
 	COPYFILE_DISABLE=1 tar -C dist -czf dist/reelvault-$(VERSION).tar.gz reelvault-$(VERSION)
 	cd dist && shasum -a 256 reelvault-$(VERSION).tar.gz > reelvault-$(VERSION).tar.gz.sha256
 
