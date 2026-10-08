@@ -5,7 +5,7 @@
 - 已按最新要求恢复实施。当前仅剩第 7 节的 QSV、VAAPI、NVENC 实机验证未完成，其余实施项已勾选。
 - [v0.3.0 已发布](https://github.com/Jelatine/ReelVault/releases/tag/v0.3.0)，S3 完整接入已在主分支；此前 `codex/s3` 基础阶段及暂停记录仅作为历史保留，不代表当前状态。仅使用单用户；多用户、DLNA 和电视播放器接入均已取消。
 - 发布提交 `2da08c5` 的[完整 CI 37760559474](https://github.com/Jelatine/ReelVault/actions/runs/37760559474) 与[发布工作流 37760711756](https://github.com/Jelatine/ReelVault/actions/runs/37760711756) 成功；完整 CI 包括真实 MinIO 后端／Chromium、可选模型、Ubuntu 安装升级及 Docker 检查。
-- 当前验证机为 Apple Silicon macOS，FFmpeg 仅编译 VideoToolbox（未编译 QSV／VAAPI／NVENC），不存在 `/dev/dri` 设备。完成最后一项需要可访问的 Intel／NVIDIA GPU 与驱动环境；软件回退成功不算硬件验证通过。
+- 此前已在 Apple Silicon macOS 验证 VideoToolbox。2026-10-08 另在 Windows 的 Intel Iris Xe 上完成 FFmpeg QSV H.264／H.265 基础编码；该机器无 NVIDIA GPU，WSL 中无 `/dev/dri`，且后端测试依赖 Unix `fcntl`，因此仍需在对应 Linux／NVIDIA 环境完成 QSV、VAAPI、NVENC 的项目级实机用例。软件回退成功不算硬件验证通过。
 
 
 本文档跟踪实施进度。每项标注优先级；仅在功能与相应验证完成后勾选。
@@ -126,6 +126,7 @@
 
 ## 实施验证记录
 
+- 2026-10-08：Windows 验证机检测到已启动的 Intel Iris Xe Graphics；FFmpeg 7.1 编译了 QSV／VAAPI／NVENC。直接使用 `h264_qsv` 与 `hevc_qsv` 对 320×240、30 fps 的测试图像编码 1 秒，两项命令均以退出码 0 完成。项目 `tests/test_encoding.py` 的四项 QSV 用例无法在原生 Windows 加载：后端导入 Unix `fcntl` 时抛出 `ModuleNotFoundError`；WSL 可见 `/dev/dxg`，但无 `/dev/dri`、FFmpeg 或 uv。该验证仅证明当前 Windows 环境的 QSV 基础编码可用，不等于项目级四项通过。未检测到 NVIDIA 显卡，VAAPI 无 Linux 渲染设备；最后一项保持未勾选。
 - 2026-10-08：恢复推进后核对当前主分支与发布状态，修正顶部过时的暂停／S3 未完成说明。唯一剩余项是 QSV、VAAPI、NVENC 实机验证；本机 Apple Silicon macOS 不具备这三类编码器和设备，未勾选该项。
 - 实机测试扩展为 H.264／H.265 压缩、旋转及重编码合并四项，检查实际硬件编码器、禁止将软件回退视为通过，验证音轨／尺寸／时长并完整解码；可通过 `REELVAULT_TEST_VAAPI_DEVICE` 指定渲染设备。README 提供各家族命令及 JUnit 报告方式。
 - 本轮 VideoToolbox 沙箱外实机验证：编码专项 10 项全部通过（包含四项硬件用例）；默认环境 6 项通过、4 项实机用例跳过。Ruff、格式及 diff 空白检查通过。QSV／VAAPI／NVENC 仍需目标主机执行上述用例，整体 TODO 尚未完成。
