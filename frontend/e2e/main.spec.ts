@@ -912,12 +912,18 @@ test('A-B 真实循环、播放偏好记忆、原生画中画与文件夹和合�
   await page.getByLabel('循环 B 点', { exact: true }).fill('1.4')
   await page.getByLabel('循环 B 点', { exact: true }).blur()
   await page.getByRole('switch', { name: 'A-B 循环', exact: true }).check()
-  await native.evaluate((v: HTMLVideoElement) => {
+  await native.evaluate(async (v: HTMLVideoElement) => {
+    v.pause()
+    if (Math.abs(v.currentTime - 0.6) > 0.01) {
+      const seeked = new Promise<void>(resolve => v.addEventListener('seeked', () => resolve(), { once: true }))
+      v.currentTime = 0.6
+      await seeked
+    }
     v.dataset.loops = '0'
-    let previous = 0
-    v.addEventListener('timeupdate', () => {
-      if (previous > 1.3 && v.currentTime < 0.9) v.dataset.loops = String(Number(v.dataset.loops) + 1)
-      previous = v.currentTime
+    // Native timeupdate is too sparse to observe every B boundary. Start at A,
+    // then count actual automatic seeks back to A without counting initial setup.
+    v.addEventListener('seeking', () => {
+      if (Math.abs(v.currentTime - 0.6) < 0.05) v.dataset.loops = String(Number(v.dataset.loops) + 1)
     })
     return v.play()
   })
