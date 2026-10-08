@@ -1639,5 +1639,20 @@
   "AI 分析完成，请复核标签与人脸分组": "AI analysis complete. Review suggested tags and face groups.",
   "人脸分组持续变化，请稍后重试；原分析结果保留": "Face groups keep changing. Retry later. Previous analysis is retained.",
   "人脸模型未启用或版本不兼容": "The face model is disabled or incompatible.",
-  "索引缩略图缺失，请重新生成画面索引": "Index thumbnails are missing. Rebuild the visual index."
+  "索引缩略图缺失，请重新生成画面索引": "Index thumbnails are missing. Rebuild the visual index.",
+  "WebDAV 地址": "WebDAV address",
+  "WebDAV 播放器访问": "WebDAV player access",
+  "使用独立访问密码，可读取整个视频库。请通过 HTTPS 或可信局域网连接，不使用管理员登录密码。": "The separate access password grants read access to the entire library. Connect through HTTPS or a trusted local network; use this password instead of the administrator login password.",
+  "启用 WebDAV 只读访问": "Enable read-only WebDAV access",
+  "复制密码": "Copy password",
+  "已保存，隐藏密码": "Saved; hide password",
+  "撤销访问并关闭 WebDAV": "Revoke access and disable WebDAV",
+  "播放器用户名": "Player username",
+  "播放器访问密码": "Player access password",
+  "此密码仅显示一次，请保存到播放器。离开或刷新页面后无法查看。": "This password is shown only once. Save it in your player; it cannot be viewed after leaving or refreshing this page.",
+  "生成播放器访问密码": "Generate player access password",
+  "请先生成播放器访问密码，再启用 WebDAV。": "Generate a player access password before enabling WebDAV.",
+  "重置后旧密码立即失效；撤销会关闭访问。已开始的播放可能持续到下一次请求。": "Resetting invalidates the old password immediately. Revoking disables access. Playback already in progress may continue until the next request.",
+  "重置播放器访问密码": "Reset player access password",
+  "默认关闭。播放器可只读浏览全部视频、文件夹与合集，播放原文件；格式兼容性取决于播放器。": "Off by default. Players can browse all videos, folders and collections with read-only access and play original files. Format support depends on the player."
 }

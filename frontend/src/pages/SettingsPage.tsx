@@ -36,6 +36,7 @@ import ImportSettings from '../components/ImportSettings'
 import PwaPanel from '../components/PwaPanel'
 import LanguageSelect from '../components/LanguageSelect'
 import NotificationPanel from '../components/NotificationPanel'
+import WebdavPanel from '../components/WebdavPanel'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatBytes, formatDate } from '../lib/format'
@@ -244,6 +245,7 @@ export default function SettingsPage() {
         <SharePanel />
         <TwoFactorPanel />
         <LinkImportSettings />
+        <WebdavPanel />
         <ObservabilityPanel />
           <HlsSettings />
       </Paper>

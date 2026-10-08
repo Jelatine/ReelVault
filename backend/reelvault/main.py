@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, select
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from . import __version__
+from . import __version__, webdav
 from .api import (
     ai,
     assets,
@@ -221,6 +221,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "link_import_timeout_minutes",
                     ):
                         setattr(settings, key, getattr(validated, key))
+                saved_webdav = db.get(RuntimeSetting, "webdav")
+                if saved_webdav:
+                    validated = Settings(**saved_webdav.value)
+                    settings.webdav_enabled = validated.webdav_enabled
+                    settings.webdav_token_hash = validated.webdav_token_hash
             bootstrap_admin(app, settings)
             cleanup_stale_uploads(app, settings)
             app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)
@@ -318,6 +323,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(SharePrivacyMiddleware)
 
     for r in (
+        webdav.router,
+        webdav.settings_router,
         auth_api.router,
         two_factor.router,
         links.router,

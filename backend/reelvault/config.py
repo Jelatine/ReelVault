@@ -76,6 +76,8 @@ class Settings(BaseSettings):
 
     # Number of concurrent ffmpeg jobs.
     workers: int = 2
+    webdav_enabled: bool = Field(False, exclude=True)
+    webdav_token_hash: str = Field("", repr=False, exclude=True, pattern=r"^([a-f0-9]{64})?$")
     transcription_enabled: bool = False
     transcription_model: Literal["tiny", "base", "small", "medium", "large-v3"] = "base"
     transcription_download_model: bool = False

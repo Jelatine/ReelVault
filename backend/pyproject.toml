@@ -18,6 +18,7 @@ dependencies = [
     "cryptography>=50.0.2",
     "qrcode>=8.2",
     "sqlite-vec==0.1.9",
+    "defusedxml==0.7.1",
 ]
 
 [project.scripts]
@@ -41,6 +42,7 @@ dev = [
     "mypy>=1.11",
     "types-aiofiles",
     "prometheus-client>=0.26.0",
+    "webdav4==0.11.0",
 ]
 
 [build-system]
