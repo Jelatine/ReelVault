@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     JsonConfigSettingsSource,
@@ -15,6 +15,62 @@ from pydantic_settings import (
 )
 
 PACKAGE_DIR = Path(__file__).resolve().parent
+
+
+class S3Config(BaseModel):
+    """Deployment-only credentials for one private original-video namespace."""
+
+    bucket: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+    prefix: str = Field(default="reelvault", min_length=1, max_length=512)
+    endpoint: str | None = None
+    region: str = Field(default="us-east-1", pattern=r"^[a-zA-Z0-9-]{1,64}$")
+    access_key: SecretStr | None = None
+    secret_key: SecretStr | None = None
+    session_token: SecretStr | None = None
+    addressing_style: Literal["auto", "path", "virtual"] = "path"
+    part_size_mb: int = Field(default=8, ge=5, le=128)
+
+    @field_validator("prefix")
+    @classmethod
+    def namespace(cls, value: str) -> str:
+        if not all(
+            re.fullmatch(r"[a-zA-Z0-9_.-]+", part) and part not in {".", ".."}
+            for part in value.split("/")
+        ):
+            raise ValueError("S3 prefix requires nonempty safe path segments")
+        return value
+
+    @field_validator("endpoint")
+    @classmethod
+    def service_endpoint(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = urlsplit(value)
+        if (
+            len(value) > 2048
+            or any(not 33 <= ord(c) <= 126 for c in value)
+            or parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/"}
+            or (parsed.port is not None and not 1 <= parsed.port <= 65535)
+        ):
+            raise ValueError("S3 endpoint requires an HTTP(S) origin without credentials")
+        return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def credential_pair(self) -> S3Config:
+        if bool(self.access_key) != bool(self.secret_key):
+            raise ValueError("S3 access key and secret key must be supplied together")
+        if self.session_token and not self.access_key:
+            raise ValueError("Explicit S3 session token requires explicit credentials")
+        for value in (self.access_key, self.secret_key, self.session_token):
+            if value is not None and not value.get_secret_value():
+                raise ValueError("S3 credentials must not be empty")
+        return self
 
 
 class StorageRoot(BaseModel):
@@ -56,6 +112,7 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     storage_locations: dict[str, StorageRoot] = Field(default_factory=dict)
     storage_default: str = "local"
+    s3: S3Config | None = Field(default=None, repr=False, exclude=True)
 
     @model_validator(mode="after")
     def valid_storage_registry(self) -> Settings:
