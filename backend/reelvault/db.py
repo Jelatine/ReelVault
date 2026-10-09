@@ -20,7 +20,7 @@ def make_engine(path: Path) -> Engine:
     from .metadata import device_key
 
     engine = create_engine(
-        f"sqlite:///{path}",
+        f"sqlite:///{path.as_posix()}",
         connect_args={"check_same_thread": False, "timeout": 30},
     )
 

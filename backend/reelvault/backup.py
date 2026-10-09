@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
+import errno
 import hashlib
 import json
 import os
@@ -50,15 +50,36 @@ def validate_auth_secrets(database: Path, data_dir: Path) -> None:
 def library_lock(data_dir: Path) -> Iterator[None]:
     """Exclude offline restores and a second server from an active library."""
     data_dir.mkdir(parents=True, exist_ok=True)
-    with (data_dir / ".library.lock").open("a") as lock:
+    with (data_dir / ".library.lock").open("a+b") as lock:
+        if os.name == "nt":
+            import msvcrt
+
+            # Windows locks a byte range starting at the current file position.
+            lock.seek(0, os.SEEK_END)
+            if lock.tell() == 0:
+                lock.write(b"\0")
+                lock.flush()
+            lock.seek(0)
+        else:
+            import fcntl
+
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as e:
+            if os.name == "nt":
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            if e.errno not in {errno.EACCES, errno.EAGAIN}:
+                raise
             raise BackupError("视频库正在使用，请停止 ReelVault 服务后恢复") from e
         try:
             yield
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            if os.name == "nt":
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def snapshot(source: Path, dest: Path) -> None:

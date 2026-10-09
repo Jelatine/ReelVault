@@ -10,7 +10,7 @@ from .config import PACKAGE_DIR
 def alembic_config(url: str) -> Config:
     cfg = Config()
     cfg.set_main_option("script_location", str(PACKAGE_DIR / "migrations"))
-    cfg.set_main_option("sqlalchemy.url", url)
+    cfg.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     return cfg
 
 
