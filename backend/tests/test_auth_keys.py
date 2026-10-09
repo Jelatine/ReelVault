@@ -42,7 +42,8 @@ def test_symlink_nonregular_and_public_key_are_rejected(tmp_path):
     link.symlink_to(key)
     with pytest.raises(OSError):
         read_key(link)
-    with pytest.raises(ValueError):
+    # A directory: POSIX opens it and rejects the type, Windows refuses to open it.
+    with pytest.raises(PermissionError if os.name == "nt" else ValueError):
         read_key(tmp_path)
     key.write_bytes(b"short")
     with pytest.raises(ValueError):
