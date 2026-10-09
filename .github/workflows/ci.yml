@@ -54,10 +54,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install FFmpeg
         run: choco install ffmpeg --no-progress -y
-      - run: uv sync --frozen
-      - name: Verify native process trees, editing and slow output saves
-        # External storage marker handling is still POSIX-specific.
-        run: uv run pytest -q -n auto tests/test_windows_process.py tests/test_job_queue.py tests/test_slow_save.py tests/test_edit.py tests/test_timing.py tests/test_encoding.py -k "not restart_cleans_interrupted_transfer_staging_on_each_storage"
+      - run: uv sync --frozen --extra link-import
+      # Runs alongside e2e, which stays the longest job.
+      - name: Test
+        run: uv run pytest -q -n auto
       - name: Build frontend
         working-directory: frontend
         run: |
