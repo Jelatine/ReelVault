@@ -1,0 +1,31 @@
+name: Windows full backend tests
+
+# Manual: shows how the whole backend suite fares on native Windows without
+# slowing every push (CI runs the Windows-relevant subset and start script).
+on:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Install FFmpeg
+        run: choco install ffmpeg --no-progress -y
+      - run: uv sync --frozen --extra link-import
+      - name: Test
+        run: uv run pytest -q -n auto -rfE --junitxml=../windows-pytest.xml
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-pytest
+          path: windows-pytest.xml
+          retention-days: 14
