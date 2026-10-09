@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -40,7 +41,12 @@ def test_priority_fifo_pause_persistence_and_restart(settings: Settings) -> None
         high2 = Job(kind="test", priority=2, video_ids=[])
         paused = Job(kind="test", status="paused", video_ids=[])
         interrupted = Job(kind="test", status="paused", started_at=utcnow(), video_ids=[])
-        db.add_all([low, normal, high, high2, paused, interrupted])
+        rows = [low, normal, high, high2, paused, interrupted]
+        created = utcnow()
+        for index, row in enumerate(rows):
+            # Windows clocks can return identical timestamps for adjacent inserts.
+            row.created_at = created + timedelta(microseconds=index)
+        db.add_all(rows)
         db.commit()
         ids = [j.id for j in (low, normal, high, high2, paused, interrupted)]
 
@@ -81,6 +87,10 @@ def test_overlapping_inputs_serialize_but_independent_jobs_run(settings: Setting
                 ("test", {}, ["d"]),
             ],
         )
+        created = utcnow()
+        for index, job in enumerate(jobs):
+            job.created_at = created + timedelta(microseconds=index)
+        db.commit()
         ids = [j.id for j in jobs]
         assert m.describe(db, jobs[0])["conflicting_jobs"] == [ids[1]]
 

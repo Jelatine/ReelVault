@@ -197,7 +197,7 @@ def encode_path(settings: Settings, path: Path) -> str:
         resolve_path(settings, relative)
         return relative
     if path.is_relative_to(settings.data_dir):
-        return str(path.relative_to(settings.data_dir))
+        return path.relative_to(settings.data_dir).as_posix()
     for location_id, entry in settings.storage_locations.items():
         if path.is_relative_to(entry.path / "library"):
             root = library_root(settings, location_id)

@@ -9,7 +9,6 @@ import json
 import math
 import os
 import shutil
-import signal
 import sys
 import time
 from pathlib import Path
@@ -18,7 +17,7 @@ from typing import Any
 from .config import Settings
 from .jobs.manager import JobContext
 from .link_network import DownloadProxy
-from .media.ffmpeg import Canceled
+from .media.ffmpeg import Canceled, start_process
 from .storage import MIB, check_budget, link_requirements
 
 
@@ -116,22 +115,16 @@ async def download(ctx: JobContext, params: dict[str, Any], work: Path) -> tuple
         env["no_proxy"] = env["NO_PROXY"] = ""
         env["DENO_DIR"] = str(work / ".deno")
         args = arguments(command, params["url"], work, proxy.url, limit, settings.ffmpeg)
-        process = await asyncio.create_subprocess_exec(
-            *args,
+        process = await start_process(
+            args,
+            ctx.handle,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
             cwd=work,
-            start_new_session=True,
             limit=65536,
         )
-        ctx.handle.process = process
-        ctx.handle.process_group = True
-        if ctx.handle.canceled:
-            ctx.handle.cancel()
-        elif ctx.handle.paused:
-            ctx.handle.pause()
         result: dict[str, Any] = {}
         errors = bytearray()
 
@@ -214,11 +207,9 @@ async def download(ctx: JobContext, params: dict[str, Any], work: Path) -> tuple
             raise
         finally:
             # Kill descendants too: yt-dlp may have started a local ffmpeg merger.
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
+            ctx.handle.kill_process()
             await process.wait()
             for task in [*tasks, waiter]:
                 task.cancel()
             await asyncio.gather(*tasks, waiter, return_exceptions=True)
-            ctx.handle.process = None
-            ctx.handle.process_group = False
+            ctx.handle.release_process()

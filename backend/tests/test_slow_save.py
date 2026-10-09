@@ -15,6 +15,7 @@ from reelvault.media.ffmpeg import Canceled, ProcessHandle, run_command
 from .conftest import upload_ready, wait_job
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-group error handling")
 def test_departed_process_group_does_not_abort_cancel(monkeypatch):
     def denied(pid, sig):
         raise PermissionError("departed process group")
@@ -29,6 +30,7 @@ def test_departed_process_group_does_not_abort_cancel(monkeypatch):
         handle.cancel()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process-group error handling")
 def test_reaped_group_with_pending_returncode_does_not_abort_cancel(monkeypatch):
     def denied(pid, sig):
         raise PermissionError("departed process group")
@@ -218,7 +220,7 @@ subprocess.Popen([sys.executable, '-c', code, sys.argv[1]])
             if pid_file.exists():
                 # Some platforms keep an orphan zombie briefly; ensure it cannot run.
                 pid = int(pid_file.read_text())
-                with contextlib.suppress(ProcessLookupError):
+                with contextlib.suppress(OSError):
                     os.kill(pid, 9)
 
     asyncio.run(run())
@@ -285,7 +287,7 @@ def test_progress_callback_failure_kills_and_reaps_process(tmp_path):
                 3,
             )
         assert handle.process is None and not handle.process_group
-        with pytest.raises(ProcessLookupError):
+        with pytest.raises(OSError):
             os.kill(int(pid_file.read_text()), 0)
 
     asyncio.run(run())

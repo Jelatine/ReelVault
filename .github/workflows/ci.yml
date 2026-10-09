@@ -32,6 +32,21 @@ jobs:
       - name: Test
         run: uv run pytest -q
 
+  windows-job-control:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Install FFmpeg
+        run: choco install ffmpeg --no-progress -y
+      - run: uv sync --frozen
+      - name: Verify native process trees, editing and slow output saves
+        # External storage marker handling is still POSIX-specific.
+        run: uv run pytest -q tests/test_windows_process.py tests/test_job_queue.py tests/test_slow_save.py tests/test_edit.py tests/test_timing.py tests/test_encoding.py -k "not restart_cleans_interrupted_transfer_staging_on_each_storage"
+
   s3:
     name: S3 (MinIO)
     runs-on: ubuntu-latest

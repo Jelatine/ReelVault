@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .windows_process import CREATE_SUSPENDED, WindowsJob
+
 ProgressCallback = Callable[[float], None]
 
 
@@ -31,6 +33,7 @@ class ProcessHandle:
     paused: bool = False
     process_group: bool = False
     _resumed: asyncio.Event = field(default_factory=asyncio.Event)
+    _windows_job: WindowsJob | None = field(default=None, repr=False)
 
     def _signal(self, signal_number: int) -> None:
         proc = self.process
@@ -54,14 +57,23 @@ class ProcessHandle:
                     proc.send_signal(signal_number)
 
     def pause(self) -> None:
+        if self.paused:
+            return
+        if self._windows_job:
+            self._windows_job.suspend(True)
+        elif os.name != "nt":
+            self._signal(signal.SIGSTOP)
         self.paused = True
         self._resumed.clear()
-        self._signal(signal.SIGSTOP)
 
     def resume(self) -> None:
+        if self.paused:
+            if self._windows_job:
+                self._windows_job.suspend(False)
+            elif os.name != "nt":
+                self._signal(signal.SIGCONT)
         self.paused = False
         self._resumed.set()
-        self._signal(signal.SIGCONT)
 
     async def checkpoint(self) -> None:
         while self.paused and not self.canceled:
@@ -74,7 +86,78 @@ class ProcessHandle:
         # Wake a task paused between subprocesses as well as killing stopped processes.
         self.paused = False
         self._resumed.set()
-        self._signal(signal.SIGKILL)
+        self.kill_process()
+
+    def kill_process(self) -> None:
+        """Terminate the owned tree without changing the user's cancellation flag."""
+        if self._windows_job:
+            self._windows_job.kill()
+        elif os.name == "nt":
+            if self.process and self.process.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    self.process.kill()
+        else:
+            self._signal(signal.SIGKILL)
+
+    def release_process(self) -> None:
+        if self._windows_job:
+            self._windows_job.close()
+            self._windows_job = None
+        self.process = None
+        self.process_group = False
+
+
+async def start_process(
+    args: list[str], handle: ProcessHandle, **kwargs: Any
+) -> asyncio.subprocess.Process:
+    """Launch an owned tree; a Windows child stays suspended until attached."""
+    await handle.checkpoint()
+    windows_job = WindowsJob() if os.name == "nt" else None
+    options: dict[str, Any] = (
+        {"creationflags": CREATE_SUSPENDED} if windows_job else {"start_new_session": True}
+    )
+    launch = asyncio.create_task(
+        asyncio.create_subprocess_exec(args[0], *args[1:], **kwargs, **options)
+    )
+    cancellation = None
+    try:
+        try:
+            proc = await asyncio.shield(launch)
+        except asyncio.CancelledError as error:
+            cancellation = error
+            try:
+                proc = await launch
+            except Exception:
+                raise cancellation from None
+        handle.process = proc
+        handle.process_group = windows_job is None
+        try:
+            if windows_job:
+                windows_job.attach(proc.pid)
+                handle._windows_job = windows_job
+            if cancellation or handle.canceled:
+                handle.kill_process()
+            elif windows_job:
+                if not handle.paused:
+                    windows_job.suspend(False)
+            elif handle.paused:
+                handle._signal(signal.SIGSTOP)
+        except BaseException:
+            # Assignment can fail: the suspended child must still be reaped.
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            await proc.communicate()
+            handle.release_process()
+            raise
+        if cancellation:
+            await proc.communicate()
+            handle.release_process()
+            raise cancellation
+        return proc
+    except BaseException:
+        if windows_job:
+            windows_job.close()
+        raise
 
 
 @dataclass
@@ -94,41 +177,18 @@ async def run_command(
 ) -> RunResult:
     """Run ffmpeg/ffprobe. When `duration` is set, ffmpeg's -progress output on stdout is
     parsed into a 0..1 fraction and reported through `on_progress`."""
-    if handle:
-        await handle.checkpoint()
+    control = handle or ProcessHandle()
     track = on_progress is not None and duration > 0
     if cwd is not None and "/" in args[0] and not Path(args[0]).is_absolute():
         args = [str(Path(args[0]).resolve()), *args[1:]]
-    launch = asyncio.create_task(
-        asyncio.create_subprocess_exec(
-            *args,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            start_new_session=True,
-        )
+    proc = await start_process(
+        args,
+        control,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
     )
-    try:
-        # Cancellation during process creation must still acquire and reap the child.
-        proc = await asyncio.shield(launch)
-    except asyncio.CancelledError as cancellation:
-        try:
-            proc = await launch
-        except Exception:
-            raise cancellation from None
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(proc.pid, signal.SIGKILL)
-        await proc.communicate()
-        raise
-
-    if handle:
-        handle.process = proc
-        handle.process_group = True
-        if handle.canceled:
-            handle.cancel()
-        elif handle.paused:
-            handle.pause()
     assert proc.stdout and proc.stderr
 
     stderr_tail = bytearray()
@@ -171,17 +231,15 @@ async def run_command(
     except BaseException:
         # Clean up on parser/callback failures as well as task cancellation. Kill the
         # whole session, including children that inherit stdout/stderr from wrappers.
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(proc.pid, signal.SIGKILL)
+        control.kill_process()
         for reader in readers:
             reader.cancel()
         await asyncio.gather(*readers, return_exceptions=True)
         await proc.communicate()
         raise
     finally:
-        if handle and handle.process is proc:
-            handle.process = None
-            handle.process_group = False
+        if control.process is proc:
+            control.release_process()
     if handle:
         if handle.canceled:
             raise Canceled()
