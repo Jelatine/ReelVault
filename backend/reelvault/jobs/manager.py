@@ -11,7 +11,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
@@ -37,6 +37,9 @@ class JobContext:
         self._rate_time = time.monotonic()
         self._rate_progress = 0.0
         self._last_progress = 0.0
+        self._dirty = False
+        self._flush_task: asyncio.Task[None] | None = None
+        self.finishing = False
 
     def reset_rate(self) -> None:
         self._rate_time = time.monotonic()
@@ -61,6 +64,33 @@ class JobContext:
         if now - self._last_flush < 0.5 and value < 1.0 and message is None:
             return
         self._last_flush = now
+        try:
+            on_loop = asyncio.get_running_loop() is self.manager._loop
+        except RuntimeError:
+            on_loop = False
+        if not on_loop:
+            self._write(now)
+            return
+        # Never wait for SQLite on the event loop: a locked database would stall every
+        # request, including the one that cancels this job. Writes coalesce to the latest.
+        self._dirty = True
+        if self._flush_task is None or self._flush_task.done():
+            self._flush_task = asyncio.create_task(self._flush())
+
+    async def _flush(self) -> None:
+        while self._dirty:
+            self._dirty = False
+            try:
+                await asyncio.to_thread(self._write, time.monotonic())
+            except Exception:
+                log.exception("cannot save progress of job %s", self.job_id)
+
+    async def flushed(self) -> None:
+        """Wait for queued progress, so it cannot be published after the final status."""
+        if self._flush_task is not None:
+            await self._flush_task
+
+    def _write(self, now: float) -> None:
         with self.db() as db:
             job = db.get(Job, self.job_id)
             if job is not None:
@@ -126,6 +156,7 @@ class JobManager:
         self.sessionmaker = sessionmaker
         self.handlers = handlers
         self._wake = asyncio.Event()
+        self._claiming = asyncio.Lock()
         self.running: dict[str, JobContext] = {}
         self.subscribers: set[asyncio.Queue[str]] = set()
         self._tasks: list[asyncio.Task[None]] = []
@@ -310,7 +341,7 @@ class JobManager:
         if job.status not in {"queued", "running"}:
             raise ValueError("只有排队或运行中的任务可以暂停")
         ctx = self.running.get(job.id)
-        if job.status == "running" and ctx is None:
+        if job.status == "running" and (ctx is None or ctx.finishing):
             raise ValueError("任务正在结束，请刷新后重试")
         if ctx:
             ctx.handle.pause()
@@ -325,7 +356,8 @@ class JobManager:
         ctx = self.running.get(job.id)
         if job.started_at and ctx is None:
             raise ValueError("编码进程已中断，请重试任务")
-        job.status = "running" if ctx else "queued"
+        # A context without started_at belongs to a claim that may still fail.
+        job.status = "running" if ctx and job.started_at else "queued"
         db.commit()
         if ctx:
             ctx.reset_rate()
@@ -342,7 +374,8 @@ class JobManager:
             db.commit()
             self.publish(job)
             self.enqueue(job.id)
-        elif job.status in {"running", "paused"} and job.id in self.running:
+        elif job.status in {"queued", "running", "paused"} and job.id in self.running:
+            # A queued job with a context is being claimed; it stops at its first check.
             self.running[job.id].handle.cancel()
 
     def subscribe(self) -> asyncio.Queue[str]:
@@ -354,9 +387,13 @@ class JobManager:
         self.subscribers.discard(q)
 
     def publish(self, job: Job) -> None:
-        with self.sessionmaker() as db:
-            payload = json.dumps(self.describe(db, job), ensure_ascii=False)
+        self._deliver(self._payload(job))
 
+    def _payload(self, job: Job) -> str:
+        with self.sessionmaker() as db:
+            return json.dumps(self.describe(db, job), ensure_ascii=False)
+
+    def _deliver(self, payload: str) -> None:
         def deliver() -> None:
             for q in list(self.subscribers):
                 with contextlib.suppress(asyncio.QueueFull):
@@ -374,106 +411,155 @@ class JobManager:
             self._loop.call_soon_threadsafe(deliver)
 
     # ------------------------------------------------------------ worker
+    # SQLite calls run in threads: a busy database must not freeze the event loop.
 
     async def _worker(self, n: int) -> None:
         while not self._stopping:
-            # Selection and claiming are synchronous on the event loop.
-            self._wake.clear()
-            busy_ids = {vid for ctx in self.running.values() for vid in ctx.video_ids}
-            with self.sessionmaker() as db:
-                job_id = next(
-                    (
-                        job.id
-                        for job in db.scalars(
-                            select(Job)
-                            .where(Job.status == "queued")
-                            .order_by(Job.priority.desc(), Job.created_at, Job.id)
-                        )
-                        if not busy_ids.intersection(job.video_ids)
-                    ),
-                    None,
-                )
-            if job_id is None:
+            claimed = await self._claim()
+            if claimed is None:
                 await self._wake.wait()
                 continue
+            job, ctx = claimed
             try:
-                await self._run(job_id)
+                await self._run(job, ctx)
             except Exception:  # pragma: no cover - defensive
-                log.exception("job %s crashed", job_id)
+                log.exception("job %s crashed", job.id)
             finally:
                 self._wake.set()
 
-    async def _run(self, job_id: str) -> None:
-        with self.sessionmaker() as db:
-            job = db.get(Job, job_id)
-            if job is None or job.status != "queued":
-                return
-            job.status = "running"
-            job.started_at = utcnow()
-            job.message = "处理中"
-            db.commit()
-            self.publish(job)
-            db.expunge(job)
+    async def _claim(self) -> tuple[Job, JobContext] | None:
+        # One claim at a time, so two workers never pick jobs sharing a source.
+        async with self._claiming:
+            while True:
+                self._wake.clear()
+                busy_ids = {vid for ctx in self.running.values() for vid in ctx.video_ids}
+                found = await asyncio.to_thread(self._next_job, busy_ids)
+                if found is None:
+                    return None
+                claimed = await self._try_claim(*found)
+                if claimed is not None:
+                    return claimed
 
+    async def _try_claim(self, job_id: str, video_ids: list[str]) -> tuple[Job, JobContext] | None:
+        """Mark a queued job running; None when it was paused or canceled meanwhile."""
         ctx = JobContext(self, job_id)
-        ctx.video_ids = job.video_ids
+        ctx.video_ids = video_ids
+        # Registered before the claim commits, so pause and cancel can reach it.
         self.running[job_id] = ctx
+        try:
+            claimed = await asyncio.to_thread(self._mark_running, job_id)
+        except BaseException:
+            self.running.pop(job_id, None)
+            raise
+        if claimed is None:
+            self.running.pop(job_id, None)
+            return None
+        job, payload = claimed
+        self._deliver(payload)
+        return job, ctx
+
+    def _next_job(self, busy_ids: set[str]) -> tuple[str, list[str]] | None:
+        with self.sessionmaker() as db:
+            for job in db.scalars(
+                select(Job)
+                .where(Job.status == "queued")
+                .order_by(Job.priority.desc(), Job.created_at, Job.id)
+            ):
+                if not busy_ids.intersection(job.video_ids):
+                    return job.id, list(job.video_ids)
+        return None
+
+    def _mark_running(self, job_id: str) -> tuple[Job, str] | None:
+        with self.sessionmaker() as db:
+            result = db.execute(
+                update(Job)
+                .where(Job.id == job_id, Job.status == "queued")
+                .values(status="running", started_at=utcnow(), message="处理中")
+            )
+            db.commit()
+            if not result.rowcount:  # type: ignore[attr-defined]
+                return None
+            job = db.get(Job, job_id)
+            assert job is not None
+            payload = self._payload(job)
+            db.expunge(job)
+            return job, payload
+
+    async def _run(self, job: Job, ctx: JobContext) -> None:
         handler = self.handlers.get(job.kind)
         status, error, message = "succeeded", None, "完成"
         try:
+            ctx.check_canceled()
             if handler is None:
                 raise RuntimeError(f"未知任务类型 {job.kind}")
-            with self.sessionmaker() as db:
-                lock_budget(db)
-                if job.kind == "edit":
-                    # Metadata may have changed while waiting behind another edit.
-                    # Old jobs always targeted the primary library before locations
-                    # existed; freeze that choice when resuming an older queue.
-                    output = dict(job.params.get("output", {}))
-                    if not output.get("storage_id"):
-                        output["storage_id"] = "local"
-                    job.params = {**job.params, "output": output}
-                    required = job_bytes(db, job.kind, job.params, list(job.video_ids))
-                    plan = job_requirements(self.settings, job.kind, job.params, required)
-                else:
-                    required = (
-                        job_bytes(db, job.kind, job.params, list(job.video_ids))
-                        if "storage_bytes" not in job.params
-                        else int(job.params["storage_bytes"])
-                    )
-                    plan = job.params.get("storage_plan") or job_requirements(
-                        self.settings, job.kind, job.params, required
-                    )
-                if required:
-                    check_budget(db, self.settings, required, exclude_job=job.id, requirements=plan)
-                    job.params = {**job.params, "storage_bytes": required, "storage_plan": plan}
-                    stored = db.get(Job, job.id)
-                    if stored:
-                        stored.params = {**stored.params, **job.params}
-                    db.commit()
+            await asyncio.to_thread(self._reserve_storage, job)
             from ..object_library import ensure_original
 
-            with self.sessionmaker() as db:
-                paths = [
-                    v.file_path
-                    for v in db.scalars(select(Video).where(Video.id.in_(job.video_ids)))
-                ]
-            for path in dict.fromkeys(paths):
+            for path in await asyncio.to_thread(self._source_paths, job):
                 await ensure_original(ctx, path, pin=job.kind == "original_cache")
             await handler(ctx, job)
         except Canceled:
             status, message = "canceled", "已取消"
         except Exception as e:
-            log.warning("job %s (%s) failed: %s", job_id, job.kind, e)
+            log.warning("job %s (%s) failed: %s", job.id, job.kind, e)
             status, error, message = "failed", str(e) or type(e).__name__, "失败"
         finally:
-            self.running.pop(job_id, None)
-            self._release_originals(job)
+            ctx.finishing = True
+            if self.settings.s3_objects:
+                others = [other for other in self.running.values() if other is not ctx]
+                running = {i for other in others for i in other.video_ids}
+                await asyncio.to_thread(self._release_originals, job, running)
 
+        # Stay registered until the final status is stored: the job keeps its sources
+        # busy and the server counts as busy for updates in the meantime.
+        try:
+            await ctx.flushed()
+            payload = await asyncio.to_thread(self._finish, job, status, error, message)
+        finally:
+            self.running.pop(job.id, None)
+        if payload is not None:
+            self._deliver(payload)
+
+    def _reserve_storage(self, job: Job) -> None:
         with self.sessionmaker() as db:
-            final = db.get(Job, job_id)
+            lock_budget(db)
+            if job.kind == "edit":
+                # Metadata may have changed while waiting behind another edit.
+                # Old jobs always targeted the primary library before locations
+                # existed; freeze that choice when resuming an older queue.
+                output = dict(job.params.get("output", {}))
+                if not output.get("storage_id"):
+                    output["storage_id"] = "local"
+                job.params = {**job.params, "output": output}
+                required = job_bytes(db, job.kind, job.params, list(job.video_ids))
+                plan = job_requirements(self.settings, job.kind, job.params, required)
+            else:
+                required = (
+                    job_bytes(db, job.kind, job.params, list(job.video_ids))
+                    if "storage_bytes" not in job.params
+                    else int(job.params["storage_bytes"])
+                )
+                plan = job.params.get("storage_plan") or job_requirements(
+                    self.settings, job.kind, job.params, required
+                )
+            if required:
+                check_budget(db, self.settings, required, exclude_job=job.id, requirements=plan)
+                job.params = {**job.params, "storage_bytes": required, "storage_plan": plan}
+                stored = db.get(Job, job.id)
+                if stored:
+                    stored.params = {**stored.params, **job.params}
+                db.commit()
+
+    def _source_paths(self, job: Job) -> list[str]:
+        with self.sessionmaker() as db:
+            paths = db.scalars(select(Video.file_path).where(Video.id.in_(job.video_ids)))
+            return list(dict.fromkeys(paths))
+
+    def _finish(self, job: Job, status: str, error: str | None, message: str) -> str | None:
+        with self.sessionmaker() as db:
+            final = db.get(Job, job.id)
             if final is None:
-                return
+                return None
             if job.kind == "ingest" and status == "failed":
                 for video_id in job.video_ids:
                     video = db.get(Video, video_id)
@@ -488,16 +574,13 @@ class JobManager:
             final.finished_at = utcnow()
             record_job(db, final)
             db.commit()
-            self.publish(final)
+            return self._payload(final)
 
-    def _release_originals(self, job: Job) -> None:
-        if not self.settings.s3_objects:
-            return
+    def _release_originals(self, job: Job, running: set[str]) -> None:
         from ..object_library import release_after_job
 
         try:
             with self.sessionmaker() as db:
-                running = {i for ctx in self.running.values() for i in ctx.video_ids}
                 rows = db.execute(
                     select(Video.id, Video.file_path).where(
                         Video.id.in_([*job.video_ids, *running])

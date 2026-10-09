@@ -197,6 +197,14 @@ def test_real_upload_transfers_reservation_and_releases_after_ingest(client, sam
         assert snapshot(db, client.app.state.jobs.settings)["reserved_bytes"] == 0
 
 
+async def run_claimed(manager, job_id):
+    with manager.sessionmaker() as db:
+        video_ids = list(db.get(Job, job_id).video_ids)
+    claimed = await manager._try_claim(job_id, video_ids)
+    assert claimed is not None
+    await manager._run(*claimed)
+
+
 def test_worker_rechecks_external_disk_change_before_edit(client, monkeypatch):
     vid = source(client)
     manager = client.app.state.jobs
@@ -224,7 +232,7 @@ def test_worker_rechecks_external_disk_change_before_edit(client, monkeypatch):
         job.status = "queued"
         db.commit()
     disk(monkeypatch, MIB)
-    client.portal.call(manager._run, job_id)
+    client.portal.call(run_claimed, manager, job_id)
     final = client.get(f"/api/jobs/{job_id}").json()
     assert final["status"] == "failed"
     assert "磁盘可用空间不足" in final["error"]
@@ -264,7 +272,7 @@ def test_ingest_budget_failure_marks_video_retryable(client, monkeypatch):
         db.commit()
         job_id = job.id
     disk(monkeypatch, MIB)
-    client.portal.call(manager._run, job_id)
+    client.portal.call(run_claimed, manager, job_id)
     assert client.get(f"/api/jobs/{job_id}").json()["status"] == "failed"
     video = client.get(f"/api/videos/{vid}").json()
     assert video["status"] == "error"

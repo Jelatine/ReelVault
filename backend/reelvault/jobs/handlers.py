@@ -580,7 +580,7 @@ async def scenes(ctx: JobContext, job: Job) -> None:
             db.commit()
         ctx.set_progress(1, f"已检测 {len(cuts)} 个切点、{len(cuts) + 1} 个章节")
     finally:
-        shutil.rmtree(temp, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, temp, ignore_errors=True)
 
 
 async def hls(ctx: JobContext, job: Job) -> None:
@@ -640,12 +640,14 @@ async def hls(ctx: JobContext, job: Job) -> None:
             and old_generation != job.id
             and re.fullmatch(r"[a-f0-9]{32}", old_generation)
         ):
-            shutil.rmtree(target.parent / old_generation, ignore_errors=True)
+            await asyncio.to_thread(
+                shutil.rmtree, target.parent / old_generation, ignore_errors=True
+            )
         ctx.set_progress(1, "HLS 已就绪")
     finally:
-        shutil.rmtree(temp, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, temp, ignore_errors=True)
         if not committed:
-            shutil.rmtree(target, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, target, ignore_errors=True)
 
 
 async def playable(ctx: JobContext, job: Job) -> None:
@@ -695,7 +697,7 @@ async def playable(ctx: JobContext, job: Job) -> None:
         remove_copy(ctx.settings, video.id, old)
         ctx.set_progress(1, "播放缓存已就绪")
     finally:
-        shutil.rmtree(temp, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, temp, ignore_errors=True)
         if not committed:
             target.unlink(missing_ok=True)
 

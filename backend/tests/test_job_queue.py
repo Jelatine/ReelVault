@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import sys
 import time
 from datetime import timedelta
@@ -217,6 +218,53 @@ def test_eta_resets_on_regression_and_pause(
     ctx.set_progress(0.4)
     with m.sessionmaker() as db:
         assert db.get(Job, job_id).eta_seconds == pytest.approx(60)
+
+
+def test_locked_database_does_not_stall_event_loop_or_cancel(settings: Settings) -> None:
+    settings.workers = 1
+    started = asyncio.Event()
+
+    async def handler(ctx: JobContext, job: Job) -> None:
+        for step in range(10_000):
+            ctx.check_canceled()
+            ctx.set_progress(step / 10_000, f"step {step}")
+            started.set()
+            await asyncio.sleep(0.01)
+
+    m = manager(settings, {"test": handler})
+    with m.sessionmaker() as db:
+        job = Job(kind="test", video_ids=[])
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+    async def run() -> None:
+        await m.start()
+        try:
+            await asyncio.wait_for(started.wait(), 5)
+            # Another writer holds the lock, as a slow bind mount or long transaction would.
+            lock = sqlite3.connect(settings.db_path, isolation_level=None)
+            lock.execute("BEGIN IMMEDIATE")
+            try:
+                worst = 0.0
+                deadline = time.monotonic() + 1.5
+                while time.monotonic() < deadline:
+                    before = time.monotonic()
+                    await asyncio.sleep(0.02)
+                    worst = max(worst, time.monotonic() - before)
+                assert worst < 0.5
+                with m.sessionmaker() as db:
+                    m.cancel(db, db.get(Job, job_id))
+            finally:
+                lock.rollback()
+                lock.close()
+            await m.wait_idle(10)
+            with m.sessionmaker() as db:
+                assert db.get(Job, job_id).status == "canceled"
+        finally:
+            await m.stop()
+
+    asyncio.run(run())
 
 
 def test_failed_edit_retry_real_output_and_invalid_controls(
