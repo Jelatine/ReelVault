@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import sqlite3
+import sys
 import tempfile
 import zipfile
 from collections.abc import Iterator
@@ -51,7 +52,7 @@ def library_lock(data_dir: Path) -> Iterator[None]:
     """Exclude offline restores and a second server from an active library."""
     data_dir.mkdir(parents=True, exist_ok=True)
     with (data_dir / ".library.lock").open("a+b") as lock:
-        if os.name == "nt":
+        if sys.platform == "win32":
             import msvcrt
 
             # Windows locks a byte range starting at the current file position.
@@ -64,7 +65,7 @@ def library_lock(data_dir: Path) -> Iterator[None]:
             import fcntl
 
         try:
-            if os.name == "nt":
+            if sys.platform == "win32":
                 msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
             else:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -75,7 +76,7 @@ def library_lock(data_dir: Path) -> Iterator[None]:
         try:
             yield
         finally:
-            if os.name == "nt":
+            if sys.platform == "win32":
                 lock.seek(0)
                 msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
             else:
