@@ -156,6 +156,9 @@ class Settings(BaseSettings):
 
     # Number of concurrent ffmpeg jobs.
     workers: int = 2
+    # CPU niceness of job subprocesses (ffmpeg etc.), so pages and playback stay
+    # responsive while encoding; Windows uses below-normal priority. 0 disables.
+    job_nice: int = Field(10, ge=0, le=19)
     webdav_enabled: bool = Field(False, exclude=True)
     webdav_token_hash: str = Field("", repr=False, exclude=True, pattern=r"^([a-f0-9]{64})?$")
     transcription_enabled: bool = False

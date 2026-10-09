@@ -108,6 +108,12 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./reelvault-r
 
 Windows 双击该文件 → 安装证书 → 本地计算机 → 「受信任的根证书颁发机构」；macOS 导入「钥匙串访问」并设为始终信任；iPhone/iPad 安装描述文件后在「设置 → 通用 → 关于本机 → 证书信任设置」中启用。根证书保存在 `caddy_data` 卷中，重建容器不会变化。启用 `REELVAULT_SECURE_COOKIES=true` 后请改用 HTTPS 地址登录。
 
+#### 资源分配
+
+编码任务会占满 CPU。任务子进程默认以较低优先级运行（`REELVAULT_JOB_NICE=10`），CPU 繁忙时播放和页面请求优先，空闲算力仍全部用于编码。每个 FFmpeg 本身会使用全部核心，4 核以下或内存较少的机器建议在 `.env` 中设置 `REELVAULT_WORKERS=1`。
+
+Windows 的 Docker Desktop 在 WSL 2 虚拟机中运行容器，虚拟机默认最多使用一半内存。参考 [`deploy/windows/wslconfig.example`](deploy/windows/wslconfig.example) 按本机配置调整后复制为 `%UserProfile%\.wslconfig`，执行 `wsl --shutdown` 并重新启动 Docker Desktop 生效，说明见 [WSL 配置文档](https://learn.microsoft.com/windows/wsl/wsl-config)。数据目录放在 Windows 盘（如 `D:\...`）时，容器需跨文件系统读写，大文件处理和播放都会明显变慢；建议把项目放在 WSL 文件系统内（如 `\\wsl$\Ubuntu\home\<用户>\ReelVault`）。
+
 v0.3.0 起默认端口由 8080 改为 34123。从旧版本升级的 Docker 部署需同步修改端口映射：改为 `-p 34123:34123`（compose 中 `"34123:34123"`）；若要保留原访问地址，可映射 `-p 8080:34123`，或设置 `REELVAULT_PORT=8080` 并保留 `-p 8080:8080`。Ubuntu 安装的环境文件已写明 `REELVAULT_PORT=8080`，升级后端口不变；macOS 重新执行 `install-launchd.sh` 后改用 34123。反向代理按实际端口配置。
 
 ### Ubuntu (22.04 / 24.04)
@@ -210,6 +216,7 @@ Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https
 | `REELVAULT_HOST` / `REELVAULT_PORT` | `0.0.0.0` / `34123` | 监听地址 |
 | `REELVAULT_ADMIN_USER` / `REELVAULT_ADMIN_PASSWORD` | 空 | 预置管理员账号（仅在尚无账号时生效） |
 | `REELVAULT_WORKERS` | `2` | 同时运行的 ffmpeg 任务数 |
+| `REELVAULT_JOB_NICE` | `10` | 任务子进程（ffmpeg、转写、下载）的 CPU 优先级降级值，0–19，`0` 关闭；Windows 原生运行时使用「低于正常」优先级 |
 | `REELVAULT_TRASH_RETENTION_DAYS` | `30` | 回收站自动彻底删除的保留天数；`0` 禁用，修改后重启生效 |
 | `REELVAULT_REMEMBER_DAYS` | `30` | 「记住我」有效天数（滑动续期） |
 | `REELVAULT_SESSION_IDLE_HOURS` | `12` | 未勾选「记住我」时的闲置过期时间 |

@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import json
 import os
 import re
+import shutil
 import signal
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .windows_process import CREATE_SUSPENDED, WindowsJob
+from .windows_process import BELOW_NORMAL_PRIORITY_CLASS, CREATE_SUSPENDED, WindowsJob
 
 ProgressCallback = Callable[[float], None]
 
@@ -32,6 +34,8 @@ class ProcessHandle:
     canceled: bool = False
     paused: bool = False
     process_group: bool = False
+    # Niceness for background work, so serving pages and video keeps the CPU first.
+    nice: int = 0
     _resumed: asyncio.Event = field(default_factory=asyncio.Event)
     _windows_job: WindowsJob | None = field(default=None, repr=False)
 
@@ -107,15 +111,28 @@ class ProcessHandle:
         self.process_group = False
 
 
+@functools.cache
+def _nice_command() -> str | None:
+    return shutil.which("nice")
+
+
 async def start_process(
     args: list[str], handle: ProcessHandle, **kwargs: Any
 ) -> asyncio.subprocess.Process:
     """Launch an owned tree; a Windows child stays suspended until attached."""
     await handle.checkpoint()
     windows_job = WindowsJob() if os.name == "nt" else None
-    options: dict[str, Any] = (
-        {"creationflags": CREATE_SUSPENDED} if windows_job else {"start_new_session": True}
-    )
+    options: dict[str, Any]
+    if windows_job:
+        flags = CREATE_SUSPENDED | (BELOW_NORMAL_PRIORITY_CLASS if handle.nice > 0 else 0)
+        options = {"creationflags": flags}
+    else:
+        options = {"start_new_session": True}
+        # nice execs the program in place: same PID, and every thread inherits the
+        # priority. A missing program still raises FileNotFoundError without it.
+        nice = _nice_command() if handle.nice > 0 else None
+        if nice and shutil.which(args[0], path=(kwargs.get("env") or {}).get("PATH")):
+            args = [nice, "-n", str(handle.nice), *args]
     launch = asyncio.create_task(
         asyncio.create_subprocess_exec(args[0], *args[1:], **kwargs, **options)
     )

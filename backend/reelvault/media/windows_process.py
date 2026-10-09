@@ -10,6 +10,8 @@ from typing import Any
 win: Any = ctypes
 
 CREATE_SUSPENDED = 0x00000004
+# Inherited by children of a below-normal process, unlike the normal class.
+BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
 PROCESS_ACCESS = 0x0001 | 0x0100 | 0x0800  # terminate, set quota, suspend/resume
 
 

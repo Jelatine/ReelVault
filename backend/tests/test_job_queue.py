@@ -220,6 +220,22 @@ def test_eta_resets_on_regression_and_pause(
         assert db.get(Job, job_id).eta_seconds == pytest.approx(60)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX niceness")
+def test_job_processes_run_at_lower_priority(settings: Settings) -> None:
+    show = [sys.executable, "-c", "import os; print(os.nice(0))"]
+
+    async def run() -> None:
+        base = int((await run_command(show)).stdout)
+        handle = JobContext(manager(settings), "job").handle
+        assert handle.nice == settings.job_nice == 10
+        lowered = int((await run_command(show, handle=handle)).stdout)
+        assert lowered == min(19, base + 10)
+        with pytest.raises(FileNotFoundError):
+            await run_command(["reelvault-missing-program"], handle=handle)
+
+    asyncio.run(run())
+
+
 def test_locked_database_does_not_stall_event_loop_or_cancel(settings: Settings) -> None:
     settings.workers = 1
     started = asyncio.Event()

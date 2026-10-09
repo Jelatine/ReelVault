@@ -1,0 +1,17 @@
+# Resources for Docker Desktop on Windows (WSL 2 backend).
+# Copy to %UserProfile%\.wslconfig, run "wsl --shutdown", then start Docker Desktop.
+# Reference: https://learn.microsoft.com/windows/wsl/wsl-config
+#
+# Containers run inside the WSL 2 VM, so these values cap ReelVault and ffmpeg.
+# Example for an 8-core / 16 GB machine; scale to yours.
+
+[wsl2]
+# Leave one or two cores to Windows so the desktop and browser stay responsive.
+processors=6
+# Defaults to half of host memory. Each ffmpeg job on 4K sources can use several GB.
+memory=8GB
+swap=4GB
+
+[experimental]
+# Return memory freed in the VM (e.g. page cache after large files) to Windows.
+autoMemoryReclaim=gradual

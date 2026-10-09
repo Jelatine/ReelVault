@@ -14,7 +14,10 @@ services:
       # Leave empty to create the admin account in the browser on first visit
       REELVAULT_ADMIN_USER: ${REELVAULT_ADMIN_USER:-}
       REELVAULT_ADMIN_PASSWORD: ${REELVAULT_ADMIN_PASSWORD:-}
+      # Concurrent jobs; each ffmpeg already uses all cores, use 1 on small machines
       REELVAULT_WORKERS: ${REELVAULT_WORKERS:-2}
+      # CPU niceness of ffmpeg and other job processes (0-19, 0 disables)
+      REELVAULT_JOB_NICE: ${REELVAULT_JOB_NICE:-10}
       # Set to true when served over HTTPS (behind a reverse proxy)
       REELVAULT_SECURE_COOKIES: ${REELVAULT_SECURE_COOKIES:-false}
       # REELVAULT_IMPORT_DIR: /import
