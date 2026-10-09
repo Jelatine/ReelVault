@@ -1,0 +1,18 @@
+# HTTPS front for the Docker deployment: docker compose --profile https up -d
+#
+# Browsers only speak HTTP/2 over TLS. Over plain HTTP/1.1 they open at most six
+# connections per host, which video range requests and the job event stream use
+# up, so page requests queue behind playback.
+#
+# REELVAULT_SITE is the single address clients use. A public domain gets a Let's
+# Encrypt certificate; localhost, LAN IPs and .local/.internal/.home.arpa names
+# get one from Caddy's local CA (trust its root.crt, see README).
+{
+	# Clients send no SNI when connecting by IP address.
+	default_sni {$REELVAULT_SITE}
+}
+
+{$REELVAULT_SITE} {
+	# Event streams are flushed immediately; uploads and Range requests pass through.
+	reverse_proxy reelvault:34123
+}

@@ -87,6 +87,27 @@ docker compose up -d
 
 打开 `http://服务器IP:34123`，首次访问创建管理员账号。
 
+#### HTTPS 与 HTTP/2（推荐）
+
+浏览器只在 HTTPS 下使用 HTTP/2。直接访问 `http://…:34123` 时走 HTTP/1.1，每个地址最多 6 个连接，视频播放的分段请求和任务进度推送会占用其中几个，播放时切换页面容易排队卡顿。compose 内置可选的 [Caddy](https://caddyserver.com/docs/automatic-https) 前端，在 `.env` 中设置访问地址后启用：
+
+```bash
+# .env
+REELVAULT_SITE=192.168.1.10        # 客户端访问用的单个地址：局域网 IP、主机名或公网域名
+REELVAULT_SECURE_COOKIES=true
+# REELVAULT_HTTPS_PORT=8443        # 443 被占用时改用其他端口
+
+docker compose --profile https up -d
+```
+
+然后访问 `https://192.168.1.10`（改了端口则加上 `:8443`）。公网域名会自动申请 Let's Encrypt 证书，需要从公网能访问该端口。局域网 IP、`localhost`、`.local` 等地址使用 Caddy 本地 CA 签发的证书，各设备信任一次根证书后即不再提示：
+
+```bash
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./reelvault-root.crt
+```
+
+Windows 双击该文件 → 安装证书 → 本地计算机 → 「受信任的根证书颁发机构」；macOS 导入「钥匙串访问」并设为始终信任；iPhone/iPad 安装描述文件后在「设置 → 通用 → 关于本机 → 证书信任设置」中启用。根证书保存在 `caddy_data` 卷中，重建容器不会变化。启用 `REELVAULT_SECURE_COOKIES=true` 后请改用 HTTPS 地址登录。
+
 v0.3.0 起默认端口由 8080 改为 34123。从旧版本升级的 Docker 部署需同步修改端口映射：改为 `-p 34123:34123`（compose 中 `"34123:34123"`）；若要保留原访问地址，可映射 `-p 8080:34123`，或设置 `REELVAULT_PORT=8080` 并保留 `-p 8080:8080`。Ubuntu 安装的环境文件已写明 `REELVAULT_PORT=8080`，升级后端口不变；macOS 重新执行 `install-launchd.sh` 后改用 34123。反向代理按实际端口配置。
 
 ### Ubuntu (22.04 / 24.04)
@@ -155,7 +176,7 @@ tail -f ~/ReelVault/reelvault.log            # 查看日志
 
 > 也可以在 Docker Desktop 中直接使用上面的 Docker 方式运行，镜像同时提供 arm64 与 amd64。
 
-公网访问建议放在 HTTPS 反向代理之后，参考 [`deploy/nginx.conf.example`](deploy/nginx.conf.example)，并设置 `REELVAULT_SECURE_COOKIES=true`。
+建议放在支持 HTTP/2 的 HTTPS 反向代理之后，参考 [`deploy/nginx.conf.example`](deploy/nginx.conf.example)，并设置 `REELVAULT_SECURE_COOKIES=true`；Docker 部署可直接使用上文的 Caddy 前端。
 
 ## 版本检查与升级
 

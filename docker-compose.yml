@@ -18,3 +18,24 @@ services:
       # Set to true when served over HTTPS (behind a reverse proxy)
       REELVAULT_SECURE_COOKIES: ${REELVAULT_SECURE_COOKIES:-false}
       # REELVAULT_IMPORT_DIR: /import
+
+  # Optional HTTPS + HTTP/2 front: docker compose --profile https up -d
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    container_name: reelvault-caddy
+    restart: unless-stopped
+    depends_on:
+      - reelvault
+    ports:
+      - "${REELVAULT_HTTPS_PORT:-443}:443"
+      - "${REELVAULT_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    environment:
+      # Address clients use: LAN IP, hostname or public domain
+      REELVAULT_SITE: ${REELVAULT_SITE:-localhost}
+
+volumes:
+  caddy_data:
