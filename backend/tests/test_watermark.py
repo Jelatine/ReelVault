@@ -178,7 +178,7 @@ def test_chinese_text_and_literal_punctuation_with_safe_paths(black: Path, tmp_p
     frame = pixels(out)
     assert sum(frame) / len(frame) > 5
     assert max(frame) > 240
-    assert (tmp / "watermark.txt").read_text() == params.text
+    assert (tmp / "watermark.txt").read_text(encoding="utf-8") == params.text
     # The explicit bundled font must work without relying on a system font name.
     assert (tmp / "font.otf").read_bytes() == FONT.read_bytes()
     generated = asyncio.run(probe("ffprobe", str(out)))

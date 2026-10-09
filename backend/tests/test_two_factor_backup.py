@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import zipfile
 
@@ -41,7 +42,8 @@ def test_backup_transports_key_and_restores_recovery_codes(client, settings, tmp
     target = Settings(data_dir=tmp_path / "restored")
     restore_backup(archive, target)
     assert decrypt_secret(target.data_dir, ciphertext) == secret
-    assert (target.data_dir / KEY_FILE).stat().st_mode & 0o777 == 0o600
+    # Windows protects private files with ACLs, not mode bits.
+    assert os.name == "nt" or (target.data_dir / KEY_FILE).stat().st_mode & 0o777 == 0o600
     with sqlite3.connect(target.db_path) as db:
         counter, hashes = db.execute(
             "SELECT last_counter, recovery_hashes FROM two_factor"

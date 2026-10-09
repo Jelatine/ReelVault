@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import subprocess
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -89,7 +90,8 @@ def test_online_export_offline_restore(
         shutil.copytree(settings.data_dir / name, target.data_dir / name, dirs_exist_ok=True)
     result = restore_backup(archive, target)
     assert result["safety_backup"] is None
-    assert target.db_path.stat().st_mode & 0o777 == 0o600
+    # Windows protects private files with ACLs, not mode bits.
+    assert os.name == "nt" or target.db_path.stat().st_mode & 0o777 == 0o600
     monkeypatch.setenv("REELVAULT_CONFIG_FILE", result["config_file"])
     restored = Settings(_env_file=None)
     assert restored.data_dir == target.data_dir
@@ -168,12 +170,12 @@ def test_replace_safety_backup_and_rollback(
     monkeypatch.setattr(os, "replace", fail_config)
     with pytest.raises(OSError, match="disk failure"):
         restore_backup(archive, settings, replace=True)
-    with sqlite3.connect(settings.db_path) as db:
+    with closing(sqlite3.connect(settings.db_path)) as db:
         assert db.execute("SELECT name FROM collections").fetchone() == ("旧库现有内容",)
     monkeypatch.setattr(os, "replace", actual_replace)
     result = restore_backup(archive, settings, replace=True)
     assert Path(result["safety_backup"]).is_file()
-    with sqlite3.connect(settings.db_path) as db:
+    with closing(sqlite3.connect(settings.db_path)) as db:
         assert db.execute("SELECT COUNT(*) FROM collections").fetchone() == (0,)
         assert db.execute("SELECT COUNT(*) FROM sessions").fetchone() == (0,)
 

@@ -363,7 +363,10 @@ def mark_cache(path: Any, ref: ObjectRef, *, pinned: bool = False) -> None:
         raise ObjectStoreError("Local original size does not match the published object")
     timestamp = ref.modified.timestamp()
     os.utime(path, (timestamp, timestamp))
-    path.chmod(0o400)
+    if os.name != "nt":
+        # On Windows this sets the read-only attribute, which then blocks
+        # ReelVault's own release, purge and re-download of the copy.
+        path.chmod(0o400)
     marker = path.parent / (path.name + ".verified.json")
     value: dict[str, Any] = {"sha256": ref.sha256, "stat": _cache_stat(path)}
     if pinned:

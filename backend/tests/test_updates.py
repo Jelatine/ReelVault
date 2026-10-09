@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import sys
 import tarfile
@@ -289,6 +290,7 @@ def test_upgrade_refused_while_jobs_run(tmp_path: Path, monkeypatch: pytest.Monk
         run_upgrade(tmp_path, monkeypatch, busy=1)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="root-owned systemd package upgrades are Linux-only")
 @pytest.mark.parametrize("failure", [None, "apply", "commit", "rollback", "dependencies"])
 def test_package_upgrade_real_helper_requests_and_atomic_rollback(
     tmp_path: Path,

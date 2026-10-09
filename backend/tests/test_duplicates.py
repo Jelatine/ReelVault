@@ -192,8 +192,9 @@ def test_paused_hash_resumes_and_source_replacement_rejected(tmp_path):
     def replace_file(_):
         if os.name == "nt":
             # Windows refuses to replace a file that is open; it can still be modified.
-            with source.open("ab") as stream:
-                stream.write(b"more")
+            if source.stat().st_size == 4:
+                with source.open("ab") as stream:
+                    stream.write(b"more")
             return
         other = tmp_path / "replacement.bin"
         other.write_bytes(b"data")

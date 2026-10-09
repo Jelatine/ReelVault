@@ -1,3 +1,4 @@
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -10,7 +11,8 @@ def test_private_encrypted_secret_round_trip_and_tampering(tmp_path):
     ciphertext = encrypt_secret(tmp_path, secret, create=True)
     assert secret not in ciphertext
     assert decrypt_secret(tmp_path, ciphertext) == secret
-    assert (tmp_path / KEY_FILE).stat().st_mode & 0o777 == 0o600
+    # Windows protects private files with ACLs, not mode bits.
+    assert os.name == "nt" or (tmp_path / KEY_FILE).stat().st_mode & 0o777 == 0o600
     with pytest.raises(ValueError):
         decrypt_secret(tmp_path, ciphertext[:-5] + "ABCDE")
     other = tmp_path / "other"
@@ -31,10 +33,11 @@ def test_missing_key_never_silently_replaced(tmp_path):
 def test_symlink_nonregular_and_public_key_are_rejected(tmp_path):
     cipher(tmp_path, create=True)
     key = tmp_path / KEY_FILE
-    key.chmod(0o644)
-    with pytest.raises(ValueError):
-        read_key(key)
-    key.chmod(0o600)
+    if os.name != "nt":  # Windows protects the key with ACLs, not mode bits
+        key.chmod(0o644)
+        with pytest.raises(ValueError):
+            read_key(key)
+        key.chmod(0o600)
     link = tmp_path / "link"
     link.symlink_to(key)
     with pytest.raises(OSError):
