@@ -30,7 +30,8 @@ import {
   IconUser,
 } from '@tabler/icons-react'
 import { useEffect, useRef } from 'react'
-import { Link, Outlet, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import RouteContent from './RouteContent'
 import { useAuth } from '../lib/auth'
 import { VIDEO_ACCEPT, VIDEO_EXTENSIONS } from '../lib/constants'
 import { useJobs, useUpdateStatus } from '../lib/queries'
@@ -211,7 +212,7 @@ export default function AppLayout() {
 
       <AppShell.Main id="main-content" tabIndex={-1}>
         <OfflineNotice />
-        <StorageWarning /><Outlet />
+        <StorageWarning /><RouteContent />
       </AppShell.Main>
       <MobileNavigation onNavigate={close} />
 
