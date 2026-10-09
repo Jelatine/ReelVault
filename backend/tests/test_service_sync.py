@@ -14,6 +14,8 @@ from reelvault.service_sync import (
     validate_unit,
 )
 
+pytestmark = pytest.mark.skipif(os.name == "nt", reason="systemd sync is Linux-only")
+
 TEMPLATE = Path(__file__).resolve().parents[2] / "deploy" / "reelvault.service"
 
 

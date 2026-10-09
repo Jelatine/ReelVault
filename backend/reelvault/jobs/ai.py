@@ -8,6 +8,7 @@ import re
 import shutil
 import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +59,8 @@ async def finish_thread(function, *args, **kwargs):
 
 def snapshot(ctx: JobContext, video_id: str, path: Path, include_faces: bool = True) -> dict:
     path.unlink(missing_ok=True)
-    with ctx.db() as db, sqlite3.connect(path) as target:
+    # The connection context only commits; close it so Windows can delete the file.
+    with ctx.db() as db, closing(sqlite3.connect(path)) as target, target:
         state: dict[str, Any] = {
             "revision": revision(db) if include_faces else None,
             "sources": [],

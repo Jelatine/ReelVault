@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import struct
 import subprocess
 import zlib
@@ -159,7 +160,8 @@ def test_image_scaling_position_alpha_and_duration(
 
 
 def test_chinese_text_and_literal_punctuation_with_safe_paths(black: Path, tmp_path: Path) -> None:
-    tmp = tmp_path / "Chinese 'quotes': 中文"
+    # Windows forbids ':' in names; its drive letter still puts one in the path.
+    tmp = tmp_path / ("Chinese 'quotes' 中文" if os.name == "nt" else "Chinese 'quotes': 中文")
     tmp.mkdir()
     out = tmp / "text.mp4"
     info = asyncio.run(probe("ffprobe", str(black)))

@@ -190,6 +190,11 @@ def test_paused_hash_resumes_and_source_replacement_rejected(tmp_path):
     assert asyncio.run(paused())[0] == asyncio.run(content_hash(source))[0]
 
     def replace_file(_):
+        if os.name == "nt":
+            # Windows refuses to replace a file that is open; it can still be modified.
+            with source.open("ab") as stream:
+                stream.write(b"more")
+            return
         other = tmp_path / "replacement.bin"
         other.write_bytes(b"data")
         other.replace(source)

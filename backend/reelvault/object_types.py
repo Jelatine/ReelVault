@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
+import sys
 from datetime import datetime
-from pathlib import Path, PosixPath
+from pathlib import Path, PosixPath, WindowsPath
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -29,7 +30,13 @@ class ObjectRef(BaseModel):
         return value
 
 
-class OriginalPath(PosixPath):
+if sys.platform == "win32":
+    _ConcretePath = WindowsPath
+else:
+    _ConcretePath = PosixPath
+
+
+class OriginalPath(_ConcretePath):
     """A real cache path with a stable remote identity; stat remains a real stat."""
 
     object_ref: ObjectRef

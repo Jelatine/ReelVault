@@ -95,11 +95,12 @@ def test_framework_errors_headers_and_unexpected_failures():
 
 def test_all_application_errors_have_explicit_localizable_codes():
     backend = Path(__file__).parents[1]
-    catalog = json.loads((backend.parent / "frontend/src/locales/api-errors.json").read_text())
+    catalog_path = backend.parent / "frontend/src/locales/api-errors.json"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
     codes = set(STATUS_CODES.values()) | {"request_failed", "csrf_header_missing"}
     count = 0
     for path in [*sorted((backend / "reelvault/api").glob("*.py")), backend / "reelvault/auth.py"]:
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 continue
             assert node.func.id != "HTTPException", (

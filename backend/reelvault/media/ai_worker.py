@@ -7,6 +7,7 @@ import base64
 import json
 import sqlite3
 import struct
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -87,7 +88,8 @@ def analyse(params: dict) -> dict:
 def cluster(params: dict, data: dict) -> None:
     body = AiParams.model_validate(params["body"])
     new_groups = []
-    with sqlite3.connect(params["snapshot"]) as db:
+    # The connection context only commits; close it so Windows can delete the file.
+    with closing(sqlite3.connect(params["snapshot"])) as db, db:
         register_vectors(db)
         for position, face in enumerate(data["faces"]):
             values = face_embedding(face["vector"])

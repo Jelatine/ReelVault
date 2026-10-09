@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from urllib.parse import unquote
 from xml.etree import ElementTree as ET
 
@@ -329,7 +330,6 @@ def test_restart_preserves_access_but_restore_revokes_player_credential(settings
 
 
 def test_real_webdav_client_download_and_ffprobe_over_http(settings, samples, tmp_path):
-    import os
     import socket
     import subprocess
     import sys
@@ -358,20 +358,19 @@ def test_real_webdav_client_download_and_ffprobe_over_http(settings, samples, tm
             "REELVAULT_STATIC_DIR": str(tmp_path / "no-static"),
             "REELVAULT_UPDATE_CHECK": "false",
         }
+        if os.name == "nt":
+            # No descriptor inheritance on Windows: hand over the free port instead.
+            port = str(listener.getsockname()[1])
+            listener.close()
+            serve, inherit = ["--port", port], ()
+        else:
+            serve, inherit = ["--fd", str(listener.fileno())], (listener.fileno(),)
         process = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "uvicorn",
-                "reelvault.main:create_app",
-                "--factory",
-                "--fd",
-                str(listener.fileno()),
-            ],
+            [sys.executable, "-m", "uvicorn", "reelvault.main:create_app", "--factory", *serve],
             env=env,
             stdout=log,
             stderr=log,
-            pass_fds=(listener.fileno(),),
+            pass_fds=inherit,
         )
         try:
             deadline = time.monotonic() + 20

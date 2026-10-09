@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import shutil
+import sys
 import tarfile
 import threading
 import zipfile
@@ -379,7 +380,7 @@ def test_existing_systemd_install_requires_bootstrap_and_explicit_opt_out(
     monkeypatch.setattr(updates.sys, "platform", "linux")
     monkeypatch.setenv("INVOCATION_ID", "test-service")
     monkeypatch.setattr(ServiceSync, "available", classmethod(lambda cls: False))
-    settings = Settings(data_dir=tmp_path, install_mode="package", uv=shutil.which("true"))
+    settings = Settings(data_dir=tmp_path, install_mode="package", uv=sys.executable)
     updater = Updater(settings, app_dir=app)
     assert updater.systemd_sync_enabled
     assert "install.sh" in (updater.auto_upgrade_blocker() or "")

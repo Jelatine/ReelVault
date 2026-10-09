@@ -2,6 +2,7 @@ import contextlib
 import functools
 import http.server
 import importlib.util
+import os
 import shutil
 import threading
 import time
@@ -190,7 +191,8 @@ def test_real_download_pause_resume_cancel_cleans_work(client, settings, samples
             time.sleep(0.05)
         assert ctx and ctx.handle.process
         process = ctx.handle.process
-        assert ctx.handle.process_group
+        # The whole downloader tree is owned: a process group, or a Windows job object.
+        assert ctx.handle._windows_job if os.name == "nt" else ctx.handle.process_group
         assert client.post(f"/api/jobs/{job_id}/pause").status_code == 200
         assert client.get(f"/api/jobs/{job_id}").json()["status"] == "paused"
         time.sleep(0.1)

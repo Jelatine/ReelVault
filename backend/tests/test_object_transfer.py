@@ -18,7 +18,8 @@ from .test_object_store import KEY, ProtocolClient
 def test_private_worker_request_does_not_put_credentials_in_arguments(tmp_path):
     config = S3Config(bucket="private-library", access_key="test-access", secret_key="test-secret")
     path = object_transfer._request(config, {"operation": "get"}, tmp_path)
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":  # Windows uses ACLs, not mode bits
+        assert path.stat().st_mode & 0o777 == 0o600
     value = json.loads(path.read_text())
     assert value["config"]["secret_key"] == "test-secret"
     assert "test-secret" not in str(path)

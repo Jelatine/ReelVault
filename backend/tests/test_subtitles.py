@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 from pathlib import Path
 
@@ -167,7 +168,8 @@ def test_mkv_text_tracks_extract_and_burn_external_and_embedded(
     burned = pixels(burned_path)
     assert sum(abs(a - b) for a, b in zip(original, burned, strict=True)) / len(original) > 2
     # File paths with quotes/colon/Unicode remain argv paths; filter uses a safe relative alias.
-    folder = tmp_path / "path 'quoted': 中文"
+    # Windows forbids ':' in names; its drive letter still puts one in the path.
+    folder = tmp_path / ("path 'quoted' 中文" if os.name == "nt" else "path 'quoted': 中文")
     folder.mkdir()
     asset = folder / "external.ass"
     asset.write_text(ASS)

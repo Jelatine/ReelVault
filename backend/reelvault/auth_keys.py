@@ -10,15 +10,17 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from .fsutil import NONBLOCK, open_nofollow, private_mode
+
 KEY_FILE = ".auth-key"
 
 
 def read_key(path: Path) -> bytes:
     """Read a private regular file without following symlinks."""
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    fd = open_nofollow(path, os.O_RDONLY | NONBLOCK)
     try:
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+        if not stat.S_ISREG(info.st_mode) or not private_mode(info.st_mode):
             raise ValueError("Authenticator key must be a private regular file")
         key = os.read(fd, 45)
         if len(key) != 44:

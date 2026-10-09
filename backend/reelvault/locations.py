@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path, PurePosixPath
 
 from .config import Settings, StorageRoot
+from .fsutil import NONBLOCK, open_nofollow
 
 MARKER = ".reelvault-location.json"
 ID = re.compile(r"^[a-f0-9]{32}$")
@@ -32,7 +33,7 @@ class LocationUnavailable(OSError):
 def _read_identity(root: Path) -> str:
     if root.is_symlink() or not root.is_dir():
         raise OSError("存储目录不可用")
-    descriptor = os.open(root / MARKER, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    descriptor = open_nofollow(root / MARKER, os.O_RDONLY | NONBLOCK)
     try:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode) or info.st_size > 1024:
@@ -116,9 +117,7 @@ def register_root(settings: Settings, path: Path, name: str) -> tuple[str, Stora
         library.mkdir()
         created_marker = False
         try:
-            descriptor = os.open(
-                marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
-            )
+            descriptor = open_nofollow(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             created_marker = True
             with os.fdopen(descriptor, "w") as stream:
                 json.dump({"version": 1, "id": location_id}, stream)
