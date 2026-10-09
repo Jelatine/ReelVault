@@ -184,6 +184,44 @@ tail -f ~/ReelVault/reelvault.log            # 查看日志
 
 建议放在支持 HTTP/2 的 HTTPS 反向代理之后，参考 [`deploy/nginx.conf.example`](deploy/nginx.conf.example)，并设置 `REELVAULT_SECURE_COOKIES=true`；Docker 部署可直接使用上文的 Caddy 前端。
 
+### Windows（原生运行）
+
+直接读写 NTFS，没有 Docker 跨文件系统挂载的开销，也可直接使用 NVENC/QSV 硬件编码。适用于 Windows 10/11；原生运行支持较新，CI 在 Windows 上验证任务控制、编辑、启动脚本与计划任务，其余功能主要在 Linux/macOS 上测试。
+
+**1. 安装依赖**（PowerShell，装完重新打开终端）
+
+```powershell
+winget install --id astral-sh.uv -e
+winget install --id Gyan.FFmpeg -e
+```
+
+**2. 获取程序**：从 [Releases](https://github.com/Jelatine/ReelVault/releases) 下载 `reelvault-<版本>.tar.gz`（已包含构建好的前端，无需 Node.js）并解压。启动脚本从 v0.3.1 之后的版本开始包含在发布包中：
+
+```powershell
+tar -xzf reelvault-<版本>.tar.gz
+cd reelvault-<版本>
+```
+
+也可使用源码：`git clone` 后在 `frontend` 目录执行 `npm ci; npm run build`。
+
+**3. 运行**
+
+```powershell
+.\deploy\windows\start.cmd -DataDir D:\ReelVault           # 前台运行，Ctrl+C 停止
+.\deploy\windows\start.cmd -Install -DataDir D:\ReelVault  # 注册为登录后自动启动的后台任务
+.\deploy\windows\start.cmd -Uninstall                      # 停止并删除后台任务
+```
+
+默认数据目录为 `%USERPROFILE%\ReelVault`，端口 34123（`-Port` 修改）。首次运行时 uv 会下载 Python 与依赖；Windows 防火墙询问 python.exe 时允许「专用网络」，局域网设备即可通过 `http://<电脑 IP>:34123` 访问。后台任务日志在数据目录的 `reelvault.log`，崩溃后 5 秒自动重启。其他环境变量写在数据目录的 `reelvault.env` 中，每行一个 `NAME=value`（如 `REELVAULT_WORKERS=1`）。后台任务不继承终端里临时修改的 PATH，若 uv 或 ffmpeg 不在系统 PATH 中，请在该文件中设置 `REELVAULT_UV`、`REELVAULT_FFMPEG`、`REELVAULT_FFPROBE` 为完整路径。
+
+**Defender 排除**：实时防护会逐个扫描写入的大视频文件，明显拖慢编辑保存。可在管理员 PowerShell 中排除数据目录（只排除你信任的目录）：
+
+```powershell
+Add-MpPreference -ExclusionPath D:\ReelVault
+```
+
+**升级**：下载新版本发布包解压后，执行 `-Uninstall` 停止旧版本，再在新目录用同一 `-DataDir` 运行或 `-Install`。启动脚本默认关闭在线一键升级（该流程只在 Ubuntu 上验证），可在 `reelvault.env` 中设置 `REELVAULT_ALLOW_SELF_UPDATE=true` 自行启用。HTTPS／HTTP/2 可在前面加 Windows 版 [Caddy](https://caddyserver.com/docs/install#windows)，配置参考 [`deploy/Caddyfile`](deploy/Caddyfile)，将 `reverse_proxy` 改为 `127.0.0.1:34123`。
+
 ## 版本检查与升级
 
 ReelVault 会定期（默认每 12 小时）检查 [GitHub Releases](https://github.com/Jelatine/ReelVault/releases) 上的最新版本。有新版本时，页面右上角会出现提示，在「设置 → 版本与更新」中可以查看发布说明并升级：
