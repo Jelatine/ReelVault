@@ -60,6 +60,8 @@ def settings(tmp_path: Path) -> Settings:
         static_dir=tmp_path / "nostatic",
         login_max_failures=3,
         update_check=False,
+        # Keep regression outputs independent of the host GPU.
+        encoder="software",
     )
 
 

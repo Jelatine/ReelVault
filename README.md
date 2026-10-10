@@ -264,7 +264,7 @@ Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https
 | `REELVAULT_IMPORT_DIR` | 空 | 可在设置页扫描导入的视频目录 |
 | `REELVAULT_CONFIG_FILE` | 未设置 | 从备份恢复的 JSON 配置文件；环境变量与 `.env` 优先 |
 | `REELVAULT_FFMPEG` / `REELVAULT_FFPROBE` | `ffmpeg` / `ffprobe` | ffmpeg 可执行文件路径 |
-| `REELVAULT_ENCODER` | `software` | 初始编码器：`software` / `auto` / `videotoolbox` / `qsv` / `vaapi` / `nvenc`；设置页保存的选择优先，重启后保留 |
+| `REELVAULT_ENCODER` | `auto` | 初始编码器：`software` / `auto` / `videotoolbox` / `qsv` / `vaapi` / `nvenc`；设置页保存的选择优先，重启后保留 |
 | `REELVAULT_VAAPI_DEVICE` | `/dev/dri/renderD128` | VAAPI 渲染设备路径 |
 | `REELVAULT_AUDIO_UPLOAD_MAX_MB` | `128` | 单个音频素材的上传上限（MiB） |
 | `REELVAULT_UPDATE_CHECK` | `true` | 是否定期检查新版本 |
@@ -278,7 +278,7 @@ Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https
 
 ### 硬件编码
 
-在「设置 → 编码加速」选择软件编码、自动选择或指定硬件。启动时通过 `ffmpeg -encoders` 探测已编译的 H.264/H.265 编码器；这不保证设备与驱动可用，界面会展示最近任务的实际结果。自动模式依次尝试 VideoToolbox、QSV、VAAPI、NVENC，全部失败后从头使用软件编码；指定硬件失败时直接回退。H.264 回退到 libx264，H.265 回退到 libx265，任务详情显示实际编码器与回退原因。取消任务不会触发重试。
+在「设置 → 编码加速」选择软件编码、自动选择（默认）或指定硬件。没有可用 GPU 的环境每个任务都会先尝试已编译的硬件编码器再回退，可改选软件编码省去这些尝试。启动时通过 `ffmpeg -encoders` 探测已编译的 H.264/H.265 编码器；这不保证设备与驱动可用，界面会展示最近任务的实际结果。自动模式依次尝试 VideoToolbox、QSV、VAAPI、NVENC，全部失败后从头使用软件编码；指定硬件失败时直接回退。H.264 回退到 libx264，H.265 回退到 libx265，任务详情显示实际编码器与回退原因。取消任务不会触发重试。
 
 编辑输出、入库预览、兼容播放副本和 HLS 均使用所选编码器。使用 VideoToolbox、NVENC、VAAPI 时同时启用对应的硬件解码（`-hwaccel videotoolbox` / `cuda` / `vaapi`），解码后的画面回到内存继续使用现有滤镜，可明显降低 CPU 占用；QSV 仅硬件编码。不支持硬件解码的格式和图片、合成输入自动使用软件解码；硬件解码初始化失败时，先保留同一硬件编码器、改用软件解码重试，再尝试下一项或回退软件编码。任务详情会显示实际使用的硬件解码器。硬件的质量参数只近似映射软件 CRF，画质与文件大小可能不同；目标大小压缩继续使用软件两遍编码，无损剪辑、封装转换等直接复制原流。编码器选项参考 [FFmpeg 编码器文档](https://ffmpeg.org/ffmpeg-codecs.html)。
 

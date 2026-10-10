@@ -37,7 +37,7 @@ export default function EncodingPanel() {
       <Group align="end">
         <Select label={tr("视频编码器")} value={draft ?? query.data.selected} onChange={setDraft} allowDeselect={false}
           disabled={busy} style={{ flex: 1 }} data={[
-            { value: 'software', label: tr("软件编码（默认）") }, { value: 'auto', label: tr("自动选择硬件，失败回退软件") },
+            { value: 'software', label: tr("软件编码") }, { value: 'auto', label: tr("自动选择硬件，失败回退软件（默认）") },
             ...query.data.families.map((family) => ({ value: family.value, label: family.label, disabled: !family.encoders.some((encoder) => encoder.compiled) })),
           ]} />
         <Button loading={busy} disabled={!draft || draft === query.data.selected} onClick={() => void save()}>{tr("保存编码设置")}</Button>

@@ -206,7 +206,7 @@ class Settings(BaseSettings):
             raise ValueError("Vision service requires a deployment token")
         return self
 
-    encoder: Literal["software", "auto", "videotoolbox", "qsv", "vaapi", "nvenc"] = "software"
+    encoder: Literal["software", "auto", "videotoolbox", "qsv", "vaapi", "nvenc"] = "auto"
     hls_enabled: bool = False
     playable_eager_max_mb: int = Field(256, ge=0, le=102400)
     hls_min_size_mb: int = Field(256, ge=0, le=102400)

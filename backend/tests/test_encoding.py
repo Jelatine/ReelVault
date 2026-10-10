@@ -168,6 +168,7 @@ def test_auto_tries_next_compiled_hardware(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_preference_persists_across_restart(settings: Settings) -> None:
+    assert Settings.model_fields["encoder"].default == "auto"
     with TestClient(create_app(settings), headers=HEADERS) as client:
         assert client.get("/api/system/encoding").status_code == 401
         login(client)
