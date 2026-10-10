@@ -22,6 +22,8 @@ import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE, dragIds } from '../lib/selectio
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { buildTree, useFolders, useTags, type FolderNode } from '../lib/queries'
+import { useAiService } from '../lib/ai'
+import { useVisionService } from '../lib/visual-search'
 import CollectionNav from './CollectionNav'
 import SmartFolderNav from './SmartFolderNav'
 import { confirmAction, promptText } from './prompt'
@@ -36,6 +38,8 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
   const [context, setContext] = useState<{ node: FolderNode; position: MenuPosition }>()
   const folders = useFolders()
   const tags = useTags()
+  const vision = useVisionService()
+  const ai = useAiService()
   const qc = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
@@ -196,10 +200,10 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         active={location.pathname === '/duplicates'} aria-current={location.pathname === '/duplicates' ? 'page' : undefined} onClick={onNavigate} />
       <NavLink component={Link} to="/content" label={tr('内容搜索')} leftSection={<IconVideo size={16} />}
         active={location.pathname === '/content'} aria-current={location.pathname === '/content' ? 'page' : undefined} onClick={onNavigate} />
-      <NavLink component={Link} to="/visual-search" label={tr('画面搜索')} leftSection={<IconVideo size={16} />}
-        active={location.pathname === '/visual-search'} aria-current={location.pathname === '/visual-search' ? 'page' : undefined} onClick={onNavigate} />
-      <NavLink component={Link} to="/people" label={tr('人脸分组')} leftSection={<IconVideo size={16} />}
-        active={location.pathname === '/people'} aria-current={location.pathname === '/people' ? 'page' : undefined} onClick={onNavigate} />
+      {vision.data?.enabled && <NavLink component={Link} to="/visual-search" label={tr('画面搜索')} leftSection={<IconVideo size={16} />}
+        active={location.pathname === '/visual-search'} aria-current={location.pathname === '/visual-search' ? 'page' : undefined} onClick={onNavigate} />}
+      {ai.data?.enabled && ai.data.faces_enabled && <NavLink component={Link} to="/people" label={tr('人脸分组')} leftSection={<IconVideo size={16} />}
+        active={location.pathname === '/people'} aria-current={location.pathname === '/people' ? 'page' : undefined} onClick={onNavigate} />}
       <NavLink component={Link} to="/auto-groups" label={tr('自动分组')} leftSection={<IconFolder size={16} />}
         active={location.pathname === '/auto-groups' || (onLibrary && params.has('auto'))} aria-current={location.pathname === '/auto-groups' ? 'page' : undefined} onClick={onNavigate} />
       {(tags.data?.some(tag => tag.count > 0) ?? false) && (

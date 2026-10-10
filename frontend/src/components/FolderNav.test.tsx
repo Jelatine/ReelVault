@@ -7,7 +7,7 @@ import { api } from '../lib/api'
 import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE } from '../lib/selection'
 import FolderNav from './FolderNav'
 
-vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { post: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { post: vi.fn(), get: vi.fn() } }))
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 vi.mock('./CollectionNav', () => ({ default: () => null }))
 vi.mock('../lib/queries', async (original) => ({ ...(await original<typeof import('../lib/queries')>()),
@@ -40,5 +40,22 @@ test('dropping on a child moves to that child once, clears selection only on suc
   await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2))
   expect(cleared).toHaveBeenCalledOnce()
   window.removeEventListener(CLEAR_SELECTION_EVENT, cleared)
+  client.clear()
+})
+
+test('hides AI entries until the admin enables them', async () => {
+  const status = { '/api/visual-search/status': { enabled: false, available: false }, '/api/ai/status': { enabled: true, faces_enabled: false } }
+  vi.mocked(api.get).mockImplementation(async (url: string) => status[url as keyof typeof status] ?? [])
+  const client = new QueryClient()
+  const view = () => <MantineProvider><QueryClientProvider client={client}><MemoryRouter><FolderNav onNavigate={vi.fn()} /></MemoryRouter></QueryClientProvider></MantineProvider>
+  const { rerender } = render(view())
+  await waitFor(() => expect(client.getQueryData(['ai-service']) && client.getQueryData(['vision-service'])).toBeTruthy())
+  expect(screen.queryByText('画面搜索')).toBeNull()
+  expect(screen.queryByText('人脸分组')).toBeNull()
+  Object.assign(status, { '/api/visual-search/status': { enabled: true, available: false }, '/api/ai/status': { enabled: true, faces_enabled: true } })
+  await client.invalidateQueries()
+  rerender(view())
+  expect(await screen.findByText('画面搜索')).toBeTruthy()
+  expect(await screen.findByText('人脸分组')).toBeTruthy()
   client.clear()
 })
