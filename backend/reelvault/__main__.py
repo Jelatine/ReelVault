@@ -23,6 +23,9 @@ def main() -> None:
         proxy_headers=True,
         forwarded_allow_ips="*",
         log_level="info",
+        # Open /jobs/events streams and video playback never close on their own;
+        # without a limit, shutdown waits on them until the browser tab is closed.
+        timeout_graceful_shutdown=5,
     )
     server = uvicorn.Server(config)
     # Lets the updater stop the server cleanly before restarting.
