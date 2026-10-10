@@ -23,6 +23,7 @@ KINDS = (
     "duplicates",
     "link_import",
     "playable",
+    "sprite",
     "transcribe",
     "vision_index",
     "ai_analyze",

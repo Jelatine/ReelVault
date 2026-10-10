@@ -65,7 +65,7 @@ import MorePanel from '../editor/MorePanel'
 import RotatePanel from '../editor/RotatePanel'
 import Timeline from '../editor/Timeline'
 import TrimPanel from '../editor/TrimPanel'
-import { api } from '../lib/api'
+import { api, errorText } from '../lib/api'
 import { formatBytes, formatDate, formatDuration } from '../lib/format'
 import { useJobs, useVideo } from '../lib/queries'
 import type { Video } from '../lib/types'
@@ -258,6 +258,7 @@ export default function VideoPage() {
 
   const videoJobs = (jobs.data ?? []).filter((j) => j.video_ids.includes(video.id)).slice(0, 5)
   const ingest = videoJobs.find((j) => j.kind === 'ingest' && ['running', 'queued', 'paused'].includes(j.status))
+  const spriteJob = videoJobs.find((j) => j.kind === 'sprite' && ['running', 'queued', 'paused'].includes(j.status))
   const ctx: EditorContext = { video, currentTime: time, seek, play, pause, setOverlay: setOverlayStable }
   const ready = video.status === 'ready' && !video.deleted_at
   const maxW = video.width && video.height ? `calc(70vh * ${video.width / video.height})` : undefined
@@ -265,6 +266,16 @@ export default function VideoPage() {
   const reprocess = async () => {
     await api.post(`/api/videos/${video.id}/reprocess`)
     jobs.refetch()
+  }
+
+  const regenerateSprite = async () => {
+    try {
+      await api.post(`/api/videos/${video.id}/sprite`)
+      notifications.show({ message: tr('已开始重新生成缩略图') })
+      jobs.refetch()
+    } catch (e) {
+      notifications.show({ color: 'red', message: errorText(e instanceof Error ? e : String(e)) })
+    }
   }
 
   return (
@@ -331,6 +342,8 @@ export default function VideoPage() {
                 disabled={!originalLocal}
                 title={originalLocal ? undefined : tr('请先下载原视频本地副本')}
               >{tr("截图")}</Button>
+              {ready && <Button size="compact-sm" variant="subtle" leftSection={<IconRefresh size={14} />}
+                loading={!!spriteJob} onClick={() => void regenerateSprite()}>{tr('重新生成缩略图')}</Button>}
             </Group>
 
             {ready && <OriginalCachePanel video={video} data={originalCache.data} error={originalCache.error} refetch={originalCache.refetch} />}

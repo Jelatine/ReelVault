@@ -1689,5 +1689,13 @@
   "相关视频：": "Related videos:",
   "已删除": "Deleted",
   "重试失败任务 {{id}}": "Retry of failed task {{id}}",
-  "硬件编码失败，已回退软件编码：{{detail}}": "Hardware encoding failed, fell back to software encoding: {{detail}}"
+  "硬件编码失败，已回退软件编码：{{detail}}": "Hardware encoding failed, fell back to software encoding: {{detail}}",
+  "重新生成缩略图": "Regenerate thumbnails",
+  "已开始重新生成缩略图": "Started regenerating thumbnails",
+  "已提交 {{v0}} 个缩略图任务，跳过 {{v1}} 个未就绪或已在处理的视频": "Queued {{v0}} thumbnail jobs; skipped {{v1}} videos that are not ready or already in progress",
+  "已提交 {{v0}} 个缩略图任务": "Queued {{v0}} thumbnail jobs",
+  "重新生成全部缩略图": "Regenerate all thumbnails",
+  "将为所有已就绪的视频重新生成进度条缩略图，任务以低优先级排队。确定继续？": "Regenerate scrubbing thumbnails for every ready video? Jobs are queued at low priority.",
+  "进度条缩略图": "Scrubbing thumbnails",
+  "缩略图缺失、损坏或显示不正确时，可重新生成。只处理缩略图，不影响封面、预览片段和播放缓存。": "Regenerate thumbnails that are missing, corrupt or wrong. Only thumbnails are rebuilt; posters, previews and playback caches are untouched."
 }

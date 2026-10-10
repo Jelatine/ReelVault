@@ -706,6 +706,54 @@ async def playable(ctx: JobContext, job: Job) -> None:
             target.unlink(missing_ok=True)
 
 
+async def sprite(ctx: JobContext, job: Job) -> None:
+    """Regenerate only the scrubbing sprite and its WebVTT for a ready video."""
+    source, info, video = (await _load_sources(ctx, job.video_ids))[0]
+    sig = source_signature(source)
+    temp = ctx.settings.tmp_dir / f"job-{job.id}"
+    temp.mkdir(parents=True, exist_ok=True)
+    try:
+        await derive.make_sprite(
+            ctx.settings.ffmpeg,
+            source,
+            info,
+            temp,
+            ctx.handle,
+            ctx.stage(0, 1, "生成进度条缩略图"),
+        )
+        ctx.check_canceled()
+        with ctx.db() as db:
+            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+            current = db.get(Video, video.id)
+            if (
+                current is None
+                or current.deleted_at
+                or current.status != "ready"
+                or current.file_path != video.file_path
+                or source_signature(source) != sig
+            ):
+                raise RuntimeError("源视频已变化，缩略图未保存")
+            # A separate counter busts caches without invalidating analyses keyed
+            # on asset_version (scenes, fingerprints).
+            meta = current.meta or {}
+            sprite_version = int(meta.get("sprite_version", 0)) + 1
+            url = (
+                f"/api/videos/{video.id}/{derive.SPRITE}"
+                f"?v={current.asset_version}&s={sprite_version}"
+            )
+            vtt = (temp / derive.VTT).read_text().replace(derive.SPRITE, url)
+            (temp / derive.VTT).write_text(vtt)
+            out = derived_dir(ctx.settings, video.id)
+            (temp / derive.SPRITE).replace(out / derive.SPRITE)
+            (temp / derive.VTT).replace(out / derive.VTT)
+            current.meta = {**meta, "sprite_version": sprite_version}
+            current.has_sprite = True
+            db.commit()
+        ctx.set_progress(1, "缩略图已更新")
+    finally:
+        await asyncio.to_thread(shutil.rmtree, temp, ignore_errors=True)
+
+
 async def original_cache(ctx: JobContext, job: Job) -> None:
     """The manager has already fetched and pinned the original; confirm it."""
     from ..object_library import cache_valid
@@ -728,6 +776,7 @@ HANDLERS: dict[str, Handler] = {
     "scenes": scenes,
     "hls": hls,
     "playable": playable,
+    "sprite": sprite,
     "transcribe": transcribe,
     "vision_index": index_vision,
     "ai_analyze": analyse_ai,

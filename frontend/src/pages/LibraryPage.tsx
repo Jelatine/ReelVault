@@ -30,6 +30,7 @@ import {
   IconFolderShare,
   IconLayoutGrid,
   IconList,
+  IconRefresh,
   IconSelectAll,
   IconSortAscending,
   IconSortDescending,
@@ -53,6 +54,7 @@ import VideoRating from '../components/VideoRating'
 import SelectionArea from '../components/SelectionArea'
 import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE, selectRange, type Modifiers } from '../lib/selection'
 import { api, errorText } from '../lib/api'
+import { regenerateSprites } from '../lib/sprites'
 import { autoGroupLabel, useAutoGroup } from '../lib/auto-groups'
 import { adjacentCard, shortcutBlocked } from '../lib/shortcuts'
 import { confirmAction } from '../components/prompt'
@@ -368,6 +370,7 @@ function LibraryContent({ smartFolder }: { smartFolder?: SmartFolder }) {
               <Button size="xs" variant="light" onClick={() => {
                 const modal = modals.open({ title: tr("批量编辑"), children: <BatchEditForm ids={selected} onDone={() => { modals.close(modal); setSelected([]) }} /> })
               }}>{tr("批量编辑")}</Button>
+              <Button size="xs" variant="light" leftSection={<IconRefresh size={14} />} onClick={async () => { if (await regenerateSprites(selected)) setSelected([]) }}>{tr("重新生成缩略图")}</Button>
               <Button size="xs" variant="light" leftSection={<IconFolderShare size={14} />} onClick={openMove}>{tr("移动")}</Button>
               <Button size="xs" variant="light" leftSection={<IconTags size={14} />} onClick={openTags}>{tr("标签")}</Button>
               <Button

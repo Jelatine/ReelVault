@@ -137,6 +137,8 @@ def folder_exists(db: Session, folder_id: int | None) -> bool:
 def video_to_dict(v: Video) -> dict[str, Any]:
     base = f"/api/videos/{v.id}"
     ver = v.asset_version
+    sprite_version = (v.meta or {}).get("sprite_version")
+    sprite_suffix = f"&s={sprite_version}" if sprite_version else ""
     return {
         "id": v.id,
         "storage_id": location_of(v.file_path),
@@ -172,5 +174,5 @@ def video_to_dict(v: Video) -> dict[str, Any]:
         "download_url": f"{base}/download",
         "poster_url": f"{base}/poster.jpg?v={ver}" if v.has_poster else None,
         "preview_url": f"{base}/preview.mp4?v={ver}" if v.has_preview else None,
-        "thumbnails_url": f"{base}/thumbnails.vtt?v={ver}" if v.has_sprite else None,
+        "thumbnails_url": f"{base}/thumbnails.vtt?v={ver}{sprite_suffix}" if v.has_sprite else None,
     }
