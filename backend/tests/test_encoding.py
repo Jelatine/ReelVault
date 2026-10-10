@@ -170,6 +170,40 @@ def test_auto_tries_next_compiled_hardware(monkeypatch: pytest.MonkeyPatch) -> N
     assert runtime.outcomes["h264_qsv"]["usable"] is False
 
 
+def test_startup_check_skips_absent_devices_in_auto(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    async def run(args: list[str], **kwargs: Any) -> RunResult:
+        calls.append(args)
+        if "h264_qsv" in args or "hevc_qsv" in args:
+            raise FFmpegError("MFX session: -9")
+        return RunResult(b"", "")
+
+    monkeypatch.setattr(encoding, "run_command", run)
+    runtime = EncoderRuntime("ffmpeg", {"h264_qsv", "hevc_qsv", "h264_nvenc"})
+    asyncio.run(runtime.verify())
+    assert len(calls) == 3 and all("lavfi" in args and "-hwaccel" not in args for args in calls)
+    assert runtime.unavailable == {"h264_qsv", "hevc_qsv"} and not runtime.probing
+    assert runtime.outcomes["h264_nvenc"]["usable"] is True
+    assert "MFX" in runtime.outcomes["h264_qsv"]["error"]
+    calls.clear()
+    result = asyncio.run(runtime.run([[*ops.x264(20), "out.mp4"]], "auto"))
+    assert result["encoder"] == "h264_nvenc" and len(calls) == 1
+    # An explicit choice still tries the device, and a success makes it eligible again.
+    monkeypatch.setattr(encoding, "run_command", lambda args, **kwargs: asyncio.sleep(0))
+    result = asyncio.run(runtime.run([[*ops.x264(20), "out.mp4"]], "qsv"))
+    assert result["encoder"] == "h264_qsv" and "h264_qsv" not in runtime.unavailable
+
+
+def test_vaapi_unsupported_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(encoding.sys, "platform", "win32")
+    runtime = EncoderRuntime("ffmpeg", {"h264_vaapi", "h264_nvenc"})
+    assert runtime.choices("auto", "libx264") == ["nvenc"]
+    assert runtime.choices("vaapi", "libx264") == []
+    families = {f["value"]: f["supported"] for f in runtime.status("auto")["families"]}
+    assert families == {"videotoolbox": True, "qsv": True, "vaapi": False, "nvenc": True}
+
+
 def test_preference_persists_across_restart(settings: Settings) -> None:
     assert Settings.model_fields["encoder"].default == "auto"
     with TestClient(create_app(settings), headers=HEADERS) as client:

@@ -241,6 +241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.importer = importer
             importer.start()
             maintenance = asyncio.create_task(maintain(settings, app.state.sessionmaker))
+            verification = asyncio.create_task(manager.encoding.verify())
 
             def request_restart() -> None:
                 # Stop uvicorn through its own flag: after a SIGTERM newer uvicorn re-raises
@@ -308,8 +309,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             finally:
                 await importer.stop()
                 maintenance.cancel()
+                verification.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await maintenance
+                with contextlib.suppress(asyncio.CancelledError):
+                    await verification
                 await updater.stop()
                 await manager.stop()
                 engine.dispose()

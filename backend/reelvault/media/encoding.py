@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,13 @@ FAMILIES = {
     "vaapi": ("VAAPI (Linux)", "h264_vaapi", "hevc_vaapi"),
     "nvenc": ("NVIDIA NVENC", "h264_nvenc", "hevc_nvenc"),
 }
+# Windows FFmpeg builds compile VAAPI through libva-win32, but there is no render device.
+UNSUPPORTED = {"win32": {"vaapi"}}
+PROBE_TIMEOUT = 30
+
+
+def supported(family: str) -> bool:
+    return family not in UNSUPPORTED.get(sys.platform, set())
 
 
 async def detect_encoders(ffmpeg: str) -> set[str]:
@@ -120,20 +129,63 @@ class EncoderRuntime:
     compiled: set[str] = field(default_factory=set)
     device: str = "/dev/dri/renderD128"
     outcomes: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Encoders whose startup check failed; auto mode skips them until one succeeds.
+    unavailable: set[str] = field(default_factory=set)
+    probing: bool = False
 
     def choices(self, requested: str, software: str) -> list[str]:
         families = list(FAMILIES) if requested == "auto" else [requested]
         index = 1 if software == "libx264" else 2
-        return [f for f in families if f in FAMILIES and FAMILIES[f][index] in self.compiled]
+        return [
+            f
+            for f in families
+            if f in FAMILIES
+            and supported(f)
+            and FAMILIES[f][index] in self.compiled
+            and not (requested == "auto" and FAMILIES[f][index] in self.unavailable)
+        ]
+
+    async def verify(self) -> None:
+        """Encode a few synthetic frames with each compiled hardware encoder.
+
+        ``-encoders`` only lists what FFmpeg was built with; without this check, auto
+        mode would fail over through absent devices on every job.
+        """
+        self.probing = True
+        try:
+            for family, spec in FAMILIES.items():
+                if not supported(family):
+                    continue
+                for software, encoder in zip(("libx264", "libx265"), spec[1:], strict=True):
+                    if encoder not in self.compiled:
+                        continue
+                    args = ["-f", "lavfi", "-i", "color=s=256x256:d=0.2", "-c:v", software]
+                    args = hardware_command([*args, "-f", "null", "-"], family, self.device)
+                    try:
+                        await asyncio.wait_for(
+                            run_command(ffmpeg_args(self.ffmpeg, args, progress=False)),
+                            PROBE_TIMEOUT,
+                        )
+                    except (FFmpegError, OSError, TimeoutError) as error:
+                        message = str(error)[-1000:] or f"设备检测超过 {PROBE_TIMEOUT} 秒"
+                        self.outcomes[encoder] = {"usable": False, "error": message}
+                        self.unavailable.add(encoder)
+                    else:
+                        self.outcomes[encoder] = {"usable": True, "error": None}
+                        self.unavailable.discard(encoder)
+        finally:
+            self.probing = False
 
     def status(self, selected: str) -> dict[str, Any]:
         return {
             "selected": selected,
             "vaapi_device": self.device,
+            "probing": self.probing,
             "families": [
                 {
                     "value": family,
                     "label": spec[0],
+                    "supported": supported(family),
                     "encoders": [
                         {
                             "name": encoder,
@@ -198,6 +250,7 @@ class EncoderRuntime:
                     ]
                 )
                 self.outcomes[chosen] = {"usable": True, "error": None}
+                self.unavailable.discard(chosen)
                 return {
                     "requested": requested,
                     "encoder": chosen,

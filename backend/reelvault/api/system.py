@@ -53,6 +53,8 @@ def select_encoding(
             for f in jobs.encoding.status(settings.encoder)["families"]
             if f["value"] == body.encoder
         )
+        if not family["supported"]:
+            raise APIError(400, "当前平台不支持该硬件编码器", code="encoder_unsupported")
         if not any(encoder["compiled"] for encoder in family["encoders"]):
             raise APIError(400, "当前 ffmpeg 未编译该硬件编码器", code="encoder_unavailable")
     saved = db.get(RuntimeSetting, "encoding")

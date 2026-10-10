@@ -135,6 +135,10 @@
     "en": "This FFmpeg build does not include the selected hardware encoder.",
     "zh": "当前 ffmpeg 未编译该硬件编码器"
   },
+  "encoder_unsupported": {
+    "en": "The selected hardware encoder is not supported on this platform.",
+    "zh": "当前平台不支持该硬件编码器"
+  },
   "filter_range_invalid": {
     "en": "The minimum filter value cannot exceed the maximum.",
     "zh": "筛选范围的下限不能超过上限"

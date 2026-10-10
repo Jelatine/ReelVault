@@ -13,9 +13,10 @@ beforeAll(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
 })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
-const status: EncodingStatus = { selected: 'software', vaapi_device: '/dev/dri/renderD128', families: [
-  { value: 'nvenc', label: 'NVIDIA NVENC', encoders: [{ name: 'h264_nvenc', compiled: true, usable: null, error: null }] },
-  { value: 'qsv', label: 'Intel QSV', encoders: [{ name: 'h264_qsv', compiled: false, usable: null, error: null }] },
+const status: EncodingStatus = { selected: 'software', vaapi_device: '/dev/dri/renderD128', probing: false, families: [
+  { value: 'nvenc', label: 'NVIDIA NVENC', supported: true, encoders: [{ name: 'h264_nvenc', compiled: true, usable: null, error: null }] },
+  { value: 'qsv', label: 'Intel QSV', supported: true, encoders: [{ name: 'h264_qsv', compiled: false, usable: null, error: null }] },
+  { value: 'vaapi', label: 'VAAPI (Linux)', supported: false, encoders: [{ name: 'h264_vaapi', compiled: true, usable: null, error: null }] },
 ] }
 
 test('shows discovery versus device verification and saves encoder selection', async () => {
@@ -25,6 +26,8 @@ test('shows discovery versus device verification and saves encoder selection', a
   render(<MantineProvider env="test"><QueryClientProvider client={client}><EncodingPanel /></QueryClientProvider></MantineProvider>)
   const select = await screen.findByRole('combobox', { name: '视频编码器' })
   expect(screen.getByText(/h264_nvenc：已编译，尚未验证设备/)).toBeTruthy()
+  expect(screen.getByText(/h264_vaapi：当前平台不支持/)).toBeTruthy()
+  expect(screen.queryByText(/VAAPI 设备/)).toBeNull()
   fireEvent.click(select)
   fireEvent.click(await screen.findByRole('option', { name: 'NVIDIA NVENC' }))
   fireEvent.click(screen.getByRole('button', { name: '保存编码设置' }))
