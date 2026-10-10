@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { tr } from '../lib/i18n'
 import { formatDuration } from '../lib/format'
@@ -57,16 +57,30 @@ export default function Timeline({ video, currentTime, segments = [], onSeek, fr
   })
   const duration = video.duration || 1
 
+  const HEIGHT = 56
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  // Fit as many whole tiles as the strip holds; a fixed count would show several
+  // neighbouring sprite tiles per cell for portrait videos or wide windows.
+  const tileW = cues.length ? (HEIGHT * cues[0].w) / cues[0].h : 0
+  const count = width > 0 && tileW > 0 ? Math.max(1, Math.ceil(width / tileW)) : frames
+  const cellW = width > 0 ? width / count : 0
+
   const picks = cues.length
-    ? Array.from({ length: frames }, (_, i) => {
-        const t = ((i + 0.5) / frames) * duration
+    ? Array.from({ length: count }, (_, i) => {
+        const t = ((i + 0.5) / count) * duration
         let best = cues[0]
         for (const c of cues) if (c.start <= t) best = c
         return best
       })
     : []
 
-  const HEIGHT = 56
   const spriteW = Math.max(0, ...cues.map((c) => c.x + c.w))
   const spriteH = Math.max(0, ...cues.map((c) => c.y + c.h))
 
@@ -108,12 +122,13 @@ export default function Timeline({ video, currentTime, segments = [], onSeek, fr
           key={i}
           className="timeline-frame"
           style={(() => {
-            // scale each sprite tile to the strip height
+            // scale each sprite tile to the strip height and centre-crop it in its cell
             const k = HEIGHT / c.h
+            const dx = cellW > 0 ? (cellW - c.w * k) / 2 : 0
             return {
               backgroundImage: `url(${c.url})`,
               backgroundSize: `${spriteW * k}px ${spriteH * k}px`,
-              backgroundPosition: `-${c.x * k}px -${c.y * k}px`,
+              backgroundPosition: `${dx - c.x * k}px -${c.y * k}px`,
             }
           })()}
         />
