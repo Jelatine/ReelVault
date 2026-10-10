@@ -1,6 +1,9 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from pydantic import TypeAdapter
+
+from reelvault.media import ops
 
 from .conftest import upload_ready, wait_job, wait_ready
 from .test_organization import seed_video
@@ -8,7 +11,11 @@ from .test_organization import seed_video
 
 def test_presets_validate_persist_update_and_delete(client: TestClient) -> None:
     presets = client.get("/api/edit-presets").json()
-    assert {preset["name"] for preset in presets} == {"720p 微信发送", "H.265 归档"}
+    names = {preset["name"] for preset in presets}
+    assert {"720p 微信发送", "H.265 归档", "1080p 通用分享", "黑白", "转为 WebM"} <= names
+    assert len(names) == 29
+    for preset in presets:
+        TypeAdapter(ops.EditParams).validate_python(preset["edit"])
     body = {"name": "静音素材", "edit": {"op": "mute"}}
     created = client.post("/api/edit-presets", json=body)
     assert created.status_code == 200
