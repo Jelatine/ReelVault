@@ -18,11 +18,16 @@ from ..config import Settings
 from ..locations import library_root, location_of
 from ..media.encoding import EncoderRuntime
 from ..media.ffmpeg import Canceled, ProcessHandle
-from ..models import Job, Video, utcnow
+from ..models import Job, JobLog, Video, utcnow
 from ..observability import record_job
 from ..storage import budget_transaction, check_budget, job_bytes, job_requirements, lock_budget
 
 log = logging.getLogger("reelvault.jobs")
+
+
+def add_log(db: Session, job_id: str, message: str, level: str = "info") -> None:
+    """Record a job event; committed with the caller's transaction."""
+    db.add(JobLog(job_id=job_id, level=level, message=message))
 
 
 class JobContext:
@@ -39,6 +44,7 @@ class JobContext:
         self._last_progress = 0.0
         self._dirty = False
         self._flush_task: asyncio.Task[None] | None = None
+        self._pending_logs: list[JobLog] = []
         self.finishing = False
 
     def reset_rate(self) -> None:
@@ -56,6 +62,11 @@ class JobContext:
     def set_progress(self, value: float, message: str | None = None) -> None:
         self.progress = max(0.0, min(1.0, value))
         if message is not None:
+            if message != self.message:
+                # Queued with its own time: coalesced progress writes may skip stages.
+                self._pending_logs.append(
+                    JobLog(job_id=self.job_id, message=message, created_at=utcnow())
+                )
             self.message = message
         now = time.monotonic()
         if self.progress < self._last_progress:
@@ -90,10 +101,19 @@ class JobContext:
         if self._flush_task is not None:
             await self._flush_task
 
+    def log(self, message: str, level: str = "info") -> None:
+        """Record a handler event, stored with the next progress write."""
+        self._pending_logs.append(
+            JobLog(job_id=self.job_id, level=level, message=message, created_at=utcnow())
+        )
+        self.set_progress(self.progress, self.message)
+
     def _write(self, now: float) -> None:
         with self.db() as db:
             job = db.get(Job, self.job_id)
+            logs, self._pending_logs = self._pending_logs, []
             if job is not None:
+                db.add_all(logs)
                 job.progress = self.progress
                 job.message = self.message
                 elapsed = now - self._rate_time
@@ -179,6 +199,7 @@ class JobManager:
                 job.error = "服务重启，任务被中断"
                 job.finished_at = utcnow()
                 job.eta_seconds = None
+                add_log(db, job.id, job.error, "error")
                 record_job(db, job)
             db.commit()
         self._wake.set()
@@ -259,6 +280,9 @@ class JobManager:
                 for kind, params, ids in requests
             ]
             db.add_all(jobs)
+            db.flush()
+            for job in jobs:
+                add_log(db, job.id, "已提交")
             db.commit()
             for job in jobs:
                 self.enqueue(job.id)
@@ -294,6 +318,8 @@ class JobManager:
                         message="排队中",
                     )
                     db.add(job)
+                    db.flush()
+                    add_log(db, job.id, "已提交")
                     db.commit()
                     self.enqueue(job.id)
                     self.publish(job)
@@ -322,6 +348,19 @@ class JobManager:
 
     def describe(self, db: Session, job: Job) -> dict[str, Any]:
         result = job_to_dict(job)
+        ids = list(dict.fromkeys([*job.video_ids, *filter(None, [job.result_video_id])]))
+        found = {
+            vid: (title, deleted is not None)
+            for vid, title, deleted in db.execute(
+                select(Video.id, Video.title, Video.deleted_at).where(Video.id.in_(ids))
+            )
+        }
+        # Related videos for the task center; missing ones were purged from the library.
+        result["videos"] = [
+            {"id": vid, "title": found[vid][0], "deleted": found[vid][1]}
+            for vid in ids
+            if vid in found
+        ]
         result["conflicting_jobs"] = (
             [
                 other.id
@@ -347,6 +386,7 @@ class JobManager:
             ctx.handle.pause()
         job.status = "paused"
         job.eta_seconds = None
+        add_log(db, job.id, "已暂停")
         db.commit()
         self.publish(job)
 
@@ -358,6 +398,7 @@ class JobManager:
             raise ValueError("编码进程已中断，请重试任务")
         # A context without started_at belongs to a claim that may still fail.
         job.status = "running" if ctx and job.started_at else "queued"
+        add_log(db, job.id, "继续")
         db.commit()
         if ctx:
             ctx.reset_rate()
@@ -370,6 +411,7 @@ class JobManager:
             job.status = "canceled"
             job.finished_at = utcnow()
             job.message = "已取消"
+            add_log(db, job.id, "已取消")
             record_job(db, job)
             db.commit()
             self.publish(job)
@@ -479,6 +521,8 @@ class JobManager:
             db.commit()
             if not result.rowcount:  # type: ignore[attr-defined]
                 return None
+            add_log(db, job_id, "开始处理")
+            db.commit()
             job = db.get(Job, job_id)
             assert job is not None
             payload = self._payload(job)
@@ -572,6 +616,7 @@ class JobManager:
             if status == "succeeded":
                 final.progress = 1.0
             final.finished_at = utcnow()
+            add_log(db, job.id, error or message, "error" if status == "failed" else "info")
             record_job(db, final)
             db.commit()
             return self._payload(final)

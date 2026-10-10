@@ -1679,5 +1679,15 @@
   "对象存储标识与此视频库不一致": "The object storage identity does not match this video library",
   "对象存储未配置或未绑定到此视频库": "Object storage is not configured or not bound to this video library",
   "无法连接对象存储（{{code}}）": "Cannot connect to object storage ({{code}})",
-  "未安装对象存储组件（s3 可选依赖）": "The object storage component is not installed (optional s3 dependency)"
+  "未安装对象存储组件（s3 可选依赖）": "The object storage component is not installed (optional s3 dependency)",
+  "已提交": "Submitted",
+  "开始处理": "Started",
+  "收起日志": "Hide log",
+  "日志": "Log",
+  "任务日志": "Task log",
+  "暂无日志，较早创建的任务没有记录": "No log entries; tasks created before logging was added have none",
+  "相关视频：": "Related videos:",
+  "已删除": "Deleted",
+  "重试失败任务 {{id}}": "Retry of failed task {{id}}",
+  "硬件编码失败，已回退软件编码：{{detail}}": "Hardware encoding failed, fell back to software encoding: {{detail}}"
 }

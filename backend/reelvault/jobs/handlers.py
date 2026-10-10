@@ -341,6 +341,8 @@ async def edit(ctx: JobContext, job: Job) -> None:
             if stored:
                 stored.params = {**stored.params, "encoding": encoding}
                 db.commit()
+        if encoding["fallback"]:
+            ctx.log(f"硬件编码失败，已回退软件编码：{encoding['fallback']}", "warning")
         if not result.exists() or result.stat().st_size == 0:
             raise RuntimeError("ffmpeg 未生成输出文件")
         ctx.set_progress(0.97, "保存结果")

@@ -67,6 +67,7 @@ export function useJobEvents(session: string | null, username: string) {
       })
       if (FINAL.has(job.status)) {
         qc.invalidateQueries({ queryKey: ['jobs'] })
+        qc.invalidateQueries({ queryKey: ['job-logs', job.id] })
         qc.invalidateQueries({ queryKey: ['videos'] })
         qc.invalidateQueries({ queryKey: ['video'] })
         qc.invalidateQueries({ queryKey: ['history'] })

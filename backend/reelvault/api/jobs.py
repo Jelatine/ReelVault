@@ -16,11 +16,11 @@ from ..auth import require_auth
 from ..config import Settings
 from ..db import get_db
 from ..errors import APIError
-from ..jobs.manager import JobManager
+from ..jobs.manager import JobManager, add_log
 from ..library import abs_path
 from ..media import ops
 from ..media.assets import AssetError, audio_asset, image_asset, lut_asset, subtitle_asset
-from ..models import EditPreset, Job, Video
+from ..models import EditPreset, Job, JobLog, Video
 from ..storage import budget_transaction, check_budget, job_bytes, job_requirements
 from .deps import get_jobs, get_settings
 
@@ -276,6 +276,16 @@ def job_detail(
     return jobs.describe(db, _get(db, job_id))
 
 
+@router.get("/jobs/{job_id}/logs")
+def job_logs(job_id: str, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    _get(db, job_id)
+    rows = db.scalars(select(JobLog).where(JobLog.job_id == job_id).order_by(JobLog.id))
+    return [
+        {"level": row.level, "message": row.message, "created_at": row.created_at.isoformat()}
+        for row in rows
+    ]
+
+
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(
     job_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
@@ -453,6 +463,8 @@ async def retry_job(
             message="重试排队中",
         )
         db.add(new)
+        db.flush()
+        add_log(db, new.id, f"重试失败任务 {old.id[:8]}")
         db.commit()
         jobs.enqueue(new.id)
         jobs.publish(new)

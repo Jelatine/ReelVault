@@ -396,6 +396,17 @@ class Job(Base):
     metrics_recorded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
 
+class JobLog(Base):
+    """Append-only timeline of a job, removed together with its job record."""
+
+    __tablename__ = "job_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    level: Mapped[str] = mapped_column(String(8), default="info")  # info|warning|error
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class SceneAnalysis(Base):
     __tablename__ = "scene_analyses"
     video_id: Mapped[str] = mapped_column(

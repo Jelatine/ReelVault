@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from reelvault.config import Settings
 from reelvault.db import make_engine, make_sessionmaker
@@ -16,7 +17,7 @@ from reelvault.jobs.handlers import edit
 from reelvault.jobs.manager import JobContext, JobManager
 from reelvault.media.ffmpeg import Canceled, ProcessHandle, ffmpeg_args, run_command
 from reelvault.migrate import upgrade
-from reelvault.models import Job, utcnow
+from reelvault.models import Job, JobLog, utcnow
 from tests.conftest import upload_ready, wait_job, wait_ready
 
 
@@ -318,6 +319,44 @@ def test_failed_edit_retry_real_output_and_invalid_controls(
     assert (output["width"], output["height"]) == (240, 320)
     assert client.get(f"/api/jobs/{old['id']}").json()["status"] == "failed"
     assert client.post(f"/api/jobs/{new['id']}/retry").status_code == 409
+    old_logs = client.get(f"/api/jobs/{old['id']}/logs").json()
+    assert [(e["level"], e["message"]) for e in old_logs] == [
+        ("info", "已提交"),
+        ("info", "开始处理"),
+        ("error", "临时编码失败"),
+    ]
+    new_logs = [e["message"] for e in client.get(f"/api/jobs/{new['id']}/logs").json()]
+    assert new_logs[0] == f"重试失败任务 {old['id'][:8]}" and new_logs[-1] == "完成"
+    assert [v["id"] for v in new["videos"]] == [video["id"], new["result_video_id"]]
+    assert new["videos"][0] == {"id": video["id"], "title": video["title"], "deleted": False}
+
+
+def test_job_logs_record_stages_and_are_cleared_with_jobs(client: TestClient) -> None:
+    m = client.app.state.jobs
+
+    async def staged(ctx: JobContext, job: Job) -> None:
+        ctx.set_progress(0.1, "第一步")
+        ctx.set_progress(0.2, "第一步")
+        ctx.log("回退提示", "warning")
+        ctx.set_progress(0.5, "第二步")
+
+    m.handlers = {**m.handlers, "staged": staged}
+    with m.sessionmaker() as db:
+        job_id = m.submit(db, "staged", {}, []).id
+    assert wait_job(client, job_id)["status"] == "succeeded"
+    logs = client.get(f"/api/jobs/{job_id}/logs").json()
+    assert [(e["level"], e["message"]) for e in logs] == [
+        ("info", "已提交"),
+        ("info", "开始处理"),
+        ("info", "第一步"),
+        ("warning", "回退提示"),
+        ("info", "第二步"),
+        ("info", "完成"),
+    ]
+    assert client.get("/api/jobs/missing/logs").status_code == 404
+    assert client.delete("/api/jobs").json()["deleted"] >= 1
+    with m.sessionmaker() as db:
+        assert not db.scalars(select(JobLog).where(JobLog.job_id == job_id)).all()
 
 
 def test_api_queued_pause_priority_resume_cancel(client: TestClient) -> None:

@@ -92,6 +92,13 @@ export interface Job {
   created_at: string
   started_at: string | null
   finished_at: string | null
+  videos?: { id: string; title: string; deleted: boolean }[]
+}
+
+export interface JobLogEntry {
+  level: 'info' | 'warning' | 'error'
+  message: string
+  created_at: string
 }
 
 export interface DeviceSession {

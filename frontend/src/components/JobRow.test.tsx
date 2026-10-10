@@ -8,7 +8,7 @@ import { api } from '../lib/api'
 import type { Job } from '../lib/types'
 import JobRow from './JobRow'
 
-vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { post: vi.fn(), put: vi.fn() } }))
+vi.mock('../lib/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../lib/api')>(), api: { get: vi.fn(), post: vi.fn(), put: vi.fn() } }))
 vi.mock('@mantine/notifications', () => ({ notifications: { show: vi.fn() } }))
 beforeAll(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
@@ -67,4 +67,24 @@ test('running ETA is approximate and failed retry errors remain visible', async 
   fireEvent.click(screen.getByRole('button', { name: '重试' }))
   await waitFor(() => expect(notifications.show).toHaveBeenCalledWith({ color: 'red', message: '源视频已删除' }))
   expect(api.post).toHaveBeenCalledWith('/api/jobs/one/retry')
+})
+
+test('finished task links related videos and expands its log', async () => {
+  vi.mocked(api.get).mockResolvedValue([
+    { level: 'info', message: '已提交', created_at: base.created_at },
+    { level: 'error', message: '临时编码失败', created_at: base.created_at },
+  ])
+  show({ ...base, status: 'failed', error: '临时编码失败', video_ids: ['a', 'b'], videos: [
+    { id: 'a', title: '源视频', deleted: false }, { id: 'b', title: '旧视频', deleted: true }] })
+  expect(screen.getByRole('link', { name: '源视频' }).getAttribute('href')).toBe('/videos/a')
+  expect(screen.queryByRole('link', { name: '旧视频' })).toBeNull()
+  expect(screen.getByText('旧视频')).toBeTruthy()
+  expect(api.get).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '日志' }))
+  const log = await screen.findByRole('list', { name: '任务日志' })
+  expect(api.get).toHaveBeenCalledWith('/api/jobs/one/logs')
+  expect(log.textContent).toContain('已提交')
+  expect(log.textContent).toContain('临时编码失败')
+  fireEvent.click(screen.getByRole('button', { name: '收起日志' }))
+  expect(screen.queryByRole('list', { name: '任务日志' })).toBeNull()
 })
