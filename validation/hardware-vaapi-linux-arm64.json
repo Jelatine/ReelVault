@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-10-10T03:25:08.903306+00:00",
+  "platform": "Linux-6.8.12-1021-aarch64-with-glibc2.39",
+  "family": "vaapi",
+  "device": "/dev/dri/renderD128",
+  "passed": false,
+  "operations": [
+    {
+      "operation": "h264",
+      "passed": false,
+      "error": "Hardware encoding required: {'requested': 'vaapi', 'encoder': 'libx264', 'decoder': None, 'fallback': \"[AVHWDeviceContext @ 0xaaaaf352ad10] Failed to initialise VAAPI connection: -1 (unknown libva error).\\nDevice creation failed: -5.\\nFailed to set value '/dev/dri/renderD128' for option 'vaapi_device': Input/output error\\nError parsing global options: Input/output error\"}"
+    },
+    {
+      "operation": "h265",
+      "passed": false,
+      "error": "Hardware encoding required: {'requested': 'vaapi', 'encoder': 'libx265', 'decoder': None, 'fallback': \"[AVHWDeviceContext @ 0xaaaae6bb3d20] Failed to initialise VAAPI connection: -1 (unknown libva error).\\nDevice creation failed: -5.\\nFailed to set value '/dev/dri/renderD128' for option 'vaapi_device': Input/output error\\nError parsing global options: Input/output error\"}"
+    },
+    {
+      "operation": "rotate",
+      "passed": false,
+      "error": "Hardware encoding required: {'requested': 'vaapi', 'encoder': 'libx264', 'decoder': None, 'fallback': \"[AVHWDeviceContext @ 0xaaaaf37aecf0] Failed to initialise VAAPI connection: -1 (unknown libva error).\\nDevice creation failed: -5.\\nFailed to set value '/dev/dri/renderD128' for option 'vaapi_device': Input/output error\\nError parsing global options: Input/output error\"}"
+    },
+    {
+      "operation": "merge",
+      "passed": false,
+      "error": "Hardware encoding required: {'requested': 'vaapi', 'encoder': 'libx264', 'decoder': None, 'fallback': \"[AVHWDeviceContext @ 0xaaaad6743e50] Failed to initialise VAAPI connection: -1 (unknown libva error).\\nDevice creation failed: -5.\\nFailed to set value '/dev/dri/renderD128' for option 'vaapi_device': Input/output error\\nError parsing global options: Input/output error\"}"
+    }
+  ],
+  "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers"
+}

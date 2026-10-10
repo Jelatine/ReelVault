@@ -67,10 +67,15 @@ def hardware_command(
             options += ["-forced-idr", "1"]
     else:
         options = ["-rc_mode", "VBR"] if bitrate else ["-rc_mode", "CQP", "-qp", str(crf)]
+    dropped = {"-preset", "-crf", "-pix_fmt"}
+    if family == "nvenc":
+        # NVENC counts its B-frames against the level's DPB, so -refs 3 with -level 4.0
+        # is rejected at 1080p ("Invalid Level"); the encoder picks refs within the level.
+        dropped.add("-refs")
     result = []
     i = 0
     while i < len(args):
-        if args[i] in {"-preset", "-crf", "-pix_fmt"}:
+        if args[i] in dropped:
             i += 2
         elif args[i] == "-c:v":
             result.extend(["-c:v", encoder, *options])

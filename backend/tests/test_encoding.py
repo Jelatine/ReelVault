@@ -64,7 +64,8 @@ def test_hardware_decode_and_bitrate_outputs() -> None:
     def output(label: str, name: str) -> list[str]:
         return [
             "-map", f"[{label}]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast",
-            "-b:v", "800000", "-force_key_frames", "expr:gte(t,n_forced*4)", name,
+            "-level:v", "4.0", "-refs", "3", "-b:v", "800000",
+            "-force_key_frames", "expr:gte(t,n_forced*4)", name,
         ]  # fmt: skip
 
     args = ["-i", "in.mp4", "-filter_complex", "[0:v]split[v0][v1]", *output("v0", "a.m3u8")]
@@ -74,7 +75,9 @@ def test_hardware_decode_and_bitrate_outputs() -> None:
     assert changed.count("h264_nvenc") == 2 and changed.count("-forced-idr") == 2
     assert "-qp" not in changed and changed.count("vbr") == 2
     assert changed.index("-forced-idr") < changed.index("a.m3u8")
+    assert "-refs" not in changed and changed.count("-level:v") == 2
     toolbox = hardware_command(args, "videotoolbox", "", decode=True)
+    assert toolbox.count("-refs") == 2
     assert "-q:v" not in toolbox and toolbox[:2] == ["-hwaccel", "videotoolbox"]
     assert "-hwaccel" not in hardware_command(args, "videotoolbox", "")
     assert "-hwaccel" not in hardware_command(args, "qsv", "", decode=True)

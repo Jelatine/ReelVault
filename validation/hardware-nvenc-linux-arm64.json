@@ -1,0 +1,70 @@
+{
+  "timestamp": "2026-10-10T03:25:01.956180+00:00",
+  "platform": "Linux-6.8.12-1021-aarch64-with-glibc2.39",
+  "family": "nvenc",
+  "device": null,
+  "passed": true,
+  "operations": [
+    {
+      "operation": "h264",
+      "passed": true,
+      "requested": "nvenc",
+      "encoder": "h264_nvenc",
+      "decoder": "cuda",
+      "fallback": null,
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "width": 320,
+      "height": 240,
+      "duration": 4.017007,
+      "expected_duration": 4.0,
+      "decoded": true
+    },
+    {
+      "operation": "h265",
+      "passed": true,
+      "requested": "nvenc",
+      "encoder": "hevc_nvenc",
+      "decoder": "cuda",
+      "fallback": null,
+      "video_codec": "hevc",
+      "audio_codec": "aac",
+      "width": 320,
+      "height": 240,
+      "duration": 4.017007,
+      "expected_duration": 4.0,
+      "decoded": true
+    },
+    {
+      "operation": "rotate",
+      "passed": true,
+      "requested": "nvenc",
+      "encoder": "h264_nvenc",
+      "decoder": "cuda",
+      "fallback": null,
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "width": 240,
+      "height": 320,
+      "duration": 4.0,
+      "expected_duration": 4.0,
+      "decoded": true
+    },
+    {
+      "operation": "merge",
+      "passed": true,
+      "requested": "nvenc",
+      "encoder": "h264_nvenc",
+      "decoder": "cuda",
+      "fallback": null,
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "width": 320,
+      "height": 240,
+      "duration": 7.035,
+      "expected_duration": 7.0,
+      "decoded": true
+    }
+  ],
+  "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers"
+}
