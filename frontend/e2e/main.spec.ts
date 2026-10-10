@@ -606,7 +606,7 @@ test('登录失败提示、登录后刷新保留会话', async ({ page }) => {
   await page.getByRole('button', { name: '保存编码设置', exact: true }).click()
   await expect.poll(async () => (await (await page.request.get('/api/system/encoding')).json()).selected).toBe('auto')
   await page.reload()
-  await expect(page.getByRole('combobox', { name: '视频编码器', exact: true })).toHaveValue('自动选择硬件，失败回退软件')
+  await expect(page.getByRole('combobox', { name: '视频编码器', exact: true })).toHaveValue('自动选择硬件，失败回退软件（默认）')
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.getByRole('button', { name: '导出数据库与配置' }).click(),
