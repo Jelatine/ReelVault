@@ -3,6 +3,7 @@
   " · 两遍防抖": " · Two-pass stabilization",
   " · 最近播放 {{v0}}": " · Last played {{v0}}",
   " · 已使用软件编码": " · Software encoding used",
+  " · 硬件解码 {{decoder}}": " · Hardware decoding {{decoder}}",
   " · 扫描中": " · Scanning",
   " · 来源：": " · Source: ",
   " · 标准化 {{v0}} LUFS": " · Normalize to {{v0}} LUFS",

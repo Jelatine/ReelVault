@@ -49,13 +49,45 @@ def test_hardware_filters_and_quality_options() -> None:
         "out.mp4",
     ]
     changed = hardware_command(graph, "vaapi", "/dev/dri/renderD128")
-    assert changed[changed.index("-filter_complex") + 1].endswith(";[v]format=nv12,hwupload[rv_hw]")
-    assert changed[changed.index("-map") + 1] == "[rv_hw]"
+    assert changed[changed.index("-filter_complex") + 1].endswith(
+        ";[v]format=nv12,hwupload[rv_hwv]"
+    )
+    assert changed[changed.index("-map") + 1] == "[rv_hwv]"
     assert "[a]" in changed
     preview = ["-filter_complex", "[0:v]null[out]", "-map", "[out]", *ops.x264(30), "preview.mp4"]
     assert (
         "[out]format=nv12,hwupload" in hardware_command(preview, "vaapi", "/dev/dri/renderD128")[3]
     )
+
+
+def test_hardware_decode_and_bitrate_outputs() -> None:
+    def output(label: str, name: str) -> list[str]:
+        return [
+            "-map", f"[{label}]", "-map", "[a]", "-c:v", "libx264", "-preset", "veryfast",
+            "-b:v", "800000", "-force_key_frames", "expr:gte(t,n_forced*4)", name,
+        ]  # fmt: skip
+
+    args = ["-i", "in.mp4", "-filter_complex", "[0:v]split[v0][v1]", *output("v0", "a.m3u8")]
+    args += output("v1", "b.m3u8")
+    changed = hardware_command(args, "nvenc", "", decode=True)
+    assert changed[:4] == ["-hwaccel", "cuda", "-i", "in.mp4"]
+    assert changed.count("h264_nvenc") == 2 and changed.count("-forced-idr") == 2
+    assert "-qp" not in changed and changed.count("vbr") == 2
+    assert changed.index("-forced-idr") < changed.index("a.m3u8")
+    toolbox = hardware_command(args, "videotoolbox", "", decode=True)
+    assert "-q:v" not in toolbox and toolbox[:2] == ["-hwaccel", "videotoolbox"]
+    assert "-hwaccel" not in hardware_command(args, "videotoolbox", "")
+    assert "-hwaccel" not in hardware_command(args, "qsv", "", decode=True)
+    vaapi = hardware_command(args, "vaapi", "/dev/dri/renderD128", decode=True)
+    assert vaapi[:6] == [
+        "-vaapi_device", "/dev/dri/renderD128",
+        "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128",
+    ]  # fmt: skip
+    assert vaapi[vaapi.index("-filter_complex") + 1].endswith(
+        ";[v0]format=nv12,hwupload[rv_hwv0];[v1]format=nv12,hwupload[rv_hwv1]"
+    )
+    maps = [vaapi[i + 1] for i, arg in enumerate(vaapi) if arg == "-map"]
+    assert maps == ["[rv_hwv0]", "[a]", "[rv_hwv1]", "[a]"]
 
 
 def test_entire_plan_retries_and_cancellation_does_not_retry(
@@ -71,14 +103,17 @@ def test_entire_plan_retries_and_cancellation_does_not_retry(
 
     monkeypatch.setattr(encoding, "run_command", run)
     runtime = EncoderRuntime("ffmpeg", {"h264_nvenc"})
-    commands = [[*ops.x264(20), "first.mp4"], [*ops.x264(20), "second.mp4"]]
+    commands = [["-i", "in.mp4", *ops.x264(20), name] for name in ("first.mp4", "second.mp4")]
     result = asyncio.run(runtime.run(commands, "nvenc"))
     assert [args[args.index("-c:v") + 1] for args in calls] == [
+        "h264_nvenc",
+        "h264_nvenc",
         "h264_nvenc",
         "h264_nvenc",
         "libx264",
         "libx264",
     ]
+    assert [("-hwaccel" in args) for args in calls[:4]] == [True, True, False, False]
     assert result["fallback"] == "GPU unavailable" and result["encoder"] == "libx264"
     calls.clear()
 
@@ -127,7 +162,8 @@ def test_auto_tries_next_compiled_hardware(monkeypatch: pytest.MonkeyPatch) -> N
     runtime = EncoderRuntime("ffmpeg", {"h264_qsv", "h264_nvenc"})
     result = asyncio.run(runtime.run([[*ops.x264(20), "out.mp4"]], "auto"))
     assert result["encoder"] == "h264_nvenc" and result["fallback"] is None
-    assert len(calls) == 2
+    assert result["decoder"] == "cuda"
+    assert len(calls) == 2 and "-hwaccel" not in calls[0]
     assert runtime.outcomes["h264_qsv"]["usable"] is False
 
 
@@ -154,8 +190,8 @@ def test_real_software_fallback_output(
 ) -> None:
     original = encoding.hardware_command
 
-    def unavailable(args: list[str], family: str, device: str) -> list[str]:
-        hardware = original(args, family, device)
+    def unavailable(args: list[str], family: str, device: str, **kwargs: Any) -> list[str]:
+        hardware = original(args, family, device, **kwargs)
         hardware[-1:-1] = ["-gpu", "999"]
         return hardware
 

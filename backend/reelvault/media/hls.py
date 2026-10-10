@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from .encoding import EncoderRuntime
 from .ffmpeg import ProcessHandle, ProgressCallback, ffmpeg_args, run_command
 from .probe import MediaInfo, probe
 
@@ -37,34 +38,41 @@ async def generate(
     *,
     handle: ProcessHandle,
     on_progress: ProgressCallback,
+    encoding: EncoderRuntime | None = None,
+    encoder: str = "software",
 ) -> list[dict[str, Any]]:
     out.mkdir(parents=True, exist_ok=True)
     variants = ladder(info)
     fps = min(30, max(1, info.fps or 25))
-    renditions = []
-    for index, (height, bitrate) in enumerate(variants):
-        folder = out / f"v{index}"
-        folder.mkdir()
-        graph = (
-            f"[0:{info.video_index}]setpts=PTS-STARTPTS,"
-            f"tpad=start_mode=clone:start_duration={max(0, info.video_delay):.9f}:"
-            f"stop_mode=clone:stop_duration={info.duration:.9f},fps={fps:.9f},"
-            f"trim=duration={info.duration:.9f},setpts=PTS-STARTPTS,"
-            f"scale=w='max(2,trunc(min(1920,{height}*dar)/2)*2)':"
-            f"h='max(2,trunc(min({height},1920/dar)/2)*2)',setsar=1,format=yuv420p[v]"
+    count = len(variants)
+    # Decode and normalise timing once, then split into every rendition in one process.
+    graph = (
+        f"[0:{info.video_index}]setpts=PTS-STARTPTS,"
+        f"tpad=start_mode=clone:start_duration={max(0, info.video_delay):.9f}:"
+        f"stop_mode=clone:stop_duration={info.duration:.9f},fps={fps:.9f},"
+        f"trim=duration={info.duration:.9f},setpts=PTS-STARTPTS,"
+        f"split={count}" + "".join(f"[s{i}]" for i in range(count))
+    )
+    for index, (height, _) in enumerate(variants):
+        graph += (
+            f";[s{index}]scale=w='max(2,trunc(min(1920,{height}*dar)/2)*2)':"
+            f"h='max(2,trunc(min({height},1920/dar)/2)*2)',setsar=1,format=yuv420p[v{index}]"
         )
-        args = ["-i", str(source.resolve())]
+    if info.has_audio:
+        graph += (
+            f";[0:{info.audio_index}]asetpts=PTS-STARTPTS,aresample=48000,"
+            f"adelay=delays={max(0, info.audio_delay) * 1000:.6f}:all=1,apad,"
+            f"atrim=duration={info.duration:.9f},asplit={count}"
+            + "".join(f"[a{i}]" for i in range(count))
+        )
+    args = ["-i", str(source.resolve()), "-filter_complex", graph]
+    for index, (_, bitrate) in enumerate(variants):
+        (out / f"v{index}").mkdir()
+        # Map video before audio so hardware adaptation finds each output's video label.
+        args += ["-map", f"[v{index}]"]
         if info.has_audio:
-            graph += (
-                f";[0:{info.audio_index}]asetpts=PTS-STARTPTS,aresample=48000,"
-                f"adelay=delays={max(0, info.audio_delay) * 1000:.6f}:all=1,apad,"
-                f"atrim=duration={info.duration:.9f}[a]"
-            )
+            args += ["-map", f"[a{index}]"]
         args += [
-            "-filter_complex",
-            graph,
-            "-map",
-            "[v]",
             "-c:v",
             "libx264",
             "-preset",
@@ -93,7 +101,7 @@ async def generate(
             "expr:gte(t,n_forced*4)",
         ]
         if info.has_audio:
-            args += ["-map", "[a]", "-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]
+            args += ["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]
         else:
             args += ["-an"]
         args += [
@@ -108,23 +116,32 @@ async def generate(
             "-hls_flags",
             "independent_segments+temp_file",
             "-hls_segment_filename",
-            "seg_%06d.ts",
-            "index.m3u8",
+            f"v{index}/seg_%06d.ts",
+            f"v{index}/index.m3u8",
         ]
 
-        def progress(fraction: float, step: int = index) -> None:
-            on_progress((step + fraction) / len(variants))
-
-        await run_command(
-            ffmpeg_args(ffmpeg, args),
-            cwd=folder,
+    if encoding:
+        await encoding.run(
+            [args],
+            encoder,
             duration=info.duration,
             handle=handle,
-            on_progress=progress,
+            on_progress=on_progress,
+            cwd=out,
         )
+    else:
+        await run_command(
+            ffmpeg_args(ffmpeg, args),
+            cwd=out,
+            duration=info.duration,
+            handle=handle,
+            on_progress=on_progress,
+        )
+    renditions = []
+    for index, (_, bitrate) in enumerate(variants):
+        folder = out / f"v{index}"
         encoded = await probe(ffprobe, str(folder / "index.m3u8"), handle)
-        files = list(folder.glob("*.ts"))
-        if not files:
+        if not list(folder.glob("*.ts")):
             raise RuntimeError("HLS 没有生成分片")
         renditions.append(
             {

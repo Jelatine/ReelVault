@@ -81,7 +81,7 @@ export interface Job {
   conflicting_jobs?: string[]
   params: { edit?: { op: string; [k: string]: unknown }; output?: { mode: string }; name?: string
     url?: string; title?: string; imported_title?: string; storage_id?: string
-    encoding?: { requested: string; encoder: string; fallback: string | null }
+    encoding?: { requested: string; encoder: string; decoder?: string | null; fallback: string | null }
     summary?: { total: number; scanned: number; cached: number; visual_failed: number; similar_pairs: number; errors: { video_id: string; error: string }[] } }
   video_ids: string[]
   result_video_id: string | null

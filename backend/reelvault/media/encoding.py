@@ -32,44 +32,73 @@ def software_encoder(args: list[str]) -> str | None:
     return None
 
 
-def hardware_command(args: list[str], family: str, device: str) -> list[str]:
+# Hardware decoders paired with each encoder family. Unsupported codecs (images, lavfi)
+# silently decode in software; a missing device fails, so callers retry without it.
+DECODERS = {"videotoolbox": "videotoolbox", "nvenc": "cuda", "vaapi": "vaapi"}
+
+
+def hardware_command(
+    args: list[str], family: str, device: str, *, decode: bool = False
+) -> list[str]:
+    """Swap software encoders for ``family``; supports multiple outputs per command.
+
+    Each output must map its video before its other streams, as VAAPI uploads the
+    first ``-map [label]`` following the previous output's ``-c:v``.
+    """
     software = software_encoder(args)
     if not software:
         return list(args)
     encoder = FAMILIES[family][1 if software == "libx264" else 2]
     crf = int(args[args.index("-crf") + 1]) if "-crf" in args else 23
+    bitrate = "-b:v" in args
+    if family == "videotoolbox":
+        quality = max(1, min(100, round(100 - crf * 100 / 51)))
+        rate = [] if bitrate else ["-q:v", str(quality)]
+        options = ["-allow_sw", "0", *rate, "-pix_fmt", "yuv420p"]
+    elif family == "qsv":
+        rate = [] if bitrate else ["-global_quality", str(max(1, crf))]
+        options = [*rate, "-preset", "medium", "-pix_fmt", "nv12"]
+        if "-force_key_frames" in args:
+            options += ["-forced_idr", "1"]
+    elif family == "nvenc":
+        rate = ["-rc", "vbr"] if bitrate else ["-rc", "constqp", "-qp", str(crf)]
+        options = [*rate, "-preset", "p4", "-pix_fmt", "yuv420p"]
+        if "-force_key_frames" in args:
+            options += ["-forced-idr", "1"]
+    else:
+        options = ["-rc_mode", "VBR"] if bitrate else ["-rc_mode", "CQP", "-qp", str(crf)]
     result = []
     i = 0
     while i < len(args):
         if args[i] in {"-preset", "-crf", "-pix_fmt"}:
             i += 2
         elif args[i] == "-c:v":
-            result.extend(["-c:v", encoder])
+            result.extend(["-c:v", encoder, *options])
+            i += 2
+        elif args[i] == "-i" and decode and family in DECODERS:
+            result.extend(["-hwaccel", DECODERS[family]])
+            if family == "vaapi":
+                result.extend(["-hwaccel_device", device])
+            result.extend(args[i : i + 2])
             i += 2
         else:
             result.append(args[i])
             i += 1
-    if family == "videotoolbox":
-        quality = max(1, min(100, round(100 - crf * 100 / 51)))
-        options = ["-allow_sw", "0", "-q:v", str(quality), "-pix_fmt", "yuv420p"]
-    elif family == "qsv":
-        options = ["-global_quality", str(max(1, crf)), "-preset", "medium", "-pix_fmt", "nv12"]
-    elif family == "nvenc":
-        options = ["-rc", "constqp", "-qp", str(crf), "-preset", "p4", "-pix_fmt", "yuv420p"]
-    else:
+    if family == "vaapi":
         result = ["-vaapi_device", device, *result]
         upload = "format=nv12,hwupload"
         if "-filter_complex" in result:
             pos = result.index("-filter_complex") + 1
-            label = next(
-                result[j + 1]
-                for j in range(len(result) - 1)
-                if result[j] == "-map" and result[j + 1].startswith("[")
-            )
-            result[pos] += f";{label}{upload}[rv_hw]"
+            pending = True
             for j in range(len(result) - 1):
-                if result[j] == "-map" and result[j + 1] == label:
-                    result[j + 1] = "[rv_hw]"
+                if result[j] == "-c:v":
+                    pending = True
+                elif pending and result[j] == "-map" and result[j + 1].startswith("["):
+                    label = result[j + 1]
+                    hw = f"[rv_hw{label[1:]}"
+                    result[pos] += f";{label}{upload}{hw}"
+                    result[j + 1] = hw
+                    pending = False
         else:
             flag = "-vf" if "-vf" in result else "-filter:v" if "-filter:v" in result else None
             if flag:
@@ -77,8 +106,6 @@ def hardware_command(args: list[str], family: str, device: str) -> list[str]:
                 result[pos] += "," + upload
             else:
                 result[-1:-1] = ["-vf", upload]
-        options = ["-rc_mode", "CQP", "-qp", str(crf)]
-    result[-1:-1] = options
     return result
 
 
@@ -151,16 +178,37 @@ class EncoderRuntime:
                     cwd=cwd,
                 )
 
-        for family in families:
+        attempts = [
+            (family, decode)
+            for family in families
+            for decode in ((True, False) if family in DECODERS else (False,))
+        ]
+        for family, decode in attempts:
             chosen = FAMILIES[family][1 if software == "libx264" else 2]
             try:
-                await execute([hardware_command(args, family, self.device) for args in commands])
+                await execute(
+                    [
+                        hardware_command(args, family, self.device, decode=decode)
+                        for args in commands
+                    ]
+                )
                 self.outcomes[chosen] = {"usable": True, "error": None}
-                return {"requested": requested, "encoder": chosen, "fallback": None}
+                return {
+                    "requested": requested,
+                    "encoder": chosen,
+                    "decoder": DECODERS[family] if decode else None,
+                    "fallback": None,
+                }
             except FFmpegError as error:
                 fallback = str(error)[-1000:]
                 self.outcomes[chosen] = {"usable": False, "error": fallback}
-                # Retry original commands from the beginning, overwriting partial outputs.
+                # Retry original commands from the beginning, overwriting partial outputs;
+                # a failed hardware decode retries the same encoder with software decoding.
                 # Cancellation and process-launch errors must not start another encode.
         await execute(commands)
-        return {"requested": requested, "encoder": software or "copy/other", "fallback": fallback}
+        return {
+            "requested": requested,
+            "encoder": software or "copy/other",
+            "decoder": None,
+            "fallback": fallback,
+        }

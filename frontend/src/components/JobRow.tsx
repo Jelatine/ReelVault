@@ -111,7 +111,7 @@ export default function JobRow({ job, compact }: { job: Job; compact?: boolean }
           {serverText(job.error)}
         </Text>
       )}
-      {job.params.encoding && <Text component="div" size="xs" c="dimmed">{tr("编码：")}{job.params.encoding.encoder}{job.params.encoding.fallback && tr(" · 已使用软件编码")}
+      {job.params.encoding && <Text component="div" size="xs" c="dimmed">{tr("编码：")}{job.params.encoding.encoder}{job.params.encoding.decoder && tr(" · 硬件解码 {{decoder}}", { decoder: job.params.encoding.decoder })}{job.params.encoding.fallback && tr(" · 已使用软件编码")}
         {job.params.encoding.fallback && <details><summary>{tr("回退原因")}</summary><span style={{ whiteSpace: 'pre-wrap' }}>{job.params.encoding.fallback}</span></details>}
       </Text>}
     </Stack>
