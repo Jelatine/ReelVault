@@ -4,12 +4,18 @@ import subprocess
 
 import pytest
 
+from reelvault.media import derive
 from reelvault.media.derive import SPRITE, VTT, make_sprite, sprite_layout
 from reelvault.media.probe import probe
 
 
-@pytest.mark.parametrize("duration,rate", [(610, 1), (3.2, 10), (0.2, 10)])
-def test_sparse_long_and_subsecond_clips_have_complete_accurate_sprites(tmp_path, duration, rate):
+@pytest.mark.parametrize(
+    "duration,rate,gop,seeks",
+    [(610, 1, 10000, False), (610, 1, 2, True), (3.2, 10, 10000, False), (0.2, 10, 10000, False)],
+)
+def test_sparse_long_and_subsecond_clips_have_complete_accurate_sprites(
+    tmp_path, monkeypatch, duration, rate, gop, seeks
+):
     source = tmp_path / "clip.mp4"
     subprocess.run(
         [
@@ -25,9 +31,9 @@ def test_sparse_long_and_subsecond_clips_have_complete_accurate_sprites(tmp_path
             "-c:v",
             "libx264",
             "-g",
-            "10000",
+            str(gop),
             "-keyint_min",
-            "10000",
+            str(gop),
             "-sc_threshold",
             "0",
             "-bf",
@@ -55,14 +61,26 @@ def test_sparse_long_and_subsecond_clips_have_complete_accurate_sprites(tmp_path
             ]
         )
     )["packets"]
-    assert sum("K" in packet["flags"] for packet in packets) == 1
+    keyframes = sum("K" in packet["flags"] for packet in packets)
+    assert keyframes == 1 if gop == 10000 else keyframes > 1
+
+    seeking = derive._sprite_by_seeking
+    used: list[bool] = []
+
+    async def spy(*args, **kwargs):
+        used.append(True)
+        await seeking(*args, **kwargs)
+
+    monkeypatch.setattr(derive, "_sprite_by_seeking", spy)
 
     async def generate():
         info = await probe("ffprobe", str(source))
-        await make_sprite("ffmpeg", source, info, tmp_path)
+        await make_sprite("ffmpeg", source, info, tmp_path, ffprobe="ffprobe")
         return info
 
     info = asyncio.run(generate())
+    # Sparse keyframes must keep the full decode; dense ones seek per thumbnail.
+    assert bool(used) == seeks
     interval, count = sprite_layout(info.duration)
     sprite = tmp_path / SPRITE
     assert sprite.is_file() and sprite.stat().st_size > 0

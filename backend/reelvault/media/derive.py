@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
+import shutil
+import tempfile
 from pathlib import Path
 
 from .encoding import EncoderRuntime
@@ -16,6 +19,8 @@ PREVIEW_SEGMENT_SECONDS = 1.0
 SPRITE_THUMB_WIDTH = 160
 SPRITE_COLUMNS = 10
 SPRITE_MAX_THUMBS = 100
+# Shorter clips decode quickly; probing keyframes would cost more than it saves.
+SPRITE_SEEK_AFTER = 120  # seconds
 
 POSTER = "poster.jpg"
 PREVIEW = "preview.mp4"
@@ -129,6 +134,76 @@ def build_vtt(duration: float, interval: float, count: int, tw: int, th: int, ur
     return "\n".join(lines)
 
 
+async def max_keyframe_gap(
+    ffprobe: str,
+    src: Path,
+    info: MediaInfo,
+    window: float,
+    handle: ProcessHandle | None = None,
+) -> float:
+    """Largest keyframe spacing seen in three windows across the video; inf when a
+    window holds fewer than two keyframes. Reads packets only, nothing is decoded."""
+    gap = 0.0
+    for fraction in (0.1, 0.5, 0.9):
+        start = max(0.0, info.duration * fraction - window / 2)
+        result = await run_command(
+            [
+                ffprobe, "-v", "error", "-select_streams", str(info.video_index),
+                "-read_intervals", f"{start:.3f}%+{window:.3f}",
+                "-show_entries", "packet=pts_time,flags", "-of", "csv=p=0", str(src),
+            ],
+            handle=handle,
+        )  # fmt: skip
+        keys: list[float] = []
+        for line in result.stdout.decode(errors="replace").splitlines():
+            pts, _, flags = line.partition(",")
+            if "K" in flags:
+                with contextlib.suppress(ValueError):
+                    keys.append(float(pts))
+        keys.sort()
+        if len(keys) < 2:
+            return math.inf
+        gap = max(gap, *(b - a for a, b in zip(keys, keys[1:], strict=False)))
+    return gap
+
+
+async def _sprite_by_seeking(
+    ffmpeg: str,
+    src: Path,
+    info: MediaInfo,
+    out: Path,
+    interval: float,
+    count: int,
+    vf: str,
+    tile: str,
+    handle: ProcessHandle | None,
+    on_progress: ProgressCallback | None,
+) -> None:
+    """One input-side seek per thumbnail. Each decodes at most one GOP, so a long
+    video costs ~count GOPs instead of every frame."""
+    last = max(0.0, (info.video_duration or info.duration) - 0.1)
+    with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
+        frames = Path(tmp)
+        for i in range(count):
+            frame = frames / f"{i:04d}.png"
+            args = [
+                "-ss", f"{min(i * interval, last):.3f}", "-i", str(src),
+                "-map", f"0:{info.video_index}", "-an", "-frames:v", "1",
+                "-vf", vf, str(frame),
+            ]  # fmt: skip
+            await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
+            # A seek near the end can land past the final decodable frame.
+            if not frame.is_file() and i:
+                shutil.copyfile(frames / f"{i - 1:04d}.png", frame)
+            if on_progress:
+                on_progress((i + 1) / count)
+        args = [
+            "-framerate", "1", "-i", str(frames / "%04d.png"),
+            "-vf", tile, "-frames:v", "1", *JPEG, str(out),
+        ]  # fmt: skip
+        await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
+
+
 async def make_sprite(
     ffmpeg: str,
     src: Path,
@@ -136,30 +211,46 @@ async def make_sprite(
     out_dir: Path,
     handle: ProcessHandle | None = None,
     on_progress: ProgressCallback | None = None,
+    *,
+    ffprobe: str | None = None,
 ) -> None:
     interval, count = sprite_layout(info.duration)
     tw = SPRITE_THUMB_WIDTH
     th = scaled_height(info, tw)
     rows = math.ceil(count / SPRITE_COLUMNS)
     cols = min(SPRITE_COLUMNS, count)
-    # Sample decoded frames uniformly: sparse keyframes may omit entire scenes or even
-    # produce no image. One interval of cloned tail frames completes the final tile,
-    # including clips shorter than the sampling interval. Only indexed cells are used.
-    vf = (
-        f"tpad=stop_mode=clone:stop_duration={interval:.6f},"
-        f"fps=1/{interval:.6f}:start_time=0,scale={tw}:{th},setsar=1,tile={cols}x{rows}"
-    )
-    args = [
-        "-i", str(src),
-        "-map", f"0:{info.video_index}", "-an", "-vf", vf,
-        "-frames:v", "1", *JPEG, str(out_dir / SPRITE),
-    ]  # fmt: skip
-    await run_command(
-        ffmpeg_args(ffmpeg, args),
-        duration=info.duration,
-        on_progress=on_progress,
-        handle=handle,
-    )
+    scale = f"scale={tw}:{th},setsar=1"
+    tile = f"tile={cols}x{rows}"
+    # Seeking is far cheaper than decoding everything when keyframes are closer
+    # together than thumbnails; with sparse keyframes every seek would decode from
+    # the distant previous keyframe, so those fall back to a single full decode.
+    if (
+        ffprobe
+        and info.duration >= SPRITE_SEEK_AFTER
+        and await max_keyframe_gap(ffprobe, src, info, max(2 * interval, 20.0), handle) <= interval
+    ):
+        await _sprite_by_seeking(
+            ffmpeg, src, info, out_dir / SPRITE, interval, count, scale, tile, handle, on_progress
+        )
+    else:
+        # Sample decoded frames uniformly: sparse keyframes may omit entire scenes or even
+        # produce no image. One interval of cloned tail frames completes the final tile,
+        # including clips shorter than the sampling interval. Only indexed cells are used.
+        vf = (
+            f"tpad=stop_mode=clone:stop_duration={interval:.6f},"
+            f"fps=1/{interval:.6f}:start_time=0,{scale},{tile}"
+        )
+        args = [
+            "-i", str(src),
+            "-map", f"0:{info.video_index}", "-an", "-vf", vf,
+            "-frames:v", "1", *JPEG, str(out_dir / SPRITE),
+        ]  # fmt: skip
+        await run_command(
+            ffmpeg_args(ffmpeg, args),
+            duration=info.duration,
+            on_progress=on_progress,
+            handle=handle,
+        )
     (out_dir / VTT).write_text(build_vtt(info.duration, interval, count, tw, th, SPRITE))
 
 

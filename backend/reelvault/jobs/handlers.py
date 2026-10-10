@@ -118,7 +118,7 @@ async def ingest(ctx: JobContext, job: Job) -> None:
         _update(ctx, video_id, has_preview=True)
 
         cb = ctx.stage(3, steps, "生成进度条缩略图")
-        await derive.make_sprite(s.ffmpeg, src, info, out, ctx.handle, cb)
+        await derive.make_sprite(s.ffmpeg, src, info, out, ctx.handle, cb, ffprobe=s.ffprobe)
         vtt = out / derive.VTT
         # Absolute URL: players resolve cue images against the page, not the VTT file.
         sprite_url = f"/api/videos/{video_id}/{derive.SPRITE}?v={version}"
@@ -720,6 +720,7 @@ async def sprite(ctx: JobContext, job: Job) -> None:
             temp,
             ctx.handle,
             ctx.stage(0, 1, "生成进度条缩略图"),
+            ffprobe=ctx.settings.ffprobe,
         )
         ctx.check_canceled()
         with ctx.db() as db:
