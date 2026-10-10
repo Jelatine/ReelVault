@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { Video } from '../lib/types'
+import { parseVtt } from '../lib/vtt'
 import Timeline from './Timeline'
 
 afterEach(cleanup)
@@ -35,4 +36,12 @@ test('time strip exposes its position and supports bounded keyboard seeking with
   expect(strip.getAttribute('aria-disabled')).toBe('true')
   fireEvent.keyDown(strip, { key: 'ArrowRight' })
   expect(seek).not.toHaveBeenCalled()
+})
+
+test('vtt cues parse identically with CRLF line endings', () => {
+  const vtt = ['WEBVTT', '', '00:00:00.000 --> 00:00:01.500', '/s.jpg?v=1#xywh=0,0,160,90', '',
+    '00:00:01.500 --> 00:00:03.000', '/s.jpg?v=1#xywh=160,0,160,90', ''].join('\r\n')
+  const cues = parseVtt(vtt, 'http://host/api/videos/1/thumbnails.vtt')
+  expect(cues).toHaveLength(2)
+  expect(cues[1]).toEqual({ start: 1.5, url: 'http://host/s.jpg?v=1', x: 160, y: 0, w: 160, h: 90 })
 })
