@@ -51,3 +51,19 @@ test('a middle clip cannot overlap both transitions beyond its duration', async 
   fireEvent.change(screen.getByLabelText('每处转场时长（秒）'), { target: { value: '0.3' } })
   expect(button.disabled).toBe(false)
 })
+
+test('keeps originals by default and can delete all ordered inputs', async () => {
+  show()
+  const button = screen.getByRole('button', { name: /^合并 3 个视频/ }) as HTMLButtonElement
+  await waitFor(() => expect(button.disabled).toBe(false))
+  fireEvent.click(button)
+  expect(mocks.submit).toHaveBeenLastCalledWith(expect.objectContaining({ delete_sources: false }), { mode: 'new', title: '' })
+  fireEvent.change(screen.getByLabelText('合并后原视频'), { target: { value: 'delete' } })
+  expect(screen.getByText(/所有参与合并的原视频将移入回收站/)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '上移输入 3' }))
+  fireEvent.click(button)
+  expect(mocks.submit).toHaveBeenLastCalledWith(expect.objectContaining({ delete_sources: true, video_ids: ['0', '2', '1'] }), { mode: 'new', title: '' })
+  fireEvent.change(screen.getByLabelText('合并后原视频'), { target: { value: 'keep' } })
+  fireEvent.click(button)
+  expect(mocks.submit).toHaveBeenLastCalledWith(expect.objectContaining({ delete_sources: false }), { mode: 'new', title: '' })
+})

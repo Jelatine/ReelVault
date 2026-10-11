@@ -79,10 +79,68 @@ def test_merge_lossless_rejected_when_incompatible(
 ) -> None:
     a = upload_ready(client, samples["a"])
     p = upload_ready(client, samples["portrait"])
-    edit = {"op": "merge", "video_ids": [a["id"], p["id"]], "mode": "lossless"}
+    edit = {
+        "op": "merge",
+        "video_ids": [a["id"], p["id"]],
+        "mode": "lossless",
+        "delete_sources": True,
+    }
     r = client.post(f"/api/videos/{a['id']}/edit", json={"edit": edit})
     job = wait_job(client, r.json()["id"])
     assert job["status"] == "failed" and "无法无损合并" in job["error"]
+    for source in (a, p):
+        assert client.get(f"/api/videos/{source['id']}").status_code == 200
+
+
+@pytest.mark.parametrize("delete_sources", [None, False, True])
+def test_merge_originals_option(client, samples, delete_sources):
+    originals = [upload_ready(client, samples[key]) for key in ("a", "b", "portrait")]
+    edit = {"op": "merge", "video_ids": [v["id"] for v in originals]}
+    if delete_sources is not None:
+        edit["delete_sources"] = delete_sources
+    merged = result_video(client, run_edit(client, originals[0]["id"], edit))
+    active = {v["id"] for v in client.get("/api/videos").json()["items"]}
+    trash = {v["id"] for v in client.get("/api/videos", params={"trash": True}).json()["items"]}
+    assert merged["id"] in active
+    for source in originals:
+        assert (source["id"] in trash) == bool(delete_sources)
+        assert (source["id"] in active) != bool(delete_sources)
+    if delete_sources:
+        # Restore every input, then replay history without retiring them again.
+        for source in originals:
+            assert client.post(f"/api/videos/{source['id']}/restore").status_code == 200
+        replay = client.post(f"/api/videos/{merged['id']}/recreate")
+        assert replay.status_code == 200
+        replay_job = wait_job(client, replay.json()["id"])
+        result_video(client, replay_job)
+        for source in originals:
+            assert client.get(f"/api/videos/{source['id']}").status_code == 200
+
+
+def test_merge_keeps_originals_when_result_processing_fails(client, samples, monkeypatch):
+    originals = [upload_ready(client, samples[key]) for key in ("a", "b")]
+
+    async def fail_preview(*args, **kwargs):
+        raise RuntimeError("preview failed")
+
+    monkeypatch.setattr(derive, "make_preview", fail_preview)
+    job = run_edit(
+        client,
+        originals[0]["id"],
+        {
+            "op": "merge",
+            "video_ids": [v["id"] for v in originals],
+            "delete_sources": True,
+        },
+    )
+    ingestion = next(
+        j
+        for j in client.get("/api/jobs").json()
+        if j["kind"] == "ingest" and j["video_ids"] == [job["result_video_id"]]
+    )
+    assert wait_job(client, ingestion["id"])["status"] == "failed"
+    for source in originals:
+        assert client.get(f"/api/videos/{source['id']}").status_code == 200
 
 
 def test_compress_resolution_and_target_size(client: TestClient, samples: dict[str, Path]) -> None:

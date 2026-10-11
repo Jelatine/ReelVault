@@ -68,6 +68,7 @@ class MergeParams(BaseModel):
     op: Literal["merge"] = "merge"
     video_ids: list[str] = Field(min_length=2, max_length=50)
     mode: Literal["auto", "lossless", "reencode"] = "auto"
+    delete_sources: bool = False
     # Target size for re-encoding; defaults to the first video.
     width: int | None = Field(None, ge=16, le=7680)
     height: int | None = Field(None, ge=16, le=4320)

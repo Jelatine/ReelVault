@@ -145,7 +145,9 @@ async def ingest(ctx: JobContext, job: Job) -> None:
                     stored.params = {**stored.params, "playable_encoding": playable_encoding}
                     db.commit()
             playable = rel_path(s, target)
+        ctx.check_canceled()
         with ctx.db() as db:
+            db.connection().exec_driver_sql("BEGIN IMMEDIATE")
             current = db.get(Video, video_id)
             assert current is not None
             current.playable_path, current.status, current.error = playable, "ready", None
@@ -154,6 +156,22 @@ async def ingest(ctx: JobContext, job: Job) -> None:
             }
             if playable:
                 current.meta = {**current.meta, "playable_signature": source_signature(src)}
+            # Only retire the exact inputs after the merged result is ready.
+            stored = db.get(Job, job.id)
+            if stored and current.deleted_at is None:
+                for source in stored.params.get("merge_sources_to_trash", []):
+                    original = db.get(Video, source["id"])
+                    if (
+                        original is not None
+                        and original.id != video_id
+                        and original.deleted_at is None
+                        and original.file_path == source["file_path"]
+                        and original.size == source["size"]
+                    ):
+                        original.deleted_at = utcnow()
+                stored.params = {
+                    k: v for k, v in stored.params.items() if k != "merge_sources_to_trash"
+                }
             db.commit()
         if old_playable and old_playable != (out / derive.PLAYABLE if playable else None):
             remove_copy(s, video_id, old_playable)
@@ -397,7 +415,14 @@ async def edit(ctx: JobContext, job: Job) -> None:
                 output.get("storage_id"),
             )
         _set_job(ctx, job.id, result_video_id=new_id_)
-        ctx.manager.submit_from_worker("ingest", {}, [new_id_], reservation_from=job.id)
+        ingest_params: dict[str, Any] = {}
+        if (
+            isinstance(params, ops.MergeParams)
+            and params.delete_sources
+            and not job.params.get("history_replay")
+        ):
+            ingest_params["merge_sources_to_trash"] = provenance
+        ctx.manager.submit_from_worker("ingest", ingest_params, [new_id_], reservation_from=job.id)
     finally:
         await asyncio.to_thread(shutil.rmtree, tmp, ignore_errors=True)
 

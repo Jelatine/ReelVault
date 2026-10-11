@@ -17,6 +17,7 @@ export default function MergePanel({ video, initialIds, pause }: EditorContext &
 
   const [ids, setIds] = useState<string[]>(initialIds?.length ? initialIds : [video.id])
   const [mode, setMode] = useState('auto')
+  const [sourceAction, setSourceAction] = useState('keep')
   const [transition, setTransition] = useState('none')
   const [transitionDuration, setTransitionDuration] = useState(0.5)
   const [resolution, setResolution] = useState<string>('first')
@@ -51,7 +52,7 @@ export default function MergePanel({ video, initialIds, pause }: EditorContext &
   const sizes = Array.from(new Set(loaded.map((v) => `${v.width}x${v.height}`)))
 
   const run = () => {
-    const edit: Record<string, unknown> = { op: 'merge', video_ids: ids, mode, transition, transition_duration: transitionDuration }
+    const edit: Record<string, unknown> = { op: 'merge', video_ids: ids, mode, transition, transition_duration: transitionDuration, delete_sources: sourceAction === 'delete' }
     if (resolution !== 'first') {
       const [w, h] = resolution.split('x').map(Number)
       edit.width = w
@@ -161,6 +162,12 @@ export default function MergePanel({ video, initialIds, pause }: EditorContext &
         {!transitionValid && <Alert color="red">{tr("转场必须短于每段视频，中间片段至少为转场时长的两倍。")}</Alert>}
       </>}
       <OutputFields value={output} onChange={setOutput} allowReplace={false} />
+      <NativeSelect label={tr("合并后原视频")} value={sourceAction}
+        onChange={(event) => setSourceAction(event.currentTarget.value)} data={[
+          { value: 'keep', label: tr("保留所有原视频") },
+          { value: 'delete', label: tr("删除所有原视频") },
+        ]} />
+      {sourceAction === 'delete' && <Text size="xs" c="dimmed">{tr("合并结果处理完成后，所有参与合并的原视频将移入回收站，可恢复。失败时保留原视频。")}</Text>}
       <SequencePreview pause={pause} disabled={loaded.length !== ids.length || videos.some((query) => !!query.error)}
         clips={loaded.map((item) => ({ video: item, start: 0, end: item.duration }))}
         note={transition === 'none' ? tr("预览保持源视频尺寸，输出会按选定的分辨率统一画面。") : tr("原始片段顺序预览不模拟转场；生成时统一画面尺寸，并将相邻片段重叠衔接。")} />
