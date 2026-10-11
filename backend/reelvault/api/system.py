@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
 from typing import Any, Literal
 
@@ -27,6 +28,32 @@ from .deps import get_jobs, get_settings
 from .jobs import OutputOptions
 
 router = APIRouter(tags=["system"])
+
+
+class WorkerPreference(BaseModel):
+    workers: int = Field(ge=1, le=32, strict=True)
+
+
+@router.get("/api/system/workers", dependencies=[Depends(require_auth)])
+def worker_status(settings: Settings = Depends(get_settings)) -> dict[str, int]:
+    return {"workers": settings.workers}
+
+
+@router.put("/api/system/workers", dependencies=[Depends(require_auth)])
+async def select_workers(
+    body: WorkerPreference,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    jobs: JobManager = Depends(get_jobs),
+) -> dict[str, int]:
+    def persist() -> None:
+        db.merge(RuntimeSetting(key="workers", value={"workers": body.workers}))
+        db.commit()
+
+    async with jobs.configuration_lock:
+        await asyncio.to_thread(persist)
+        await jobs.set_workers(body.workers)
+        return worker_status(settings)
 
 
 @router.get("/api/system/encoding", dependencies=[Depends(require_auth)])

@@ -177,6 +177,7 @@ class JobManager:
         self.handlers = handlers
         self._wake = asyncio.Event()
         self._claiming = asyncio.Lock()
+        self.configuration_lock = asyncio.Lock()
         self.running: dict[str, JobContext] = {}
         self.subscribers: set[asyncio.Queue[str]] = set()
         self._tasks: list[asyncio.Task[None]] = []
@@ -203,8 +204,21 @@ class JobManager:
                 record_job(db, job)
             db.commit()
         self._wake.set()
-        for i in range(max(1, self.settings.workers)):
+        self._ensure_workers()
+
+    def _ensure_workers(self) -> None:
+        # Keep surplus workers asleep after a decrease; never cancel active jobs.
+        for i in range(len(self._tasks), self.settings.workers):
             self._tasks.append(asyncio.create_task(self._worker(i), name=f"job-worker-{i}"))
+
+    async def set_workers(self, workers: int) -> None:
+        if not 1 <= workers <= 32:
+            raise ValueError("workers must be between 1 and 32")
+        async with self._claiming:
+            self.settings.workers = workers
+            if self._loop is not None and not self._stopping:
+                self._ensure_workers()
+                self._wake.set()
 
     async def stop(self) -> None:
         self._stopping = True
@@ -474,6 +488,8 @@ class JobManager:
         async with self._claiming:
             while True:
                 self._wake.clear()
+                if len(self.running) >= self.settings.workers:
+                    return None
                 busy_ids = {vid for ctx in self.running.values() for vid in ctx.video_ids}
                 found = await asyncio.to_thread(self._next_job, busy_ids)
                 if found is None:

@@ -200,6 +200,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             with app.state.sessionmaker() as db:
                 await backfill_subtitles(db, settings)
             with app.state.sessionmaker() as db:
+                saved_workers = db.get(RuntimeSetting, "workers")
+                if saved_workers:
+                    settings.workers = Settings(**saved_workers.value).workers
                 saved = db.get(RuntimeSetting, "encoding")
                 if saved:
                     settings.encoder = Settings(encoder=saved.value["encoder"]).encoder

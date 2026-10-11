@@ -15,10 +15,76 @@ from reelvault.config import Settings
 from reelvault.db import make_engine, make_sessionmaker
 from reelvault.jobs.handlers import edit
 from reelvault.jobs.manager import JobContext, JobManager
+from reelvault.main import create_app
 from reelvault.media.ffmpeg import Canceled, ProcessHandle, ffmpeg_args, run_command
 from reelvault.migrate import upgrade
 from reelvault.models import Job, JobLog, utcnow
-from tests.conftest import upload_ready, wait_job, wait_ready
+from tests.conftest import HEADERS, login, upload_ready, wait_job, wait_ready
+
+
+def test_worker_preference_validation_auth_and_restart(settings: Settings) -> None:
+    with TestClient(create_app(settings), headers=HEADERS) as client:
+        assert client.get("/api/system/workers").status_code == 401
+        assert client.put("/api/system/workers", json={"workers": 3}).status_code == 401
+        login(client)
+        assert client.get("/api/system/workers").json() == {"workers": 2}
+        for value in (0, -1, 33, 1.5, True, "3"):
+            assert client.put("/api/system/workers", json={"workers": value}).status_code == 422
+        assert client.put("/api/system/workers", json={"workers": 3}).json() == {"workers": 3}
+        assert client.get("/api/system/info").json()["workers"] == 3
+    settings.workers = 1
+    with TestClient(create_app(settings), headers=HEADERS) as client:
+        login(client)
+        assert client.get("/api/system/workers").json() == {"workers": 3}
+        assert len(client.app.state.jobs._tasks) == 3
+
+
+def test_live_worker_resize_drains_without_interrupting_jobs(settings: Settings) -> None:
+    settings.workers = 1
+    entered: list[str] = []
+    releases: dict[str, asyncio.Event] = {}
+
+    async def handler(ctx: JobContext, job: Job) -> None:
+        releases[job.id] = asyncio.Event()
+        entered.append(job.id)
+        await releases[job.id].wait()
+
+    m = manager(settings, {"test": handler})
+    with m.sessionmaker() as db:
+        m.submit_many(db, [("test", {}, [str(i)]) for i in range(5)])
+
+    async def until(check) -> None:
+        async with asyncio.timeout(5):
+            while not check():
+                await asyncio.sleep(0.01)
+
+    async def run() -> None:
+        await m.start()
+        try:
+            await until(lambda: len(entered) == 1)
+            await m.set_workers(3)
+            await until(lambda: len(entered) == 3)
+            await m.set_workers(1)
+            for index in range(2):
+                releases[entered[index]].set()
+                await until(lambda index=index: len(m.running) == 2 - index)
+                await asyncio.sleep(0.05)
+                assert len(entered) == 3
+            releases[entered[2]].set()
+            await until(lambda: len(entered) == 4)
+            assert len(m.running) == 1
+            await m.set_workers(2)
+            await until(lambda: len(entered) == 5)
+            assert len(m._tasks) == 3
+            for release in releases.values():
+                release.set()
+            await m.wait_idle()
+            with m.sessionmaker() as db:
+                assert all(job.status == "succeeded" for job in db.scalars(select(Job)))
+        finally:
+            await m.stop()
+
+    asyncio.run(run())
 
 
 def manager(settings: Settings, handlers=None) -> JobManager:

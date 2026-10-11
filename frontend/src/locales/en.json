@@ -1714,5 +1714,13 @@
   "旋转与翻转": "Rotate and flip",
   "播放倍速": "Playback speed",
   "开始混合编辑": "Start combined editing",
-  "请选择要与压缩组合的操作，并检查时间、裁切范围、旋转及倍速设置。": "Select an operation to combine with compression and check the time range, crop bounds, rotation and speed settings."
+  "请选择要与压缩组合的操作，并检查时间、裁切范围、旋转及倍速设置。": "Select an operation to combine with compression and check the time range, crop bounds, rotation and speed settings.",
+  "任务并发": "Task concurrency",
+  "并发任务数": "Concurrent jobs",
+  "可设置 1–32 个任务，默认 2。": "Set 1–32 concurrent jobs. Default: 2.",
+  "建议从 2 开始；4 核以下、内存较少，或播放与页面卡顿时设为 1。资源充足时逐步尝试 3–4，并观察 CPU、内存和磁盘负载。": "Start with 2; use 1 on machines with fewer than 4 cores, limited memory, or sluggish playback and pages. If resources allow, gradually try 3–4 while monitoring CPU, memory, and disk load.",
+  "每个 FFmpeg 会使用多个线程，转写任务会各自加载模型；硬件编码也受设备会话数限制。增加并发不保证单个任务更快。": "Each FFmpeg process uses multiple threads, and each transcription job loads its own model. Hardware encoding also has device session limits. More concurrent jobs do not guarantee faster individual jobs.",
+  "保存后无需重启，设置会保留。增加并发立即用于排队任务；降低并发不会中断已开始的任务，待占用槽位数低于新上限后再启动排队任务。同源视频任务仍串行，已开始的暂停任务也占槽位。": "Settings are saved across restarts and apply without restarting. Increasing concurrency immediately allows queued jobs to start. Decreasing it lets started jobs finish; queued jobs start once occupied slots fall below the new limit. Jobs sharing a source video remain sequential, and paused jobs that have started still occupy a slot.",
+  "保存并发设置": "Save concurrency settings",
+  "并发任务设置已保存，无需重启": "Concurrency settings saved; no restart required"
 }

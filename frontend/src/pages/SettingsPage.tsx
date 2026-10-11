@@ -32,6 +32,7 @@ import ObservabilityPanel from '../components/ObservabilityPanel'
 import LinkImportSettings from '../components/LinkImport'
 import StoragePanel from '../components/StoragePanel'
 import EncodingPanel from '../components/EncodingPanel'
+import WorkerPanel from '../components/WorkerPanel'
 import ImportSettings from '../components/ImportSettings'
 import PwaPanel from '../components/PwaPanel'
 import LanguageSelect from '../components/LanguageSelect'
@@ -242,6 +243,7 @@ export default function SettingsPage() {
       <Paper withBorder p="md"><NotificationPanel /></Paper>
       <Paper withBorder p="md"><SpritePanel /></Paper>
       <Paper withBorder p="md"><MediaProbePanel /></Paper>
+      <Paper withBorder p="md"><WorkerPanel /></Paper>
       <Paper withBorder p="md">
         <EncodingPanel />
         <LocationsPanel />
