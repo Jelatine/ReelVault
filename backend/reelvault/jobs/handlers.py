@@ -501,7 +501,16 @@ async def _replace_with_backup(
             file_path=video.file_path,
             folder_id=video.folder_id,
             size=video.size,
-            status="processing",
+            status=video.status,
+            error=video.error,
+            duration=video.duration,
+            width=video.width,
+            height=video.height,
+            fps=video.fps,
+            bitrate=video.bitrate,
+            container=video.container,
+            video_codec=video.video_codec,
+            audio_codec=video.audio_codec,
             deleted_at=utcnow(),
             source_video_id=video.source_video_id,
             edit_params=video.edit_params,
@@ -510,6 +519,7 @@ async def _replace_with_backup(
             rating=video.rating,
             favorite=video.favorite,
             cover_time=video.cover_time,
+            asset_version=video.asset_version,
             meta=video.meta,
             captured_at=video.captured_at,
             metadata_overrides=dict(video.metadata_overrides or {}),
@@ -518,11 +528,35 @@ async def _replace_with_backup(
         backup.tags = list(video.tags)
         db.add(backup)
         db.flush()
-        # Preserve the exact cover image for embedding/replay and custom covers.
-        old_cover = derived_dir(s, video.id) / derive.POSTER
-        if old_cover.is_file():
-            shutil.copy2(old_cover, derived_dir(s, backup.id) / derive.POSTER)
-            backup.meta = {**(backup.meta or {}), "custom_cover": True}
+        # The original is unchanged: retain its assets instead of ingesting it again.
+        old_assets = derived_dir(s, video.id)
+        backup_assets = derived_dir(s, backup.id)
+        for filename, flag in (
+            (derive.POSTER, "has_poster"),
+            (derive.PREVIEW, "has_preview"),
+            (derive.SPRITE, "has_sprite"),
+        ):
+            asset = old_assets / filename
+            if asset.is_file():
+                shutil.copy2(asset, backup_assets / filename)
+                setattr(backup, flag, True)
+        old_vtt = old_assets / derive.VTT
+        if old_vtt.is_file():
+            (backup_assets / derive.VTT).write_text(
+                old_vtt.read_text().replace(
+                    f"/api/videos/{video.id}/", f"/api/videos/{backup.id}/"
+                ),
+                newline="\n",
+            )
+        if video.playable_path:
+            old_copy = abs_path(s, video.playable_path)
+            if old_copy.is_file():
+                backup_copy = backup_assets / derive.PLAYABLE
+                try:
+                    backup_copy.hardlink_to(old_copy)
+                except OSError:
+                    shutil.copy2(old_copy, backup_copy)
+                backup.playable_path = rel_path(s, backup_copy)
         video.source_video_id = backup.id
         video.edit_params = params.model_dump()
         video.edited_at = utcnow()
@@ -539,10 +573,8 @@ async def _replace_with_backup(
         video.has_preview = video.has_sprite = False
         video.asset_version += 1
         db.commit()
-        backup_id = backup.id
     if old_playable:
         abs_path(s, old_playable).unlink(missing_ok=True)
-    ctx.manager.submit_from_worker("ingest", {}, [backup_id])
     return source.id
 
 

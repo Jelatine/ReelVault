@@ -6,7 +6,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from reelvault.media import ops
+from reelvault.config import Settings
+from reelvault.media import derive, ops
 from reelvault.media.ops import atempo_chain
 from reelvault.media.probe import MediaInfo
 
@@ -206,14 +207,43 @@ def test_extract_audio(client: TestClient, clip: dict[str, Any]) -> None:
     assert "clip_a.mp3" in r.headers["content-disposition"]
 
 
-def test_replace_mode_keeps_id_and_backs_up(client: TestClient, clip: dict[str, Any]) -> None:
+@pytest.mark.parametrize("sample", ["a", "mkv"])
+def test_replace_mode_keeps_id_and_backs_up(
+    client: TestClient, settings: Settings, samples: dict[str, Path], sample: str
+) -> None:
+    clip = upload_ready(client, samples[sample])
+    assert client.post(f"/api/videos/{clip['id']}/cover", json={"time": 1.0}).status_code == 200
+    clip = client.get(f"/api/videos/{clip['id']}").json()
+    old_assets = settings.derived_dir / clip["id"]
+    assets = {
+        name: (old_assets / name).read_bytes()
+        for name in (derive.POSTER, derive.PREVIEW, derive.SPRITE, derive.VTT, derive.PLAYABLE)
+        if (old_assets / name).is_file()
+    }
     job = run_edit(client, clip["id"], {"op": "rotate", "angle": 90}, {"mode": "replace"})
     assert job["result_video_id"] == clip["id"]
     v = wait_ready(client, clip["id"])
     assert (v["width"], v["height"]) == (240, 320)
     trash = client.get("/api/videos", params={"trash": True}).json()["items"]
-    assert [t["title"] for t in trash] == ["clip_a (编辑前)"]
-    wait_ready(client, trash[0]["id"])
+    assert [t["title"] for t in trash] == [f"{clip['title']} (编辑前)"]
+    backup = trash[0]
+    assert backup["status"] == "ready"
+    assert (backup["width"], backup["height"], backup["duration"]) == (
+        clip["width"], clip["height"], clip["duration"]
+    )
+    assert client.get("/api/jobs", params={"video_id": backup["id"]}).json() == []
+    for name, content in assets.items():
+        if name == derive.VTT:
+            content = content.replace(clip["id"].encode(), backup["id"].encode())
+        assert (settings.derived_dir / backup["id"] / name).read_bytes() == content
+    restored = client.post(f"/api/videos/{backup['id']}/restore").json()
+    for key in ("poster_url", "preview_url", "thumbnails_url"):
+        assert restored[key]
+        assert client.get(restored[key]).status_code == 200
+    assert client.get(restored["stream_url"]).status_code == 200
+    if sample == "mkv":
+        assert derive.PLAYABLE in assets
+        assert client.get(f"/api/videos/{backup['id']}/playback-cache").json()["cached"]
 
 
 def test_embed_cover(client: TestClient, clip: dict[str, Any]) -> None:
