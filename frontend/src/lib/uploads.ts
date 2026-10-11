@@ -45,6 +45,10 @@ type Listener = () => void
 const RESUME_PREFIX = 'reelvault.upload.'
 const CONCURRENCY = 2
 
+function retryable(error: unknown) {
+  return !(error instanceof ApiError) || error.status === 408 || error.status === 429 || error.status >= 500
+}
+
 /** Chunked, resumable uploads. Upload ids are remembered in localStorage so a page
  * reload (or retry) continues from the last byte the server acknowledged. */
 export class UploadStore {
@@ -53,7 +57,27 @@ export class UploadStore {
   private aborts = new Map<string, AbortController>()
   private listeners = new Set<Listener>()
   private active = 0
+  private recoverable = new Set<string>()
+  private watching = false
   onComplete?: (video: Video) => void
+
+  private recover = () => {
+    if (document.visibilityState === 'hidden' || navigator.onLine === false) return
+    for (const key of this.recoverable) this.retry(key)
+  }
+
+  private watchRecovery() {
+    const needed = this.active > 0 || this.recoverable.size > 0
+    if (needed === this.watching) return
+    this.watching = needed
+    if (needed) {
+      document.addEventListener('visibilitychange', this.recover)
+      window.addEventListener('online', this.recover)
+    } else {
+      document.removeEventListener('visibilitychange', this.recover)
+      window.removeEventListener('online', this.recover)
+    }
+  }
 
   subscribe = (l: Listener) => {
     this.listeners.add(l)
@@ -88,11 +112,13 @@ export class UploadStore {
 
   retry(key: string) {
     if (!this.files.has(key) || this.aborts.has(key)) return
+    this.recoverable.delete(key)
     this.update(key, { status: 'pending', error: undefined })
     this.pump()
   }
 
   cancel(key: string) {
+    this.recoverable.delete(key)
     this.aborts.get(key)?.abort()
     const resumeId = savedUpload(key)
     if (resumeId) {
@@ -100,14 +126,19 @@ export class UploadStore {
       api.del(`/api/uploads/${resumeId}`).catch(() => undefined)
     }
     this.update(key, { status: 'canceled' })
+    this.watchRecovery()
   }
 
   clearFinished() {
     for (const item of this.items) {
-      if (!['pending', 'uploading'].includes(item.status)) this.files.delete(item.key)
+      if (!['pending', 'uploading'].includes(item.status)) {
+        this.files.delete(item.key)
+        this.recoverable.delete(item.key)
+      }
     }
     this.items = this.items.filter((i) => i.status === 'pending' || i.status === 'uploading')
     this.emit()
+    this.watchRecovery()
   }
 
   private pump() {
@@ -115,10 +146,12 @@ export class UploadStore {
       const next = this.items.find((i) => i.status === 'pending')
       if (!next) return
       this.active++
+      this.watchRecovery()
       this.update(next.key, { status: 'uploading' })
       this.run(next.key).finally(() => {
         this.active--
         this.pump()
+        this.watchRecovery()
       })
     }
   }
@@ -128,7 +161,9 @@ export class UploadStore {
     if (saved) {
       try {
         return await api.get<UploadInfo>(`/api/uploads/${saved}`)
-      } catch {
+      } catch (e) {
+        // A transient outage must not orphan the existing upload and start over.
+        if (!(e instanceof ApiError) || e.status !== 404) throw e
         savedUpload(key, null)
       }
     }
@@ -178,6 +213,7 @@ export class UploadStore {
               offset = data.detail?.received ?? offset
               break
             }
+            if (!retryable(e)) throw e
             if (++attempt >= 5) throw e
             await new Promise((r) => setTimeout(r, 1000 * attempt))
           }
@@ -192,6 +228,7 @@ export class UploadStore {
       this.onComplete?.(video)
     } catch (e) {
       if (abort.signal.aborted) return
+      if (retryable(e)) this.recoverable.add(key)
       this.update(key, { status: 'error', error: e instanceof Error ? e.message : String(e) })
     } finally {
       this.aborts.delete(key)
