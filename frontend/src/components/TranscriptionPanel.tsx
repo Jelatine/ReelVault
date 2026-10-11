@@ -30,12 +30,11 @@ export default function TranscriptionPanel({ video }: { video: Video }) {
     } catch (e) { setFailure(e instanceof Error ? e : String(e)) }
     finally { setBusy(false) }
   }
-  if (!data && !query.error) return null
+  if (data?.enabled === false || (!data && !query.error)) return null
   return <Paper withBorder p="sm"><Stack gap="xs">
     <Text fw={600}>{tr('语音转写与内容搜索')}</Text>
     <Text size="sm" c="dimmed">{tr('在服务器本地识别语音，生成可切换字幕。搜索字幕内容可直接跳到对应句子。')}</Text>
     {(query.error || failure) && <Alert color="red">{errorText(failure || query.error!)}<Button size="xs" variant="subtle" onClick={() => void query.refetch()}>{tr('刷新')}</Button></Alert>}
-    {data && !data.enabled && <Text size="sm" c="dimmed">{tr('管理员尚未启用本地语音转写。已添加的字幕仍可进行内容搜索。')}</Text>}
     {data?.enabled && !data.available && <Alert color="orange">{tr('本地转写组件未安装，请查看部署说明。')}</Alert>}
     {data?.enabled && !data.has_audio && <Text size="sm">{tr('视频没有音轨')}</Text>}
     {data?.stale && <Alert color="orange">{tr('源视频已变化，原转写不参与搜索，请重新转写。')}</Alert>}

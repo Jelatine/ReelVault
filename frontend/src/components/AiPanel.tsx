@@ -39,11 +39,11 @@ export default function AiPanel({ video }: { video: Video }) {
     finally { setBusy(false) }
   }
   const chosen = selected.filter(name => data?.analysis?.suggestions.some(s => s.name === name))
+  if (data?.enabled === false || (!data && !query.error && !service.error)) return null
   return <Paper withBorder p="sm"><Stack gap="xs">
     <Text fw={600}>{tr('AI 标签与人脸')}</Text>
     <Text size="sm" c="dimmed">{tr('根据抽样画面提出候选标签，需人工采纳。人脸分组可能出错，可手动纠正。')}</Text>
     {(query.error || service.error || failure) && <Alert color="red">{errorText(failure || query.error || service.error!)}<Button size="xs" variant="subtle" onClick={() => { void query.refetch(); void service.refetch() }}>{tr('刷新')}</Button></Alert>}
-    {data && !data.enabled && <Text size="sm" c="dimmed">{tr('管理员尚未启用 AI 分析。')}</Text>}
     {data?.enabled && <>
       {!data.index_ready && <Alert color="orange">{tr('请先生成有效的画面索引。')}</Alert>}
       {!service.data?.available && <Alert color="orange">{tr('视觉模型服务尚未就绪，请查看部署说明。')}<Button size="xs" variant="subtle" onClick={() => void service.refetch()}>{tr('刷新')}</Button></Alert>}

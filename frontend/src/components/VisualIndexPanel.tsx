@@ -37,11 +37,11 @@ export default function VisualIndexPanel({ video }: { video: Video }) {
     } catch (e) { setFailure(e instanceof Error ? e : String(e)) }
     finally { setBusy(false) }
   }
+  if (data?.enabled === false || (!data && !query.error)) return null
   return <Paper withBorder p="sm"><Stack gap="xs">
     <Text fw={600}>{tr('画面搜索索引')}</Text>
     <Text c="dimmed" size="sm">{tr('抽取画面后，可用中文、英文描述或图片查找相似视频，并跳转到对应时间点。')}</Text>
     {(query.error || failure) && <Alert color="red">{errorText(failure || query.error!)}<Button variant="subtle" size="xs" onClick={() => void query.refetch()}>{tr('刷新')}</Button></Alert>}
-    {data && !data.enabled && <Text c="dimmed" size="sm">{tr('管理员尚未启用画面搜索。')}</Text>}
     {data?.enabled && !service.data?.available && <Alert color="orange">{tr('视觉模型服务尚未就绪，请查看部署说明。')}<Button size="xs" variant="subtle" onClick={() => void service.refetch()}>{tr('刷新')}</Button></Alert>}
     {data?.stale && <Alert color="orange">{tr('源文件或模型已变化，请重新生成画面索引。')}</Alert>}
     {data?.index && <Text size="sm">{tr('已索引 {{count}} 个画面', { count: data.index.frames })}</Text>}
