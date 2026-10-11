@@ -286,7 +286,7 @@ def storage_estimate(
             requirements[key] = requirements.get(key, 0) + amount
 
     for size in body.upload_sizes:
-        add(upload_requirements(size, body.storage_id or settings.storage_default))
+        add(upload_requirements(size, body.storage_id or settings.storage_default, settings))
     if body.edit:
         ids = body.video_ids
         if isinstance(body.edit, (ops.MergeParams, ops.CompositeParams)):

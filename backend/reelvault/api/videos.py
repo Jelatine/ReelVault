@@ -147,8 +147,8 @@ def init_upload(
         check_budget(
             db,
             settings,
-            upload_bytes(body.size),
-            requirements=upload_requirements(body.size, storage_id),
+            upload_bytes(body.size, settings),
+            requirements=upload_requirements(body.size, storage_id, settings),
         )
         upload = Upload(
             storage_id=storage_id,
@@ -195,7 +195,7 @@ async def upload_chunk(
         )
     path = _upload_path(settings, upload_id)
     received_bytes = path.stat().st_size if path.exists() else 0
-    plan = upload_requirements(upload.size, upload.storage_id)
+    plan = upload_requirements(upload.size, upload.storage_id, settings)
     plan["local"] = max(0, plan["local"] - received_bytes)
     check_budget(db, settings, plan["local"], exclude_upload=upload.id, requirements=plan)
     written = 0
@@ -255,7 +255,10 @@ def complete_upload(
         db.delete(upload)
         db.flush()
         jobs.submit(
-            db, "ingest", {"storage_bytes": upload_bytes(upload.size) - upload.size}, [video.id]
+            db,
+            "ingest",
+            {"storage_bytes": upload_bytes(upload.size, settings) - upload.size},
+            [video.id],
         )
     except Exception:
         db.rollback()

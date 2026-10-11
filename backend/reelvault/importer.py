@@ -20,7 +20,7 @@ from .jobs.manager import JobManager
 from .library import VIDEO_EXTENSIONS, abs_path, stem_of, store_file
 from .locations import library_root
 from .models import ImportSource, RuntimeSetting, Video, new_id, utcnow
-from .storage import MIB, check_budget, lock_budget, upload_requirements
+from .storage import check_budget, lock_budget, upload_bytes, upload_requirements
 
 log = logging.getLogger("reelvault.import")
 
@@ -159,7 +159,9 @@ class Importer:
                                 db,
                                 self.settings,
                                 0,
-                                requirements=upload_requirements(stat.st_size, storage_id),
+                                requirements=upload_requirements(
+                                    stat.st_size, storage_id, self.settings
+                                ),
                             )
                             snapshot = self.settings.tmp_dir / (
                                 f"import-{new_id()}{path.suffix.lower()}"
@@ -194,7 +196,10 @@ class Importer:
                                 self.jobs.submit(
                                     db,
                                     "ingest",
-                                    {"storage_bytes": 3 * stat.st_size + 32 * MIB},
+                                    {
+                                        "storage_bytes": upload_bytes(stat.st_size, self.settings)
+                                        - stat.st_size
+                                    },
                                     [video.id],
                                 )
                             except Exception:

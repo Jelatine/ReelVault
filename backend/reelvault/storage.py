@@ -43,10 +43,12 @@ def budget_transaction(db: Session) -> Iterator[None]:
         db.rollback()
 
 
-def upload_bytes(size: int) -> int:
-    # Codec/duration are unknown until upload completes: original plus a generous
-    # allowance for a playable copy and thumbnails. This is an estimate, not a cap.
-    return size * 4 + 32 * MIB
+def upload_bytes(size: int, settings: Settings) -> int:
+    # Large files skip eager playback conversion, so reserve only the original
+    # and derived assets. Smaller files still need a conservative copy allowance
+    # until probing determines their codecs/duration. This is a budget, not a cap.
+    copies = 4 if size <= settings.playable_eager_max_mb * MIB else 1
+    return size * copies + 32 * MIB
 
 
 def edit_bytes(db: Session, edit: ops.EditParams, ids: list[str]) -> int:
@@ -164,8 +166,8 @@ def job_requirements(
     return requirements
 
 
-def upload_requirements(size: int, storage_id: str) -> dict[str, int]:
-    requirements = {"local": upload_bytes(size)}
+def upload_requirements(size: int, storage_id: str, settings: Settings) -> dict[str, int]:
+    requirements = {"local": upload_bytes(size, settings)}
     if storage_id not in {"local", "s3"}:
         requirements[storage_id] = size
     return requirements
@@ -218,7 +220,7 @@ def snapshot(
             written = path.stat().st_size
         except FileNotFoundError:
             written = 0
-        plan = upload_requirements(upload.size, upload.storage_id)
+        plan = upload_requirements(upload.size, upload.storage_id, settings)
         plan["local"] = max(0, plan["local"] - written)
         reserve(plan)
     for job in db.scalars(select(Job).where(Job.status.in_(ACTIVE), Job.id != exclude_job)):

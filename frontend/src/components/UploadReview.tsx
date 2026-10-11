@@ -3,6 +3,7 @@ import { tr } from '../lib/i18n'
 import { Alert, Button, Group, ScrollArea, Stack, TagsInput, Text } from '@mantine/core'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { formatBytes } from '../lib/format'
 import { api, errorText } from '../lib/api'
 import StorageEstimate from './StorageEstimate'
 import { useLocations } from '../lib/locations'
@@ -38,6 +39,7 @@ export default function UploadReview({ files, folderId, onStart, onCancel }: {
       data={existing.data?.map((t) => t.name) ?? []} maxTags={100} />
     {files.some((f) => f.size === 0) && <Alert color="red">{tr("存在空文件，请取消后重新选择。")}</Alert>}
     {estimate.data && <Alert color={estimate.data.sufficient ? (estimate.data.low_space ? 'orange' : 'blue') : 'red'} title={tr('空间预估')}>
+      <Text size="sm">{tr('原文件合计 {{size}}。以下为上传和处理所需的保守空间预算，包含临时文件、预览及可能的播放副本，不代表最终占用。', { size: formatBytes(sizes.reduce((total, size) => total + size, 0)) })}</Text>
       <StorageEstimate data={estimate.data} />
       {!estimate.data.sufficient && <Text size="sm">{tr('磁盘可用空间不足，请清理空间或取消未完成任务后重试')}</Text>}
     </Alert>}

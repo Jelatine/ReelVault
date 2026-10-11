@@ -45,7 +45,7 @@ async def link_import(ctx: JobContext, job: Job) -> None:
             stored.params = {**stored.params, "storage_bytes": 0, "storage_plan": {}}
             db.flush()
             size = source.stat().st_size
-            plan = {"local": upload_bytes(size) - size}
+            plan = {"local": upload_bytes(size, settings) - size}
             # The S3 staging copy is moved within the primary data disk, as for local.
             if storage_id not in {"local", "s3"}:
                 plan[storage_id] = size
@@ -66,7 +66,7 @@ async def link_import(ctx: JobContext, job: Job) -> None:
                 stored.result_video_id = video.id
                 stored.params = {**stored.params, "imported_title": video.title}
                 ctx.manager.submit(
-                    db, "ingest", {"storage_bytes": upload_bytes(size) - size}, [video.id]
+                    db, "ingest", {"storage_bytes": upload_bytes(size, settings) - size}, [video.id]
                 )
             except Exception:
                 db.rollback()

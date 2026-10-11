@@ -313,7 +313,7 @@ def test_shared_filesystem_budget_and_frozen_upload_target(client, settings, tmp
     assert not estimate[
         "sufficient"
     ]  # 432 MiB staging/derived + 100 MiB destination + 64 MiB floor
-    assert estimate["required_bytes"] == upload_bytes(100 * MIB) + 100 * MIB
+    assert estimate["required_bytes"] == upload_bytes(100 * MIB, settings) + 100 * MIB
     assert estimate["locations"][0]["required_bytes"] == estimate["locations"][1]["required_bytes"]
     assert (
         client.post(
@@ -330,7 +330,7 @@ def test_shared_filesystem_budget_and_frozen_upload_target(client, settings, tmp
     with client.app.state.sessionmaker() as db:
         assert db.get(Upload, response.json()["id"]).storage_id == location_id
     state = client.get("/api/system/storage").json()
-    assert state["reserved_bytes"] == upload_bytes(10 * MIB) + 10 * MIB
+    assert state["reserved_bytes"] == upload_bytes(10 * MIB, settings) + 10 * MIB
     root.rename(tmp_path / "disconnected")
     assert (
         client.post(f"/api/uploads/{response.json()['id']}/complete").status_code == 400

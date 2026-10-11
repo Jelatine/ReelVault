@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -67,7 +68,7 @@ def test_warning_includes_uploads_and_uses_larger_threshold(client, settings, mo
     result = client.post("/api/uploads", json={"filename": "clip.mp4", "size": 200 * MIB})
     assert result.status_code == 200
     state = client.get("/api/system/storage").json()
-    assert state["reserved_bytes"] == upload_bytes(200 * MIB)
+    assert state["reserved_bytes"] == upload_bytes(200 * MIB, settings)
     assert state["low_space"] and state["warning_bytes"] == 1024 * MIB
     # Actual partial bytes are already included in free space, not reserved twice.
     (settings.tmp_dir / f"upload-{result.json()['id']}.part").write_bytes(b"x" * MIB)
@@ -79,6 +80,41 @@ def test_warning_includes_uploads_and_uses_larger_threshold(client, settings, mo
     assert client.get("/api/system/storage").json()["warning_bytes"] == 2000 * MIB
     client.put("/api/system/storage", json={"warning_mb": 0, "warning_percent": 0})
     assert not client.get("/api/system/storage").json()["low_space"]
+
+
+@pytest.mark.parametrize(
+    ("threshold", "size", "copies"),
+    [(256, 256 * MIB, 4), (256, 256 * MIB + 1, 1), (0, MIB, 1), (1024, 512 * MIB, 4)],
+)
+def test_upload_budget_matches_eager_threshold(
+    client, settings, monkeypatch, threshold, size, copies
+):
+    settings.playable_eager_max_mb = threshold
+    required = size * copies + 32 * MIB
+    disk(monkeypatch, required + 64 * MIB)
+    response = client.post("/api/system/storage/estimate", json={"upload_sizes": [size]})
+    assert response.status_code == 200
+    assert response.json()["required_bytes"] == required
+    assert response.json()["sufficient"]
+    result = client.post("/api/uploads", json={"filename": "clip.mp4", "size": size})
+    assert result.status_code == 200, result.text
+    assert client.get("/api/system/storage").json()["reserved_bytes"] == required
+    assert (
+        client.put(f"/api/uploads/{result.json()['id']}?offset=0", content=b"abc").status_code
+        == 200
+    )
+    assert client.get("/api/system/storage").json()["reserved_bytes"] == required - 3
+
+
+def test_upload_completion_transfers_reduced_budget(client, settings, samples, monkeypatch):
+    settings.playable_eager_max_mb = 0
+    monkeypatch.setattr(client.app.state.jobs, "enqueue", lambda _: None)
+    video = upload(client, samples["a"])
+    with client.app.state.sessionmaker() as db:
+        job = db.scalar(select(Job).where(Job.kind == "ingest"))
+        assert job.video_ids == [video["id"]]
+        assert job.params["storage_bytes"] == 32 * MIB
+    assert client.get("/api/system/storage").json()["reserved_bytes"] == 32 * MIB
 
 
 def test_concurrent_uploads_cannot_overbook(client, monkeypatch):
