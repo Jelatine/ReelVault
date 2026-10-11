@@ -24,6 +24,7 @@ KINDS = (
     "link_import",
     "playable",
     "sprite",
+    "probe",
     "transcribe",
     "vision_index",
     "ai_analyze",

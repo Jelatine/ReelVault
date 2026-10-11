@@ -755,6 +755,21 @@ async def sprite(ctx: JobContext, job: Job) -> None:
         await asyncio.to_thread(shutil.rmtree, temp, ignore_errors=True)
 
 
+async def probe_media(ctx: JobContext, job: Job) -> None:
+    """Re-probe a ready video and merge the stream details into its metadata."""
+    source, info, video = (await _load_sources(ctx, job.video_ids))[0]
+    ctx.check_canceled()
+    with ctx.db() as db:
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        current = db.get(Video, video.id)
+        if current is None or current.deleted_at or current.file_path != video.file_path:
+            raise RuntimeError("源视频已变化，媒体信息未保存")
+        # Only probe-derived keys change; columns and derived assets stay as ingested.
+        current.meta = {**(current.meta or {}), **info.to_meta()}
+        db.commit()
+    ctx.set_progress(1, "媒体信息已更新")
+
+
 async def original_cache(ctx: JobContext, job: Job) -> None:
     """The manager has already fetched and pinned the original; confirm it."""
     from ..object_library import cache_valid
@@ -778,6 +793,7 @@ HANDLERS: dict[str, Handler] = {
     "hls": hls,
     "playable": playable,
     "sprite": sprite,
+    "probe": probe_media,
     "transcribe": transcribe,
     "vision_index": index_vision,
     "ai_analyze": analyse_ai,

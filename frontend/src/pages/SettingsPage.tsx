@@ -38,6 +38,7 @@ import LanguageSelect from '../components/LanguageSelect'
 import NotificationPanel from '../components/NotificationPanel'
 import WebdavPanel from '../components/WebdavPanel'
 import SpritePanel from '../components/SpritePanel'
+import MediaProbePanel from '../components/MediaProbePanel'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { formatBytes, formatDate } from '../lib/format'
@@ -240,6 +241,7 @@ export default function SettingsPage() {
       <Paper withBorder p="md"><PwaPanel /></Paper>
       <Paper withBorder p="md"><NotificationPanel /></Paper>
       <Paper withBorder p="md"><SpritePanel /></Paper>
+      <Paper withBorder p="md"><MediaProbePanel /></Paper>
       <Paper withBorder p="md">
         <EncodingPanel />
         <LocationsPanel />
