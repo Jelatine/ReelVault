@@ -115,3 +115,40 @@ def test_batch_accepts_direct_params_and_replace_mode(
     result = wait_ready(client, video["id"])
     assert result["width"] == 240
     assert client.get("/api/videos?trash=true").json()["total"] == 1
+
+
+def test_mixed_preset_batch_replace(client: TestClient, samples: dict[str, Path]) -> None:
+    a, b = upload_ready(client, samples["a"]), upload_ready(client, samples["b"])
+    created = client.post(
+        "/api/edit-presets",
+        json={
+            "name": "旋转压缩静音",
+            "edit": {
+                "op": "mixed",
+                "rotate": {"op": "rotate", "angle": 90},
+                "mute": True,
+                "compress": {"op": "compress", "quality": "low"},
+            },
+        },
+    )
+    assert created.status_code == 200, created.text
+    preset = created.json()
+    response = client.post(
+        "/api/jobs/batch",
+        json={
+            "video_ids": [a["id"], b["id"]],
+            "preset_id": preset["id"],
+            "output": {"mode": "replace"},
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == 2
+    for job, source in zip(response.json(), [a, b], strict=True):
+        done = wait_job(client, job["id"])
+        assert done["status"] == "succeeded", done["error"]
+        assert done["result_video_id"] == source["id"]
+        assert done["params"]["edit"] == preset["edit"]
+        result = wait_ready(client, source["id"])
+        assert (result["width"], result["height"]) == (240, 320)
+        assert result["audio_codec"] is None
+    assert client.get("/api/videos?trash=true").json()["total"] == 2

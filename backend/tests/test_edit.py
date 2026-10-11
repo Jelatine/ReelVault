@@ -6,7 +6,9 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from reelvault.media import ops
 from reelvault.media.ops import atempo_chain
+from reelvault.media.probe import MediaInfo
 
 from .conftest import upload_ready, wait_job, wait_ready
 
@@ -105,6 +107,78 @@ def test_compress_h265(client: TestClient, clip: dict[str, Any]) -> None:
     edit = {"op": "compress", "codec": "h265", "preset": "ultrafast"}
     v = result_video(client, run_edit(client, clip["id"], edit))
     assert v["video_codec"] == "hevc"
+
+
+def test_mixed_rotate_compress(client: TestClient, samples: dict[str, Path]) -> None:
+    source = upload_ready(client, samples["long"])
+    edit = {
+        "op": "mixed",
+        "rotate": {"op": "rotate", "angle": 90, "flip": "horizontal"},
+        "compress": {"op": "compress", "resolution": 360, "quality": "low"},
+    }
+    job = run_edit(client, source["id"], edit)
+    v = result_video(client, job)
+    assert (v["width"], v["height"]) == (360, 640)
+    assert v["size"] < source["size"]
+    assert v["audio_codec"] == "aac"
+    assert v["title"].endswith("(混合编辑)")
+    assert job["params"]["edit"]["rotate"]["angle"] == 90
+
+
+@pytest.mark.parametrize("mute", [False, True])
+def test_mixed_trim_crop_speed_target(
+    client: TestClient, clip: dict[str, Any], mute: bool
+) -> None:
+    edit = {
+        "op": "mixed",
+        "trim": {"start": 1, "end": 3},
+        "crop": {"op": "crop", "x": 10, "y": 20, "width": 200, "height": 100},
+        "rotate": {"op": "rotate", "angle": 90},
+        "speed": {"op": "speed", "factor": 2},
+        "mute": mute,
+        "compress": {"op": "compress", "target_size_mb": 0.15, "preset": "veryfast"},
+    }
+    v = result_video(client, run_edit(client, clip["id"], edit))
+    assert (v["width"], v["height"]) == (100, 200)
+    assert 0.8 < v["duration"] < 1.3
+    assert v["audio_codec"] == (None if mute else "aac")
+    assert v["size"] < 0.15 * 1.2 * 1024 * 1024
+
+
+def test_mixed_invalid_params(client: TestClient, clip: dict[str, Any]) -> None:
+    for params in (
+        {},
+        {"rotate": {"op": "rotate", "angle": 45}},
+        {"trim": {"start": 3, "end": 1}},
+        {"speed": {"op": "speed", "factor": 0}},
+    ):
+        r = client.post(f"/api/videos/{clip['id']}/edit", json={"edit": {"op": "mixed", **params}})
+        assert r.status_code == 422
+    edit = {"op": "mixed", "crop": {"op": "crop", "x": 0, "y": 0, "width": 999, "height": 100}}
+    job_id = client.post(f"/api/videos/{clip['id']}/edit", json={"edit": edit}).json()["id"]
+    assert wait_job(client, job_id)["status"] == "failed"
+
+
+@pytest.mark.parametrize("target", [None, 1.0])
+def test_mixed_plan_encodes_filters_together(tmp_path: Path, target: float | None) -> None:
+    info = MediaInfo(width=1920, height=1080, duration=10, fps=30, audio_codec="aac", audio_index=1)
+    params = ops.MixedParams(
+        crop=ops.CropParams(x=0, y=0, width=1280, height=720),
+        rotate=ops.RotateParams(angle=90),
+        speed=ops.SpeedParams(factor=0.5),
+        compress=ops.CompressParams(resolution=360, target_size_mb=target),
+    )
+    plan = ops.plan_mixed(params, (tmp_path / "source.mp4", info), tmp_path / "out.mp4", tmp_path)
+    assert len(plan.commands) == (1 if target is None else 2)
+    assert plan.duration == 20
+    for command in plan.commands:
+        assert command.count("-i") == 1
+        filters = command[command.index("-vf") + 1]
+        assert filters == (
+            "crop=1280:720:0:0,transpose=clock,setpts=PTS/0.5,scale=360:640,format=yuv420p"
+        )
+    assert (info.width, info.height, info.duration) == (1920, 1080, 10)
+    assert "-af" in plan.commands[-1]
 
 
 def test_crop_speed_mute_convert(client: TestClient, clip: dict[str, Any]) -> None:

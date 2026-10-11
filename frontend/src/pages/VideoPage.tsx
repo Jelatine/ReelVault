@@ -454,6 +454,7 @@ export default function VideoPage() {
                     <Tabs.Tab value="rotate" leftSection={<IconRotateClockwise size={14} />}>{tr("旋转")}</Tabs.Tab>
                     <Tabs.Tab value="merge" leftSection={<IconArrowsJoin size={14} />}>{tr("合并")}</Tabs.Tab>
                     <Tabs.Tab value="compress" leftSection={<IconZoomOut size={14} />}>{tr("压缩")}</Tabs.Tab>
+                    <Tabs.Tab value="mixed" leftSection={<IconTool size={14} />}>{tr("混合编辑")}</Tabs.Tab>
                     <Tabs.Tab value="cover" leftSection={<IconPhoto size={14} />}>{tr("封面")}</Tabs.Tab>
                     <Tabs.Tab value="more" leftSection={<IconTool size={14} />}>{tr("更多")}</Tabs.Tab>
                   </Tabs.List>
@@ -468,6 +469,9 @@ export default function VideoPage() {
                   </Tabs.Panel>
                   <Tabs.Panel value="compress">
                     <CompressPanel {...ctx} />
+                  </Tabs.Panel>
+                  <Tabs.Panel value="mixed">
+                    <CompressPanel {...ctx} mixed />
                   </Tabs.Panel>
                   <Tabs.Panel value="cover">
                     <CoverPanel {...ctx} />

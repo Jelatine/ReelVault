@@ -26,6 +26,7 @@ const operationLabels = (): Record<string, string> => ({
   trim: tr("剪辑"),
   merge: tr("合并"),
   compress: tr("压缩"),
+  mixed: tr("混合编辑"),
   crop: tr("裁切画面"),
   speed: tr("变速"),
   mute: tr("静音"),

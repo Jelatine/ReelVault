@@ -3,6 +3,13 @@ import { timecode } from './frames'
 
 export function describeEdit(edit: Record<string, unknown>): string {
   switch (edit.op) {
+    case 'mixed': return [
+      tr('混合编辑'),
+      edit.trim ? describeEdit({ op: 'trim', segments: [edit.trim] }) : '',
+      ...['crop', 'rotate', 'speed'].map(op => edit[op] ? describeEdit(edit[op] as Record<string, unknown>) : ''),
+      edit.mute ? tr('静音') : '',
+      describeEdit((edit.compress ?? { op: 'compress' }) as Record<string, unknown>),
+    ].filter(Boolean).join(' → ')
     case 'composite': return tr("{{v0}} · {{v1}} 个输入 · {{v2}}×{{v3}} · {{v4}} fps · {{v5}}", { v0: { pip: tr("画中画"), horizontal: tr("横排分屏"), vertical: tr("竖排分屏"), grid: tr("网格分屏") }[String(edit.layout)] ?? tr("拼接"), v1: (edit.video_ids as string[]).length, v2: edit.width ?? 1280, v3: edit.height ?? 720, v4: edit.fps ?? 30, v5: { source: tr("单源音轨"), mix: tr("混音"), none: tr("无声") }[String(edit.audio_mode ?? 'source')] })
     case 'effect': return tr("{{v0}} · {{v1}}{{v2}} · CRF {{v3}}", { v0: { reverse: tr("倒放区间"), freeze: tr("插入定格"), slow: tr("局部慢动作") }[String(edit.mode)] ?? tr("片段效果"), v1: timecode(Number(edit.start ?? 0)), v2: edit.mode === 'freeze' ? ` · ${edit.duration ?? 2}s` : `–${timecode(Number(edit.end))}${edit.mode === 'slow' ? ` · ${edit.factor ?? 0.5}×` : ''}`, v3: edit.crf ?? 20 })
     case 'adjust': return tr("画面调整 · 亮度 {{v0}} · 对比度 {{v1}} · 饱和度 {{v2}}{{v3}}{{v4}}{{v5}}", { v0: edit.brightness ?? 0, v1: edit.contrast ?? 1, v2: edit.saturation ?? 1, v3: edit.lut_asset_id ? ' · LUT' : '', v4: edit.stabilize ? tr(" · 两遍防抖") : '', v5: Number(edit.denoise) > 0 ? tr(" · 降噪 {{v0}}", { v0: edit.denoise }) : '' })

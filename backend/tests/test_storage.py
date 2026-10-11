@@ -111,6 +111,11 @@ def test_edit_estimates_cover_duration_resolution_and_retained_originals(client)
     assert estimate({"op": "crop", "x": 0, "y": 0, "width": 320, "height": 240}) < rotate
     assert estimate({"op": "animation", "start": 0, "end": 10, "width": 1920, "fps": 60}) > slow
     assert estimate({"op": "compress", "target_size_mb": 100}) > 300 * MIB
+    compression = {"op": "compress", "resolution": 360}
+    mixed = {"op": "mixed", "rotate": {"op": "rotate"}, "compress": compression}
+    assert estimate(mixed) == estimate(compression)
+    assert estimate({**mixed, "speed": {"op": "speed", "factor": 0.25}}) > estimate(mixed) * 2
+    assert estimate({**mixed, "trim": {"start": 0, "end": 2}}) < estimate(mixed)
     assert estimate({"op": "compress", "target_size_mb": 1, "codec": "h265"}) > estimate(
         {"op": "compress", "target_size_mb": 1, "codec": "h264"}
     )

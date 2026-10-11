@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -306,6 +306,24 @@ class CompositeParams(BaseModel):
         return self
 
 
+class MixedParams(BaseModel):
+    """One source, fixed filter order, one final encode (or two-pass compression)."""
+
+    op: Literal["mixed"] = "mixed"
+    trim: Segment | None = None
+    crop: CropParams | None = None
+    rotate: RotateParams | None = None
+    speed: SpeedParams | None = None
+    mute: bool = False
+    compress: CompressParams = Field(default_factory=CompressParams)
+
+    @model_validator(mode="after")
+    def has_transform(self) -> MixedParams:
+        if not (self.trim or self.crop or self.rotate or self.speed or self.mute):
+            raise ValueError("混合编辑需要至少选择一项操作与压缩组合")
+        return self
+
+
 EditParams = Annotated[
     RotateParams
     | TrimParams
@@ -323,11 +341,13 @@ EditParams = Annotated[
     | AnimationParams
     | AdjustParams
     | EffectParams
-    | CompositeParams,
+    | CompositeParams
+    | MixedParams,
     Field(discriminator="op"),
 ]
 
 OP_LABELS = {
+    "mixed": "混合编辑",
     "rotate": "旋转",
     "trim": "剪辑",
     "merge": "合并",
@@ -553,10 +573,19 @@ CRF_TABLE = {
 }
 
 
-def plan_compress(p: CompressParams, src: Source, out: Path, tmp: Path) -> OpPlan:
+def plan_compress(
+    p: CompressParams,
+    src: Source,
+    out: Path,
+    tmp: Path,
+    *,
+    video_filters: list[str] | None = None,
+    audio_filters: list[str] | None = None,
+    input_options: list[str] | None = None,
+) -> OpPlan:
     path, info = src
     w, h = scaled_dims(info, p.resolution)
-    filters = []
+    filters = list(video_filters or [])
     if (w, h) != (even(info.width), even(info.height)) or info.width % 2 or info.height % 2:
         filters.append(f"scale={w}:{h}")
     if p.max_fps and info.fps > p.max_fps:
@@ -566,9 +595,12 @@ def plan_compress(p: CompressParams, src: Source, out: Path, tmp: Path) -> OpPla
     encoder = "libx264" if p.codec == "h264" else "libx265"
     tag = ["-tag:v", "hvc1"] if p.codec == "h265" else []
     audio = aac(p.audio_bitrate) if info.has_audio else []
+    if info.has_audio and audio_filters:
+        audio += ["-af", ",".join(audio_filters)]
+    input_args = [*(input_options or []), "-i", str(path)]
 
     if p.target_size_mb is None:
-        args = ["-i", str(path), *maps(info), *vf, "-c:v", encoder, "-preset", p.preset]
+        args = [*input_args, *maps(info), *vf, "-c:v", encoder, "-preset", p.preset]
         args += ["-crf", str(CRF_TABLE[p.codec][p.quality]), *tag, *audio, *MP4_FLAGS, str(out)]
         return OpPlan([args], info.duration)
 
@@ -588,10 +620,49 @@ def plan_compress(p: CompressParams, src: Source, out: Path, tmp: Path) -> OpPla
 
     rate = ["-b:v", f"{video_kbps}k", "-maxrate", f"{int(video_kbps * 1.5)}k"]
     rate += ["-bufsize", f"{video_kbps * 2}k"]
-    common = ["-i", str(path), *vf, "-c:v", encoder, "-preset", p.preset, *rate]
+    common = [*input_args, *vf, "-c:v", encoder, "-preset", p.preset, *rate]
     pass1 = [*common, *pass_args(1), "-map", f"0:{info.video_index}", "-an", "-f", "null", "-"]
     pass2 = [*common, *pass_args(2), *maps(info), *tag, *audio, *MP4_FLAGS, str(out)]
     return OpPlan([pass1, pass2], info.duration)
+
+
+def plan_mixed(p: MixedParams, src: Source, out: Path, tmp: Path) -> OpPlan:
+    path, source_info = src
+    info = replace(source_info)
+    filters: list[str] = []
+    audio_filters: list[str] = []
+    input_options: list[str] = []
+    if p.trim:
+        end = min(p.trim.end, info.duration)
+        if end - p.trim.start <= 0.01:
+            raise OpError("剪辑区间超出视频时长")
+        info.duration = end - p.trim.start
+        input_options = ["-ss", str(p.trim.start), "-t", str(info.duration)]
+    if p.crop:
+        c = p.crop
+        if c.x + c.width > info.width or c.y + c.height > info.height:
+            raise OpError("裁切区域超出画面范围")
+        info.width, info.height = c.width // 2 * 2, c.height // 2 * 2
+        filters.append(f"crop={info.width}:{info.height}:{c.x}:{c.y}")
+    if p.rotate:
+        r = p.rotate
+        rotations = {90: ["transpose=clock"], 180: ["hflip", "vflip"], 270: ["transpose=cclock"]}
+        filters += rotations.get(r.angle, [])
+        if r.angle in (90, 270):
+            info.width, info.height = info.height, info.width
+        if r.flip != "none":
+            filters.append("hflip" if r.flip == "horizontal" else "vflip")
+    if p.speed:
+        filters.append(f"setpts=PTS/{p.speed.factor}")
+        audio_filters.append(atempo_chain(p.speed.factor))
+        info.duration /= p.speed.factor
+    if p.mute:
+        info.audio_codec = None
+        info.audio_index = None
+    return plan_compress(
+        p.compress, (path, info), out, tmp,
+        video_filters=filters, audio_filters=audio_filters, input_options=input_options,
+    )
 
 
 def plan_crop(p: CropParams, src: Source, out: Path) -> OpPlan:

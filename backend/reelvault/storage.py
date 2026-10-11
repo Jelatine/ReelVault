@@ -58,6 +58,16 @@ def edit_bytes(db: Session, edit: ops.EditParams, ids: list[str]) -> int:
     durations = [max(1.0, v.duration) for v in videos]
     duration = durations[0]
     width, height, fps = first.width or 1920, first.height or 1080, first.fps or 30
+    if isinstance(edit, ops.MixedParams):
+        if edit.trim:
+            duration = max(0, min(edit.trim.end, first.duration) - edit.trim.start)
+        if edit.crop:
+            width, height = edit.crop.width, edit.crop.height
+        if edit.rotate and edit.rotate.angle in (90, 270):
+            width, height = height, width
+        if edit.speed:
+            duration /= edit.speed.factor
+        edit = edit.compress
     if isinstance(edit, ops.MergeParams):
         duration = sum(durations)
         width, height, fps = edit.width or width, edit.height or height, edit.fps or fps

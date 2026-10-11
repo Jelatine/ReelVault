@@ -274,6 +274,8 @@ async def edit(ctx: JobContext, job: Job) -> None:
                 _set_job(ctx, job.id, params={**job.params, "actual_composition": actual})
             case ops.CompressParams():
                 plan = ops.plan_compress(params, sources[0], out, tmp)
+            case ops.MixedParams():
+                plan = ops.plan_mixed(params, sources[0], out, tmp)
             case ops.CropParams():
                 plan = ops.plan_crop(params, sources[0], out)
             case ops.SpeedParams():

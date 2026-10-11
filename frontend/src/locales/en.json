@@ -1701,5 +1701,18 @@
   "FFmpeg 执行失败（退出码 {{code}}）：{{detail}}": "FFmpeg failed (exit code {{code}}): {{detail}}",
   "FFmpeg 执行步骤 {{current}}/{{total}}": "FFmpeg step {{current}}/{{total}}",
   "硬件处理失败（{{encoder}}），正在尝试其他解码或编码方式": "Hardware processing failed ({{encoder}}); trying another decoder or encoder",
-  "使用软件编码：{{detail}}": "Using software encoding: {{detail}}"
+  "使用软件编码：{{detail}}": "Using software encoding: {{detail}}",
+  "混合编辑": "Combined editing",
+  "处理顺序：截取 → 裁切 → 旋转/翻转 → 变速 → 静音 → 压缩。裁切坐标基于原始画面，压缩设置决定最终画质。": "Processing order: trim → crop → rotate/flip → speed → mute → compress. Crop coordinates use the original frame; compression settings control final quality.",
+  "截取片段": "Trim segment",
+  "开始时间（秒）": "Start time (seconds)",
+  "结束时间（秒）": "End time (seconds)",
+  "起点 X": "Start X",
+  "起点 Y": "Start Y",
+  "宽度": "Width",
+  "高度": "Height",
+  "旋转与翻转": "Rotate and flip",
+  "播放倍速": "Playback speed",
+  "开始混合编辑": "Start combined editing",
+  "请选择要与压缩组合的操作，并检查时间、裁切范围、旋转及倍速设置。": "Select an operation to combine with compression and check the time range, crop bounds, rotation and speed settings."
 }
