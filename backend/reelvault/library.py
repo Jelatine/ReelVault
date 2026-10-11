@@ -134,6 +134,26 @@ def folder_exists(db: Session, folder_id: int | None) -> bool:
     return folder_id is None or db.get(Folder, folder_id) is not None
 
 
+def media_details(meta: dict[str, Any]) -> dict[str, Any]:
+    """Ingest probe details; keys are absent for videos probed before they existed."""
+    keys = (
+        "pix_fmt",
+        "video_profile",
+        "video_level",
+        "video_bitrate",
+        "color_transfer",
+        "coded_width",
+        "coded_height",
+        "sample_rate",
+        "channels",
+        "channel_layout",
+        "audio_bitrate",
+    )
+    details = {key: meta[key] for key in keys if meta.get(key)}
+    details["subtitle_count"] = len(meta.get("subtitle_streams") or [])
+    return details
+
+
 def video_to_dict(v: Video) -> dict[str, Any]:
     base = f"/api/videos/{v.id}"
     ver = v.asset_version
@@ -165,6 +185,7 @@ def video_to_dict(v: Video) -> dict[str, Any]:
         "video_codec": v.video_codec,
         "audio_codec": v.audio_codec,
         "rotation": (v.meta or {}).get("rotation", 0),
+        "media": media_details(v.meta or {}),
         "cover_time": v.cover_time,
         "tags": sorted(t.name for t in v.tags),
         "created_at": v.created_at.isoformat(),

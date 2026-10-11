@@ -13,6 +13,11 @@ def test_upload_probe_and_derived_assets(client: TestClient, samples: dict[str, 
     assert v["width"] == 320 and v["height"] == 240
     assert 3.5 < v["duration"] < 4.5
     assert v["video_codec"] == "h264" and v["audio_codec"] == "aac"
+    media = v["media"]
+    assert media["pix_fmt"] == "yuv420p" and media["video_profile"]
+    assert media["video_level"] > 0 and media["video_bitrate"] > 0
+    assert media["sample_rate"] > 0 and media["channels"] > 0 and media["audio_bitrate"] > 0
+    assert media["subtitle_count"] == 0
     for key in ("poster_url", "preview_url", "thumbnails_url"):
         r = client.get(v[key])
         assert r.status_code == 200 and len(r.content) > 0, key

@@ -32,6 +32,7 @@ export interface Video {
   video_codec: string
   audio_codec: string | null
   rotation: number
+  media?: VideoMedia
   cover_time: number | null
   tags: string[]
   created_at: string
@@ -42,6 +43,21 @@ export interface Video {
   poster_url: string | null
   preview_url: string | null
   thumbnails_url: string | null
+}
+
+export interface VideoMedia {
+  pix_fmt?: string
+  video_profile?: string
+  video_level?: number
+  video_bitrate?: number
+  color_transfer?: string
+  coded_width?: number
+  coded_height?: number
+  sample_rate?: number
+  channels?: number
+  channel_layout?: string
+  audio_bitrate?: number
+  subtitle_count: number
 }
 
 export interface VideoPage {

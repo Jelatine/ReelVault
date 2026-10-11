@@ -28,10 +28,16 @@ class MediaInfo:
     video_codec: str = ""
     video_index: int = 0
     pix_fmt: str = ""
+    video_profile: str = ""
+    video_level: int = 0
+    video_bitrate: int = 0
+    color_transfer: str = ""
     audio_codec: str | None = None
     audio_index: int | None = None
     sample_rate: int = 0
     channels: int = 0
+    channel_layout: str = ""
+    audio_bitrate: int = 0
     audio_delay: float = 0
     video_delay: float = 0
     video_duration: float = 0
@@ -65,8 +71,14 @@ class MediaInfo:
             "video_index": self.video_index,
             "audio_index": self.audio_index,
             "pix_fmt": self.pix_fmt,
+            "video_profile": self.video_profile,
+            "video_level": self.video_level,
+            "video_bitrate": self.video_bitrate,
+            "color_transfer": self.color_transfer,
             "sample_rate": self.sample_rate,
             "channels": self.channels,
+            "channel_layout": self.channel_layout,
+            "audio_bitrate": self.audio_bitrate,
             "audio_delay": self.audio_delay,
         }
 
@@ -138,6 +150,11 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     info.extra["subtitle_streams"] = subtitle_streams(data)
     info.video_codec = video.get("codec_name", "")
     info.pix_fmt = video.get("pix_fmt", "")
+    info.video_profile = video.get("profile", "")
+    # ffprobe reports unknown levels as -99.
+    info.video_level = max(0, int(video.get("level") or 0))
+    info.video_bitrate = int(video.get("bit_rate") or 0)
+    info.color_transfer = video.get("color_transfer", "")
     info.coded_width = int(video.get("width") or 0)
     info.coded_height = int(video.get("height") or 0)
     info.rotation = _rotation(video)
@@ -156,6 +173,8 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
         info.audio_index = int(audio.get("index", 0))
         info.sample_rate = int(audio.get("sample_rate") or 0)
         info.channels = int(audio.get("channels") or 0)
+        info.channel_layout = audio.get("channel_layout", "")
+        info.audio_bitrate = int(audio.get("bit_rate") or 0)
         info.audio_delay = float(audio.get("start_time") or 0) - float(fmt.get("start_time") or 0)
     return info
 

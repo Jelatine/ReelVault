@@ -68,13 +68,51 @@ import TrimPanel from '../editor/TrimPanel'
 import { api, errorText } from '../lib/api'
 import { formatBytes, formatDate, formatDuration } from '../lib/format'
 import { useJobs, useVideo } from '../lib/queries'
-import type { Video } from '../lib/types'
-import MetadataPanel from '../components/MetadataPanel'
+import type { Video, VideoMedia } from '../lib/types'
 import TranscriptionPanel from '../components/TranscriptionPanel'
 import VisualIndexPanel from '../components/VisualIndexPanel'
 import AiPanel from '../components/AiPanel'
 
 import { ShareButton } from '../components/SharePanel'
+
+const CODEC_NAMES: Record<string, string> = {
+  h264: 'H.264', hevc: 'HEVC', av1: 'AV1', vp8: 'VP8', vp9: 'VP9', mpeg4: 'MPEG-4', prores: 'ProRes',
+  aac: 'AAC', mp3: 'MP3', opus: 'Opus', vorbis: 'Vorbis', ac3: 'AC-3', eac3: 'E-AC-3', flac: 'FLAC', alac: 'ALAC',
+}
+
+function codecName(codec: string | null) {
+  return codec ? CODEC_NAMES[codec] ?? codec.toUpperCase() : ''
+}
+
+function codecProfile(codec: string, media: VideoMedia) {
+  const level = media.video_level
+  // ffprobe reports H.264 levels ×10 and HEVC levels ×30.
+  const divisor = codec === 'h264' ? 10 : codec === 'hevc' ? 30 : 0
+  const suffix = level && divisor ? `@${(level / divisor).toFixed(1).replace(/\.0$/, '')}` : ''
+  return media.video_profile ? `${media.video_profile}${suffix}` : ''
+}
+
+function bitDepth(pixFmt?: string) {
+  if (!pixFmt) return 0
+  const match = /p(9|10|12|14|16)(le|be)?$/.exec(pixFmt)
+  return match ? Number(match[1]) : 8
+}
+
+function dynamicRange(transfer?: string) {
+  return transfer === 'smpte2084' ? 'HDR10 (PQ)' : transfer === 'arib-std-b67' ? 'HLG' : ''
+}
+
+function formatBitrate(bps?: number) {
+  return bps ? `${Math.round(bps / 1000).toLocaleString()} kbps` : ''
+}
+
+function channelLabel(channels?: number, layout?: string) {
+  if (layout === 'mono' || channels === 1) return tr("单声道")
+  if (layout === 'stereo' || channels === 2) return tr("立体声")
+  if (layout?.startsWith('5.1')) return tr("5.1 声道")
+  if (layout?.startsWith('7.1')) return tr("7.1 声道")
+  return channels ? tr("{{v0}} 声道", { v0: channels }) : ''
+}
 
 function InfoPanel({ video }: { video: Video }) {
   useTranslation()
@@ -123,13 +161,28 @@ function InfoPanel({ video }: { video: Video }) {
     qc.invalidateQueries({ queryKey: ['videos'] })
   }
 
+  const media: VideoMedia = video.media ?? { subtitle_count: 0 }
+  const depth = bitDepth(media.pix_fmt)
   const rows: [string, string][] = [
     [tr("时长"), formatDuration(video.duration, true)],
-    [tr("分辨率"), video.width ? `${video.width}×${video.height}` : '-'],
+    [tr("分辨率"), video.width ? `${video.width}×${video.height}${video.rotation ? tr("（旋转 {{v0}}°）", { v0: video.rotation }) : ''}` : '-'],
     [tr("帧率"), video.fps ? `${video.fps} fps` : '-'],
     [tr("大小"), formatBytes(video.size)],
-    [tr("码率"), video.bitrate ? `${Math.round(video.bitrate / 1000)} kbps` : '-'],
-    [tr("格式"), tr("{{v0}} · {{v1}} / {{v2}}", { v0: video.container || '-', v1: video.video_codec || '-', v2: video.audio_codec ?? tr("无音频") })],
+    [tr("码率"), formatBitrate(video.bitrate) || '-'],
+    [tr("容器"), video.container ? video.container.toUpperCase() : '-'],
+    [tr("视频"), [
+      [codecName(video.video_codec), codecProfile(video.video_codec, media)].filter(Boolean).join(' ') || '-',
+      depth && `${depth}-bit${media.pix_fmt ? ` (${media.pix_fmt})` : ''}`,
+      dynamicRange(media.color_transfer),
+      formatBitrate(media.video_bitrate),
+    ].filter(Boolean).join(' · ')],
+    [tr("音频"), video.audio_codec ? [
+      codecName(video.audio_codec),
+      media.sample_rate && `${media.sample_rate / 1000} kHz`,
+      channelLabel(media.channels, media.channel_layout),
+      formatBitrate(media.audio_bitrate),
+    ].filter(Boolean).join(' · ') : tr("无音频")],
+    ...(media.subtitle_count ? [[tr("字幕"), tr("{{v0}} 条内封字幕", { v0: media.subtitle_count })] as [string, string]] : []),
     [tr("原文件名"), video.original_name || '-'],
     [tr("上传时间"), formatDate(video.created_at)],
   ]
@@ -165,7 +218,11 @@ function InfoPanel({ video }: { video: Video }) {
           ))}
         </Table.Tbody>
       </Table>
-      <MetadataPanel video={video} />
+      {video.video_codec === 'h264' && depth > 8 && (
+        <Alert color="yellow" p="xs">
+          <Text size="sm">{tr("{{v0}}-bit H.264 在浏览器中通常无法硬件解码，网页播放可能卡顿。可生成 HLS 或转码为 8-bit 后播放。", { v0: depth })}</Text>
+        </Alert>
+      )}
       <Group gap="xs">
         <ShareButton target={{ video_id: video.id }} disabled={!!video.deleted_at || video.status !== 'ready'} />
         <Button component="a" href={video.download_url} variant="light" leftSection={<IconDownload size={16} />}>{tr("下载原文件")}</Button>
