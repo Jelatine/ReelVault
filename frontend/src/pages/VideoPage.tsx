@@ -73,7 +73,6 @@ import TranscriptionPanel from '../components/TranscriptionPanel'
 import VisualIndexPanel from '../components/VisualIndexPanel'
 import AiPanel from '../components/AiPanel'
 
-import { ShareButton } from '../components/SharePanel'
 
 const CODEC_NAMES: Record<string, string> = {
   h264: 'H.264', hevc: 'HEVC', av1: 'AV1', vp8: 'VP8', vp9: 'VP9', mpeg4: 'MPEG-4', prores: 'ProRes',
@@ -224,7 +223,6 @@ function InfoPanel({ video }: { video: Video }) {
         </Alert>
       )}
       <Group gap="xs">
-        <ShareButton target={{ video_id: video.id }} disabled={!!video.deleted_at || video.status !== 'ready'} />
         <Button component="a" href={video.download_url} variant="light" leftSection={<IconDownload size={16} />}>{tr("下载原文件")}</Button>
         {video.deleted_at ? (
           <Button variant="light" leftSection={<IconRestore size={16} />} onClick={restore}>{tr("恢复")}</Button>

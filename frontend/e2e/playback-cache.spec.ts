@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 
 const headers = { 'X-Requested-With': 'ReelVault' }
 
-test('deferred HEVC cache plays real media, cleans safely, keeps guests read-only and offers HLS', async ({ page, browser }, testInfo) => {
+test('deferred HEVC cache plays real media, cleans safely, offers HLS', async ({ page }, testInfo) => {
   test.skip(process.env.REELVAULT_PLAYABLE_EAGER_MAX_MB !== '0', 'Run with eager threshold 0 to exercise on-demand media without a 256 MiB fixture.')
   await page.goto('/login')
   await page.getByRole('textbox', { name: '用户名', exact: true }).fill('e2e-admin')
@@ -31,17 +31,9 @@ test('deferred HEVC cache plays real media, cleans safely, keeps guests read-onl
   await expect.poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThanOrEqual(2)
   await page.locator('video').evaluate((el: HTMLVideoElement) => el.play())
   await expect.poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.currentTime)).toBeGreaterThan(0.1)
-  const share = await (await page.request.post('/api/shares', { headers, data: { video_id: video.id } })).json()
-  expect(share.url).toBeTruthy()
-  const context = await browser.newContext()
-  const visitor = await context.newPage()
   try {
-    await visitor.goto(share.url)
-    await expect.poll(() => visitor.locator('video').evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThanOrEqual(2)
-    expect((await visitor.request.post(endpoint, { headers })).status()).toBe(401)
     await page.getByRole('button', { name: '清理兼容播放缓存', exact: true }).click()
     await expect(page.getByRole('button', { name: '生成兼容播放缓存', exact: true })).toBeVisible()
-    await expect(visitor.getByText('播放缓存尚未就绪，请联系分享者生成兼容播放缓存。', { exact: true })).toBeVisible()
     expect(await (await page.request.get(`/api/videos/${video.id}/download`)).body()).toEqual(sample)
     await page.getByRole('button', { name: '用户菜单', exact: true }).click()
     await page.getByRole('menu').getByLabel('界面语言').selectOption('en')
@@ -53,7 +45,7 @@ test('deferred HEVC cache plays real media, cleans safely, keeps guests read-onl
     await page.screenshot({ path: testInfo.outputPath('playback-cache-mobile-english.png'), animations: 'disabled' })
     await page.getByRole('button', { name: 'Generate compatible playback cache', exact: true }).click()
     await expect(page.getByText(/^Compatible playback cache is ready/)).toBeVisible()
-    await expect.poll(() => visitor.locator('video').evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThanOrEqual(2)
+    await expect.poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThanOrEqual(2)
     await page.getByRole('button', { name: 'Clear playback cache', exact: true }).click()
     expect((await page.request.put('/api/system/hls', { headers, data: { enabled: true, min_size_mb: 0, max_cache_gb: 20 } })).ok()).toBe(true)
     await page.reload()
@@ -61,7 +53,6 @@ test('deferred HEVC cache plays real media, cleans safely, keeps guests read-onl
     await expect.poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThanOrEqual(2)
     expect((await (await page.request.get(endpoint)).json()).cached).toBe(false)
   } finally {
-    await context.close()
     await page.request.put('/api/system/hls', { headers, data: { enabled: false, min_size_mb: 256, max_cache_gb: 20 } })
   }
 })

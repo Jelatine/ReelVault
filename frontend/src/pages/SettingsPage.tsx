@@ -26,7 +26,6 @@ import UpdatePanel from '../components/UpdatePanel'
 import BackupPanel from '../components/BackupPanel'
 import HlsSettings from '../components/HlsSettings'
 import LocationsPanel from '../components/LocationsPanel'
-import SharePanel from '../components/SharePanel'
 import TwoFactorPanel from '../components/TwoFactorPanel'
 import ObservabilityPanel from '../components/ObservabilityPanel'
 import LinkImportSettings from '../components/LinkImport'
@@ -248,7 +247,6 @@ export default function SettingsPage() {
         <EncodingPanel />
         <LocationsPanel />
         <StoragePanel />
-        <SharePanel />
         <TwoFactorPanel />
         <LinkImportSettings />
         <WebdavPanel />

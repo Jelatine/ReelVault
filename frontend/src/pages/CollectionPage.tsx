@@ -10,7 +10,6 @@ import { confirmAction } from '../components/prompt'
 import { api } from '../lib/api'
 import { playlistUrl, useCollection, type CollectionDetail } from '../lib/collections'
 
-import { ShareButton } from '../components/SharePanel'
 
 function CollectionView({ collection }: { collection: CollectionDetail }) {
   useTranslation()
@@ -40,7 +39,6 @@ function CollectionView({ collection }: { collection: CollectionDetail }) {
     <Group justify="space-between">
       <Title order={3}>{collection.name}</Title>
       <Group>
-        <ShareButton target={{ collection_id: collection.id }} />
         <Button disabled={!playable.length} onClick={() => navigate(playlistUrl(playable[0].id, collection.id))}>{tr("播放整个合集")}</Button>
         <Button variant="default" component={Link} to="/library">{tr("从视频库添加")}</Button>
       </Group>

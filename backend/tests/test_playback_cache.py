@@ -10,12 +10,9 @@ from reelvault.media.probe import probe
 from reelvault.models import Video
 
 from .conftest import make_video, upload_ready, wait_job
-from .test_shares import create, guest
 
 
-def test_real_hevc_deferred_copy_range_download_sharing_clear_and_regeneration(
-    client, settings, tmp_path
-):
+def test_real_hevc_deferred_copy_range_download_clear_and_regeneration(client, settings, tmp_path):
     settings.playable_eager_max_mb = 0
     source = make_video(
         tmp_path / "hevc.mp4",
@@ -32,10 +29,6 @@ def test_real_hevc_deferred_copy_range_download_sharing_clear_and_regeneration(
     assert client.get(url).json()["ready"] is False
     assert client.get(video["stream_url"]).json()["code"] == "playback_cache_required"
     assert client.get(video["download_url"]).content == source.read_bytes()
-    assert (
-        client.post("/api/shares", json={"video_id": vid}).json()["code"]
-        == "playback_cache_required"
-    )
     job = client.post(url).json()
     assert wait_job(client, job["id"])["status"] == "succeeded"
     data = client.get(url).json()
@@ -47,27 +40,18 @@ def test_real_hevc_deferred_copy_range_download_sharing_clear_and_regeneration(
     assert client.post(url).json() == {"cached": True}
     response = client.get(video["stream_url"], headers={"Range": "bytes=0-99"})
     assert response.status_code == 206 and response.content == copy.read_bytes()[:100]
-    _, prefix = create(client, vid, allow_download=True)
-    visitor = guest(client)
-    assert visitor.get(prefix).json()["items"][0]["playback_ready"]
-    stream = f"{prefix}/videos/{vid}/stream"
-    assert visitor.get(stream).content == copy.read_bytes()
     assert client.delete(url).json() == {"cleared": True}
     assert not copy.exists()
-    assert visitor.get(stream).status_code == 409
-    assert visitor.get(prefix).json()["items"][0]["playback_ready"] is False
-    assert visitor.post(url).status_code == 401
-    assert visitor.get(f"{prefix}/videos/{vid}/download").content == source.read_bytes()
+    assert client.get(video["download_url"]).content == source.read_bytes()
     rebuilt = client.post(url).json()
     assert wait_job(client, rebuilt["id"])["status"] == "succeeded"
-    assert visitor.get(stream).status_code == 200
+    assert client.get(video["stream_url"]).status_code == 200
     with client.app.state.sessionmaker() as db:
         original = abs_path(settings, db.get(Video, vid).file_path)
     stat = original.stat()
     os.utime(original, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
     assert client.get(url).json()["stale"]
     assert client.get(video["stream_url"]).status_code == 409
-    assert visitor.get(stream).status_code == 409
     assert client.delete(url).status_code == 200
     assert original.read_bytes() == source.read_bytes()
     client.cookies.clear()

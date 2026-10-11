@@ -5,7 +5,6 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
 import { useAuth } from './lib/auth'
 import { useJobEvents } from './lib/jobs'
-const SharePage = lazy(() => import('./pages/SharePage'))
 const CollectionPage = lazy(() => import('./pages/CollectionPage'))
 const JobsPage = lazy(() => import('./pages/JobsPage'))
 const LibraryPage = lazy(() => import('./pages/LibraryPage'))
@@ -67,5 +66,5 @@ function AppRoutes() {
 
 export default function App() {
   useTranslation()
-  return <Suspense fallback={<Center mih="100vh"><Loader /></Center>}><Routes><Route path="/share/:token" element={<SharePage />} /><Route path="*" element={<AppRoutes />} /></Routes></Suspense>
+  return <Suspense fallback={<Center mih="100vh"><Loader /></Center>}><AppRoutes /></Suspense>
 }

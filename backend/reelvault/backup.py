@@ -344,7 +344,6 @@ def restore_backup(archive: Path, settings: Settings, *, replace: bool = False) 
                 config.update(registry)
                 # Device tokens and temporary uploads are not portable. Never resurrect them.
                 db.execute("DELETE FROM sessions")
-                db.execute("DELETE FROM share_grants")
                 db.execute("DELETE FROM runtime_settings WHERE key='webdav'")
                 db.execute("DELETE FROM uploads")
                 db.execute(

@@ -146,19 +146,10 @@ def test_offline_delete_keeps_video_and_object(s3_app, settings, monkeypatch):
     assert client.post(f"/api/videos/{video_id}/restore").status_code == 200
 
 
-def test_share_download_and_webdav_proxy_uncached_original(s3_app, settings):
-    from .test_shares import create, guest
+def test_webdav_proxy_uncached_original(s3_app, settings):
     from .test_webdav import credential, href, listing
 
-    client, peer, video_id = s3_app
-    _, prefix = create(client, video_id, allow_download=True)
-    visitor = guest(client)
-    shared = visitor.get(f"{prefix}/videos/{video_id}/stream", headers={"Range": "bytes=5-9"})
-    assert shared.status_code == 206 and shared.content == DATA[5:10]
-    assert shared.headers["cache-control"] == "no-store"
-    assert shared.headers["x-robots-tag"] == "noindex, nofollow"
-    downloaded = visitor.get(f"{prefix}/videos/{video_id}/download")
-    assert downloaded.status_code == 200 and downloaded.content == DATA
+    client, peer, _ = s3_app
     auth = credential(client)
     path = href(listing(client, "/dav/all/", auth)[1])
     dav = client.get(path, headers={**auth, "Range": "bytes=0-7"})

@@ -723,7 +723,7 @@ test('真实上传、解码播放、精确剪辑与结果播放', async ({ page 
   expect(await page.locator('video').evaluate((v: HTMLVideoElement) => v.duration)).toBeLessThan(expectedMergeDuration + 0.15)
   await expect(page.getByText(/转场 fade 0.5s/)).toBeVisible()
   await page.goto(`/videos/${uploaded.id}?tool=more`)
-  await page.getByText('音频', { exact: true }).click()
+  await page.getByRole('tabpanel', { name: '更多', exact: true }).getByText('音频', { exact: true }).click()
   await page.getByLabel('音频处理方式').selectOption('mix')
   const music = execFileSync('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i',
