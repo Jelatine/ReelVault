@@ -685,7 +685,9 @@ async def hls(ctx: JobContext, job: Job) -> None:
                 or source_signature(source) != sig
             ):
                 raise RuntimeError("HLS 已关闭或源文件已变化，生成结果未保存")
-            check_budget(db, settings, size, job.id)
+            # Publication renames the generated directory; its bytes are already
+            # accounted for by disk free space, but still count toward the cache cap.
+            check_budget(db, settings, size, job.id, disk_required=0)
             package = db.get(HlsPackage, video.id)
             if package is None:
                 package = HlsPackage(video_id=video.id)
@@ -745,8 +747,8 @@ async def playable(ctx: JobContext, job: Job) -> None:
                 or source_signature(source) != sig
             ):
                 raise RuntimeError("源视频已变化，播放缓存未保存")
-            size = (temp / derive.PLAYABLE).stat().st_size
-            check_budget(db, ctx.settings, size, exclude_job=job.id)
+            # The completed copy is renamed on the same filesystem.
+            check_budget(db, ctx.settings, 0, exclude_job=job.id)
             old = abs_path(ctx.settings, current.playable_path) if current.playable_path else None
             (temp / derive.PLAYABLE).rename(target)
             current.playable_path = rel_path(ctx.settings, target)

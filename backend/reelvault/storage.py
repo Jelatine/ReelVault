@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import math
+import os
 import shutil
+import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -180,6 +183,30 @@ def link_requirements(limit: int, storage_id: str) -> dict[str, int]:
     return requirements
 
 
+def job_written_bytes(settings: Settings, job: Job) -> int:
+    """Count allocated job staging bytes already deducted from disk free space."""
+    roots = [settings.tmp_dir / f"job-{job.id}"]
+    if job.kind == "link_import":
+        roots.extend(settings.tmp_dir.glob(f"link-{job.id}-*"))
+    written = 0
+    for root in roots:
+        if root.is_symlink():
+            continue
+        for directory, dirs, files in os.walk(root, followlinks=False):
+            dirs[:] = [name for name in dirs if not (Path(directory) / name).is_symlink()]
+            for name in files:
+                path = Path(directory) / name
+                try:
+                    info = path.lstat()
+                    if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1:
+                        continue
+                    written += getattr(info, "st_blocks", math.ceil(info.st_size / 512)) * 512
+                except FileNotFoundError:
+                    # FFmpeg/downloaders rename or remove staging files during sampling.
+                    continue
+    return written
+
+
 def snapshot(
     db: Session,
     settings: Settings,
@@ -208,11 +235,27 @@ def snapshot(
                 raise
     reserved: dict[int, int] = {}
 
-    def reserve(plan: dict[str, int]) -> None:
+    def by_device(plan: dict[str, int]) -> dict[int, int]:
+        amounts: dict[int, int] = {}
         for key, amount in plan.items():
-            if key in devices:
+            if key != "local" and key in devices:
                 device = devices[key]
-                reserved[device] = reserved.get(device, 0) + max(0, amount)
+                # Destination files are renamed from staging on the same filesystem.
+                # Local estimates already include the output; only independent disks
+                # need a separate destination allowance.
+                amounts[device] = amounts.get(device, 0) + max(0, amount)
+        if "local" in plan:
+            device = devices["local"]
+            amounts[device] = max(amounts.get(device, 0), max(0, plan["local"]))
+        return amounts
+
+    def reserve(plan: dict[str, int], written: int = 0) -> None:
+        amounts = by_device(plan)
+        device = devices["local"]
+        if device in amounts:
+            amounts[device] = max(0, amounts[device] - written)
+        for device, amount in amounts.items():
+            reserved[device] = reserved.get(device, 0) + amount
 
     for upload in db.scalars(select(Upload).where(Upload.id != exclude_upload)):
         path = settings.tmp_dir / f"upload-{upload.id}.part"
@@ -221,8 +264,7 @@ def snapshot(
         except FileNotFoundError:
             written = 0
         plan = upload_requirements(upload.size, upload.storage_id, settings)
-        plan["local"] = max(0, plan["local"] - written)
-        reserve(plan)
+        reserve(plan, written)
     for job in db.scalars(select(Job).where(Job.status.in_(ACTIVE), Job.id != exclude_job)):
         if "storage_plan" in job.params:
             plan = job.params["storage_plan"]
@@ -234,16 +276,14 @@ def snapshot(
                 except (APIError, ValueError, KeyError):
                     amount = 0
             plan = job_requirements(settings, job.kind, job.params, int(amount))
-        reserve(plan)
-    requested_devices: dict[int, int] = {}
+        reserve(plan, job_written_bytes(settings, job))
+    requested_devices = by_device(requested)
     sufficient = True
     for key, amount in requested.items():
         if key not in devices:
             if amount:
                 sufficient = False
             continue
-        device = devices[key]
-        requested_devices[device] = requested_devices.get(device, 0) + amount
     for device, amount in requested_devices.items():
         usage = usages[device]
         if usage.free - reserved.get(device, 0) < amount + 64 * MIB:

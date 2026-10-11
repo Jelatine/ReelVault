@@ -11,7 +11,7 @@ from reelvault.main import create_app
 from reelvault.models import Job, RuntimeSetting, Upload, Video
 from reelvault.storage import MIB, snapshot, upload_bytes
 
-from .conftest import HEADERS, login, upload, wait_ready
+from .conftest import HEADERS, login, upload, upload_ready, wait_job, wait_ready
 
 Usage = namedtuple("Usage", "total used free")
 
@@ -318,3 +318,78 @@ def test_ingest_budget_failure_marks_video_retryable(client, monkeypatch):
     video = client.get(f"/api/videos/{vid}").json()
     assert video["status"] == "error"
     assert "磁盘可用空间不足" in video["error"]
+
+
+@pytest.mark.parametrize("status", ["running", "paused"])
+@pytest.mark.parametrize("kind", ["hls", "link_import"])
+def test_written_job_files_are_not_reserved_twice(client, settings, monkeypatch, status, kind):
+    settings.storage_warning_mb = 150
+    settings.storage_warning_percent = 0
+    with client.app.state.sessionmaker() as db:
+        job = Job(
+            kind=kind,
+            status=status,
+            params={"storage_bytes": 12 * MIB, "storage_plan": {"local": 12 * MIB}},
+            video_ids=[],
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    directory = settings.tmp_dir / (
+        f"link-{job_id}-download" if kind == "link_import" else f"job-{job_id}"
+    )
+    directory.mkdir()
+    path = directory / "output.part"
+    path.write_bytes(b"x" * (8 * MIB))
+    written = path.stat().st_blocks * 512
+    # Free space already reflects the partial output, leaving only future growth
+    # to reserve. The old calculation rejected this upload and raised a warning.
+    disk(monkeypatch, 158 * MIB)
+    state = client.get("/api/system/storage").json()
+    assert state["reserved_bytes"] == max(0, 12 * MIB - written)
+    assert not state["low_space"]
+    estimate = client.post("/api/system/storage/estimate", json={"upload_sizes": [14 * MIB]})
+    assert estimate.json()["sufficient"]
+    assert (
+        client.post("/api/uploads", json={"filename": "clip.mp4", "size": 14 * MIB}).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/uploads", json={"filename": "too-large.mp4", "size": 14 * MIB}
+        ).status_code
+        == 507
+    )
+    path.unlink()
+    with client.app.state.sessionmaker() as db:
+        assert (
+            snapshot(db, settings, exclude_upload=db.scalar(select(Upload.id)))["reserved_bytes"]
+            == 12 * MIB
+        )
+
+
+@pytest.mark.parametrize("kind", ["hls", "playback-cache"])
+def test_cache_publication_does_not_require_space_for_another_copy(
+    client, settings, samples, monkeypatch, kind
+):
+    from reelvault.media import derive, hls
+
+    settings.playable_eager_max_mb = 0
+    video = upload_ready(client, samples["mkv"])
+    module, name = (hls, "generate") if kind == "hls" else (derive, "make_playable")
+    convert = getattr(module, name)
+
+    async def generated(*args, **kwargs):
+        result = await convert(*args, **kwargs)
+        # Leave the safety margin, but no space for a duplicate output. Publishing
+        # should still succeed because it only renames the existing file/directory.
+        disk(monkeypatch, 64 * MIB)
+        return result
+
+    monkeypatch.setattr(module, name, generated)
+    if kind == "hls":
+        settings.hls_enabled = True
+    response = client.post(f"/api/videos/{video['id']}/{kind}", json={})
+    assert response.status_code == 200, response.text
+    final = wait_job(client, response.json()["id"])
+    assert final["status"] == "succeeded", final

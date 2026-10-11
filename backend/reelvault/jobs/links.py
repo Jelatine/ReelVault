@@ -18,7 +18,7 @@ async def link_import(ctx: JobContext, job: Job) -> None:
     storage_id = job.params["storage_id"]
     library_root(settings, storage_id)
     ctx.set_progress(0, "下载链接视频")
-    with tempfile.TemporaryDirectory(prefix="link-", dir=settings.tmp_dir) as temporary:
+    with tempfile.TemporaryDirectory(prefix=f"link-{job.id}-", dir=settings.tmp_dir) as temporary:
         work = Path(temporary)
         source, suggested_title = await download(ctx, job.params, work)
         for leftover in work.iterdir():

@@ -31,7 +31,12 @@ def packages_size(db: Session) -> int:
 
 
 def check_budget(
-    db: Session, settings: Settings, estimate: int, exclude_job: str | None = None
+    db: Session,
+    settings: Settings,
+    estimate: int,
+    exclude_job: str | None = None,
+    *,
+    disk_required: int | None = None,
 ) -> None:
     reserved = sum(
         int(j.params.get("estimated_bytes", 0))
@@ -39,7 +44,9 @@ def check_budget(
             select(Job).where(Job.kind == "hls", Job.status.in_(ACTIVE), Job.id != exclude_job)
         )
     )
-    check_disk_budget(db, settings, estimate, exclude_job=exclude_job)
+    check_disk_budget(
+        db, settings, estimate if disk_required is None else disk_required, exclude_job=exclude_job
+    )
     if packages_size(db) + reserved + estimate > settings.hls_max_cache_gb * 1024**3:
         raise APIError(409, "HLS 缓存将超过上限，请清理缓存或增加上限", code="hls_cache_limit")
 
