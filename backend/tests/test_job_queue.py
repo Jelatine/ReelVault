@@ -359,6 +359,43 @@ def test_job_logs_record_stages_and_are_cleared_with_jobs(client: TestClient) ->
         assert not db.scalars(select(JobLog).where(JobLog.job_id == job_id)).all()
 
 
+def test_job_logs_include_ffmpeg_operations_and_statistics(client, samples):
+    m = client.app.state.jobs
+
+    async def encode(ctx, job):
+        ctx.set_progress(0, "测试编码")
+        await run_command(
+            ffmpeg_args(
+                "ffmpeg",
+                [
+                    "-i",
+                    str(samples["a"]),
+                    "-c:v",
+                    "libx264",
+                    "-vf",
+                    "scale=160:-2",
+                    "-f",
+                    "null",
+                    "-",
+                ],
+            ),
+            duration=4,
+            handle=ctx.handle,
+            on_progress=ctx.set_progress,
+        )
+
+    m.handlers = {**m.handlers, "encode_logs": encode}
+    with m.sessionmaker() as db:
+        job_id = m.submit(db, "encode_logs", {}, []).id
+    assert wait_job(client, job_id)["status"] == "succeeded"
+    messages = [entry["message"] for entry in client.get(f"/api/jobs/{job_id}/logs").json()]
+    start = next(message for message in messages if message.startswith("FFmpeg 开始："))
+    assert "-c:v libx264" in start and "-vf scale=160:-2" in start
+    assert any("FFmpeg 进度：" in message and "speed=" in message for message in messages)
+    assert messages[-2].startswith("FFmpeg 完成（耗时 ")
+    assert messages[-1] == "完成"
+
+
 def test_api_queued_pause_priority_resume_cancel(client: TestClient) -> None:
     m = client.app.state.jobs
     with m.sessionmaker() as db:

@@ -5,6 +5,13 @@ export function serverText(text: string | null | undefined): string {
   if (!text || currentLanguage() === 'zh') return text ?? ''
   if (i18n.exists(text)) return tr(text)
   let match: RegExpMatchArray | null
+  if ((match = text.match(/^FFmpeg 开始：([\s\S]*)$/))) return tr('FFmpeg 开始：{{detail}}', { detail: match[1] })
+  if ((match = text.match(/^FFmpeg 进度：([\s\S]*)$/))) return tr('FFmpeg 进度：{{detail}}', { detail: match[1] })
+  if ((match = text.match(/^FFmpeg 完成（耗时 ([\d.]+) 秒）$/))) return tr('FFmpeg 完成（耗时 {{seconds}} 秒）', { seconds: match[1] })
+  if ((match = text.match(/^FFmpeg 执行失败（退出码 (-?\d+)）：([\s\S]*)$/))) return tr('FFmpeg 执行失败（退出码 {{code}}）：{{detail}}', { code: match[1], detail: match[2] })
+  if ((match = text.match(/^FFmpeg 执行步骤 (\d+)\/(\d+)$/))) return tr('FFmpeg 执行步骤 {{current}}/{{total}}', { current: match[1], total: match[2] })
+  if ((match = text.match(/^硬件处理失败（(.+)），正在尝试其他解码或编码方式$/))) return tr('硬件处理失败（{{encoder}}），正在尝试其他解码或编码方式', { encoder: match[1] })
+  if ((match = text.match(/^使用软件编码：([\s\S]*)$/))) return tr('使用软件编码：{{detail}}', { detail: serverText(match[1]) })
   if ((match = text.match(/^程序已回滚，systemd 配置回滚未确认：([\s\S]+)$/))) return tr('程序已回滚，systemd 配置回滚未确认：{{detail}}', { detail: serverText(match[1]) })
   if ((match = text.match(/^systemd 重载失败：([\s\S]*)$/))) return tr('systemd 重载失败：{{detail}}', { detail: match[1] })
   if ((match = text.match(/^服务配置同步失败：([\s\S]+)；回滚失败：([\s\S]+)$/))) return tr('服务配置同步失败：{{detail}}；回滚失败：{{rollback}}', { detail: serverText(match[1]), rollback: serverText(match[2]) })

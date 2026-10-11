@@ -12,7 +12,7 @@ from reelvault.config import Settings
 from reelvault.main import create_app
 from reelvault.media import encoding, ops
 from reelvault.media.encoding import EncoderRuntime, hardware_command
-from reelvault.media.ffmpeg import Canceled, FFmpegError, RunResult
+from reelvault.media.ffmpeg import Canceled, FFmpegError, ProcessHandle, RunResult
 from reelvault.media.hardware_check import verify_operation
 from reelvault.media.probe import probe
 
@@ -107,7 +107,9 @@ def test_entire_plan_retries_and_cancellation_does_not_retry(
     monkeypatch.setattr(encoding, "run_command", run)
     runtime = EncoderRuntime("ffmpeg", {"h264_nvenc"})
     commands = [["-i", "in.mp4", *ops.x264(20), name] for name in ("first.mp4", "second.mp4")]
-    result = asyncio.run(runtime.run(commands, "nvenc"))
+    events = []
+    handle = ProcessHandle(on_log=lambda message, level: events.append((message, level)))
+    result = asyncio.run(runtime.run(commands, "nvenc", handle=handle))
     assert [args[args.index("-c:v") + 1] for args in calls] == [
         "h264_nvenc",
         "h264_nvenc",
@@ -118,6 +120,16 @@ def test_entire_plan_retries_and_cancellation_does_not_retry(
     ]
     assert [("-hwaccel" in args) for args in calls[:4]] == [True, True, False, False]
     assert result["fallback"] == "GPU unavailable" and result["encoder"] == "libx264"
+    assert [message for message, _ in events if message.startswith("FFmpeg 执行步骤")] == [
+        "FFmpeg 执行步骤 1/2",
+        "FFmpeg 执行步骤 2/2",
+        "FFmpeg 执行步骤 1/2",
+        "FFmpeg 执行步骤 2/2",
+        "FFmpeg 执行步骤 1/2",
+        "FFmpeg 执行步骤 2/2",
+    ]
+    assert ("使用软件编码：GPU unavailable", "warning") in events
+    assert sum(message.startswith("硬件处理失败") for message, _ in events) == 2
     calls.clear()
 
     async def cancel(args: list[str], **kwargs: Any) -> RunResult:

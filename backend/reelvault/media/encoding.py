@@ -222,6 +222,8 @@ class EncoderRuntime:
         async def execute(planned: list[list[str]]) -> None:
             count = len(planned)
             for i, args in enumerate(planned):
+                if handle and handle.on_log:
+                    handle.on_log(f"FFmpeg 执行步骤 {i + 1}/{count}", "info")
                 callback = (
                     (lambda value, stage=i: on_progress((stage + value) / count))
                     if on_progress
@@ -260,9 +262,15 @@ class EncoderRuntime:
             except FFmpegError as error:
                 fallback = str(error)[-1000:]
                 self.outcomes[chosen] = {"usable": False, "error": fallback}
+                if handle and handle.on_log:
+                    handle.on_log(
+                        f"硬件处理失败（{chosen}），正在尝试其他解码或编码方式", "warning"
+                    )
                 # Retry original commands from the beginning, overwriting partial outputs;
                 # a failed hardware decode retries the same encoder with software decoding.
                 # Cancellation and process-launch errors must not start another encode.
+        if fallback and handle and handle.on_log:
+            handle.on_log(f"使用软件编码：{fallback}", "warning")
         await execute(commands)
         return {
             "requested": requested,

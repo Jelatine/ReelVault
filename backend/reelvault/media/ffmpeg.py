@@ -6,8 +6,10 @@ import functools
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +38,7 @@ class ProcessHandle:
     process_group: bool = False
     # Niceness for background work, so serving pages and video keeps the CPU first.
     nice: int = 0
+    on_log: Callable[[str, str], None] | None = field(default=None, repr=False)
     _resumed: asyncio.Event = field(default_factory=asyncio.Event)
     _windows_job: WindowsJob | None = field(default=None, repr=False)
 
@@ -184,6 +187,57 @@ class RunResult:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+def _operation_summary(args: list[str]) -> str:
+    """Show useful processing options without persisting full source paths or URLs."""
+    options = {
+        "-i",
+        "-c",
+        "-c:v",
+        "-c:a",
+        "-codec:v",
+        "-codec:a",
+        "-vf",
+        "-af",
+        "-filter_complex",
+        "-filter_complex_script",
+        "-filter:v",
+        "-filter:a",
+        "-ss",
+        "-t",
+        "-to",
+        "-pass",
+        "-crf",
+        "-b:v",
+        "-b:a",
+        "-preset",
+        "-hwaccel",
+        "-hwaccel_output_format",
+        "-s",
+        "-r",
+        "-ar",
+        "-ac",
+        "-f",
+        "-map",
+        "-frames:v",
+    }
+    details = []
+    for index, option in enumerate(args[:-1]):
+        if option not in options:
+            continue
+        value = args[index + 1]
+        if option in {"-i", "-filter_complex_script"}:
+            value = _log_filename(value)
+        details.append(shlex.join([option, value]))
+    details.extend(option for option in args if option in {"-an", "-vn"})
+    return f"{' '.join(details)[:1800]} → {_log_filename(args[-1])[:200]}"
+
+
+def _log_filename(value: str) -> str:
+    if "://" in value:
+        return "[URL]"
+    return value.replace("\\", "/").rsplit("/", 1)[-1]
+
+
 async def run_command(
     args: list[str],
     *,
@@ -196,6 +250,10 @@ async def run_command(
     parsed into a 0..1 fraction and reported through `on_progress`."""
     control = handle or ProcessHandle()
     track = on_progress is not None and duration > 0
+    # All job-owned FFmpeg calls share this handle, including derived assets and
+    # hardware retries. Other commands (ffprobe, downloads) keep their stdout intact.
+    log_event = control.on_log if "-hide_banner" in args else None
+    log_progress = log_event is not None and "pipe:1" in args and "-progress" in args
     if cwd is not None and "/" in args[0] and not Path(args[0]).is_absolute():
         args = [str(Path(args[0]).resolve()), *args[1:]]
     proc = await start_process(
@@ -208,6 +266,7 @@ async def run_command(
     )
     assert proc.stdout and proc.stderr
 
+    started = time.monotonic()
     stderr_tail = bytearray()
     stdout_chunks: list[bytes] = []
 
@@ -220,12 +279,16 @@ async def run_command(
 
     async def read_stdout() -> None:
         assert proc.stdout
-        if not track:
+        if not track and not log_progress:
             stdout_chunks.append(await proc.stdout.read())
             return
         pending = b""
         dropping = False
+        stats: dict[str, str] = {}
+        last_log: float | None = None
         while chunk := await proc.stdout.read(8192):
+            if not track:
+                stdout_chunks.append(chunk)
             pending += chunk
             while b"\n" in pending:
                 raw, pending = pending.split(b"\n", 1)
@@ -233,9 +296,33 @@ async def run_command(
                     dropping = False
                     continue
                 line = raw.decode(errors="replace").strip()
+                key, separator, value = line.partition("=")
+                if (
+                    log_progress
+                    and separator
+                    and key
+                    in {"out_time", "frame", "fps", "speed", "bitrate", "total_size", "progress"}
+                ):
+                    stats[key] = value
+                    if key == "progress":
+                        now = time.monotonic()
+                        if last_log is None or now - last_log >= 10 or value == "end":
+                            fields = []
+                            if stats.get("out_time") not in {None, "N/A"}:
+                                fields.append(f"time={stats['out_time']}")
+                            for name in ("frame", "fps", "speed", "bitrate"):
+                                if stats.get(name) not in {None, "N/A"}:
+                                    fields.append(f"{name}={stats[name]}")
+                            size = stats.get("total_size", "")
+                            if size.isdigit():
+                                fields.append(f"size={int(size) / 1024 / 1024:.2f} MiB")
+                            if fields and log_event:
+                                log_event(f"FFmpeg 进度：{' · '.join(fields)}", "info")
+                                last_log = now
+                        stats.clear()
                 if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
                     value = line.split("=", 1)[1]
-                    if value.isdigit() and on_progress:
+                    if track and value.isdigit() and on_progress:
                         on_progress(min(1.0, int(value) / 1_000_000 / duration))
             if len(pending) > 8192:
                 pending = b""
@@ -243,6 +330,8 @@ async def run_command(
 
     readers = [asyncio.create_task(read_stderr()), asyncio.create_task(read_stdout())]
     try:
+        if log_event:
+            log_event(f"FFmpeg 开始：{_operation_summary(args)}", "info")
         await asyncio.gather(*readers)
         code = await proc.wait()
     except BaseException:
@@ -265,7 +354,11 @@ async def run_command(
 
     if code != 0:
         tail = tail.strip()
+        if log_event:
+            log_event(f"FFmpeg 执行失败（退出码 {code}）：{tail[-2000:]}", "warning")
         raise FFmpegError(tail[-2000:] or f"{args[0]} exited with code {code}")
+    if log_event:
+        log_event(f"FFmpeg 完成（耗时 {time.monotonic() - started:.1f} 秒）", "info")
     return RunResult(stdout=b"".join(stdout_chunks), stderr=tail)
 
 

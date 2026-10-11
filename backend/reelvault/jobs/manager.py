@@ -34,7 +34,7 @@ class JobContext:
     def __init__(self, manager: JobManager, job_id: str) -> None:
         self.manager = manager
         self.job_id = job_id
-        self.handle = ProcessHandle(nice=manager.settings.job_nice)
+        self.handle = ProcessHandle(nice=manager.settings.job_nice, on_log=self.log)
         self.video_ids: list[str] = []
         self._last_flush = 0.0
         self.progress = 0.0
