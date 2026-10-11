@@ -15,7 +15,7 @@ export default function CoverPanel({ video, currentTime, seek }: EditorContext) 
   useTranslation()
 
   const qc = useQueryClient()
-  const [time, setTime] = useState(video.cover_time ?? currentTime)
+  const [time, setTime] = useState(currentTime)
   const [busy, setBusy] = useState(false)
   const embed = useSubmitEdit(video.id)
 

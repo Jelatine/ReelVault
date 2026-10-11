@@ -297,11 +297,11 @@ export default function VideoPage() {
   const pause = useCallback(() => void player.current?.pause(), [])
   const setOverlayStable = useCallback((o: Overlay) => setOverlay(o), [])
 
-  const [overlayKey, setOverlayKey] = useState(`${tool}:${id}`)
-  if (overlayKey !== `${tool}:${id}`) {
-    setOverlayKey(`${tool}:${id}`)
+  const [overlayKey, setOverlayKey] = useState({ tool, id })
+  if (overlayKey.tool !== tool || overlayKey.id !== id) {
+    setOverlayKey({ tool, id })
     setOverlay({})
-    setTime(0)
+    if (overlayKey.id !== id) setTime(0)
   }
 
   if (isLoading) {

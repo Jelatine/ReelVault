@@ -8,7 +8,7 @@ import VideoPage from './VideoPage'
 vi.mock('../lib/queries', async (original) => ({ ...(await original<typeof import('../lib/queries')>()),
   useJobs: () => ({ data: [] }), useFolders: () => ({ data: [] }),
   useVideo: (id: string) => ({ data: { id, title: id, description: '', tags: [], status: 'ready', deleted_at: null,
-    duration: 1, size: 10, width: 320, height: 240, fps: 25, created_at: '2026-10-05T00:00:00Z', stream_url: `/${id}` } }),
+    duration: 120, cover_time: 0, size: 10, width: 320, height: 240, fps: 25, created_at: '2026-10-05T00:00:00Z', stream_url: `/${id}` } }),
 }))
 vi.mock('../lib/collections', async (original) => ({ ...(await original<typeof import('../lib/collections')>()),
   useCollection: () => ({ data: { id: 7, name: '连续播放', count: 3, items: [
@@ -16,8 +16,8 @@ vi.mock('../lib/collections', async (original) => ({ ...(await original<typeof i
     { id: 'b', title: 'b', status: 'ready' },
   ] } }),
 }))
-vi.mock('../components/Player', () => ({ default: ({ onEnded, autoPlay }: { onEnded: () => void; autoPlay: boolean }) =>
-  <div><output data-testid="autoplay">{String(autoPlay)}</output><button onClick={onEnded}>结束播放</button></div> }))
+vi.mock('../components/Player', () => ({ default: ({ onEnded, autoPlay, onTimeUpdate }: { onEnded: () => void; autoPlay: boolean; onTimeUpdate: (time: number) => void }) =>
+  <div><output data-testid="autoplay">{String(autoPlay)}</output><button onClick={onEnded}>结束播放</button><button onClick={() => onTimeUpdate(42.5)}>暂停在 42.5 秒</button></div> }))
 vi.mock('../components/BookmarkPanel', () => ({ default: () => null }))
 vi.mock('../lib/hls', () => ({ useHls: () => ({ data: { enabled: false }, error: null, refetch: vi.fn() }), activeHls: () => false }))
 vi.mock('../lib/bookmarks', () => ({ useBookmarks: () => ({ data: { bookmarks: [], chapters: [] } }) }))
@@ -27,7 +27,6 @@ vi.mock('../editor/FrameControls', () => ({ default: () => null }))
 vi.mock('../editor/TrimPanel', () => ({ default: () => null }))
 vi.mock('../editor/RotatePanel', () => ({ default: () => null }))
 vi.mock('../editor/CompressPanel', () => ({ default: () => null }))
-vi.mock('../editor/CoverPanel', () => ({ default: () => null }))
 vi.mock('../editor/MergePanel', () => ({ default: () => null }))
 vi.mock('../editor/MorePanel', () => ({ default: () => null }))
 beforeAll(() => {
@@ -36,6 +35,21 @@ beforeAll(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
 })
 afterEach(() => { cleanup(); localStorage.clear() })
+
+test('opening the cover tab preserves the paused position and initializes its time input', () => {
+  const client = new QueryClient()
+  render(<MantineProvider><QueryClientProvider client={client}><MemoryRouter initialEntries={['/videos/a']}>
+    <Routes><Route path="videos/:id" element={<VideoPage />} /></Routes>
+  </MemoryRouter></QueryClientProvider></MantineProvider>)
+  fireEvent.click(screen.getByText('暂停在 42.5 秒'))
+  fireEvent.click(screen.getByRole('tab', { name: '封面' }))
+  expect(screen.getByRole('button', { name: '使用当前画面（0:42.5）作为封面' })).toBeDefined()
+  expect((screen.getByLabelText('或指定时间点') as HTMLInputElement).value).toBe('00:00:42.500')
+  fireEvent.click(screen.getByRole('tab', { name: '旋转' }))
+  fireEvent.click(screen.getByRole('tab', { name: '封面' }))
+  expect((screen.getByLabelText('或指定时间点') as HTMLInputElement).value).toBe('00:00:42.500')
+  client.clear()
+})
 
 test('finishing a collection video automatically opens the next ready member and stops at the last', () => {
   function Location() { const location = useLocation(); return <output data-testid="location">{location.pathname + location.search}</output> }
