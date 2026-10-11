@@ -251,7 +251,9 @@ async def make_sprite(
             on_progress=on_progress,
             handle=handle,
         )
-    (out_dir / VTT).write_text(build_vtt(info.duration, interval, count, tw, th, SPRITE))
+    # Fixed LF: Windows would otherwise write CRLF and break naive cue splitting.
+    vtt = build_vtt(info.duration, interval, count, tw, th, SPRITE)
+    (out_dir / VTT).write_text(vtt, newline="\n")
 
 
 async def make_playable(

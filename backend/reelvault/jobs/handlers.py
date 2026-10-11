@@ -122,7 +122,7 @@ async def ingest(ctx: JobContext, job: Job) -> None:
         vtt = out / derive.VTT
         # Absolute URL: players resolve cue images against the page, not the VTT file.
         sprite_url = f"/api/videos/{video_id}/{derive.SPRITE}?v={version}"
-        vtt.write_text(vtt.read_text().replace(derive.SPRITE, sprite_url))
+        vtt.write_text(vtt.read_text().replace(derive.SPRITE, sprite_url), newline="\n")
         _update(ctx, video_id, has_sprite=True)
 
         playable: str | None = None
@@ -743,7 +743,7 @@ async def sprite(ctx: JobContext, job: Job) -> None:
                 f"?v={current.asset_version}&s={sprite_version}"
             )
             vtt = (temp / derive.VTT).read_text().replace(derive.SPRITE, url)
-            (temp / derive.VTT).write_text(vtt)
+            (temp / derive.VTT).write_text(vtt, newline="\n")
             out = derived_dir(ctx.settings, video.id)
             (temp / derive.SPRITE).replace(out / derive.SPRITE)
             (temp / derive.VTT).replace(out / derive.VTT)
