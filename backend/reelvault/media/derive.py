@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from .encoding import EncoderRuntime
-from .ffmpeg import ProcessHandle, ProgressCallback, ffmpeg_args, run_command
+from .ffmpeg import FFmpegError, ProcessHandle, ProgressCallback, ffmpeg_args, run_command
 from .probe import MediaInfo
 
 POSTER_WIDTH = 640
@@ -184,6 +184,8 @@ async def _sprite_by_seeking(
     last = max(0.0, (info.video_duration or info.duration) - 0.1)
     with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
         frames = Path(tmp)
+        previous: Path | None = None
+        missing: list[Path] = []
         for i in range(count):
             frame = frames / f"{i:04d}.png"
             args = [
@@ -191,12 +193,42 @@ async def _sprite_by_seeking(
                 "-map", f"0:{info.video_index}", "-an", "-frames:v", "1",
                 "-vf", vf, str(frame),
             ]  # fmt: skip
-            await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
-            # A seek near the end can land past the final decodable frame.
-            if not frame.is_file() and i:
-                shutil.copyfile(frames / f"{i - 1:04d}.png", frame)
+            try:
+                await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
+            except FFmpegError as error:
+                # A damaged GOP must not discard the other usable thumbnails.
+                # Keep cancellation and operational errors (disk, filters, etc.) fatal.
+                if not any(
+                    marker in str(error)
+                    for marker in (
+                        "Error while decoding stream",
+                        "Error splitting the input into NAL units",
+                        "Invalid NAL unit size",
+                    )
+                ):
+                    raise
+                frame.unlink(missing_ok=True)
+            if not frame.is_file() or not frame.stat().st_size:
+                if handle and handle.on_log:
+                    handle.on_log(
+                        f"缩略图 {i + 1}/{count}（{min(i * interval, last):.3f} 秒）"
+                        "无法解码，将使用相邻有效帧",
+                        "warning",
+                    )
+                if previous:
+                    shutil.copyfile(previous, frame)
+                else:
+                    missing.append(frame)
+            else:
+                # The first GOP may be damaged too; backfill from the first good frame.
+                for pending in missing:
+                    shutil.copyfile(frame, pending)
+                missing.clear()
+                previous = frame
             if on_progress:
                 on_progress((i + 1) / count)
+        if previous is None:
+            raise FFmpegError("无法生成进度条缩略图：所有采样位置均无法解码有效视频帧")
         args = [
             "-framerate", "1", "-i", str(frames / "%04d.png"),
             "-vf", tile, "-frames:v", "1", *JPEG, str(out),

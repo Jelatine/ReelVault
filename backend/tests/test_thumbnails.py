@@ -117,3 +117,178 @@ def test_sparse_long_and_subsecond_clips_have_complete_accurate_sprites(
     assert vtt.startswith("WEBVTT")
     end = {610: "00:10:10.000", 3.2: "00:00:03.200", 0.2: "00:00:00.200"}[duration]
     assert f"--> {end}" in vtt
+
+
+@pytest.mark.parametrize("damaged_seconds", [(2, 3, 4, 5), tuple(range(6))])
+def test_seeking_sprite_recovers_damaged_gops(tmp_path, damaged_seconds):
+    from reelvault.media.ffmpeg import FFmpegError, ProcessHandle
+
+    source = tmp_path / "damaged.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=red:size=160x90:rate=10:duration=6",
+            "-c:v",
+            "libx264",
+            "-g",
+            "10",
+            "-keyint_min",
+            "10",
+            "-sc_threshold",
+            "0",
+            "-bf",
+            "0",
+            str(source),
+        ],
+        check=True,
+    )
+    packets = json.loads(
+        subprocess.check_output(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_packets",
+                "-show_entries",
+                "packet=pts_time,pos,size",
+                "-of",
+                "json",
+                str(source),
+            ]
+        )
+    )["packets"]
+    # Preserve the MP4 index and codec configuration, but destroy complete GOPs.
+    with source.open("r+b") as stream:
+        for packet in packets:
+            if int(float(packet["pts_time"])) in damaged_seconds:
+                stream.seek(int(packet["pos"]))
+                stream.write(b"\xff" * int(packet["size"]))
+    logs = []
+    progress = []
+
+    async def generate():
+        info = await probe("ffprobe", str(source))
+        await derive._sprite_by_seeking(
+            "ffmpeg",
+            source,
+            info,
+            tmp_path / SPRITE,
+            1,
+            6,
+            "scale=160:90,setsar=1",
+            "tile=6x1",
+            ProcessHandle(on_log=lambda message, level: logs.append((message, level))),
+            progress.append,
+        )
+
+    if len(damaged_seconds) == 6:
+        with pytest.raises(FFmpegError, match="所有采样位置"):
+            asyncio.run(generate())
+        assert not (tmp_path / SPRITE).exists()
+    else:
+        asyncio.run(generate())
+        raw = subprocess.check_output(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-i",
+                str(tmp_path / SPRITE),
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "pipe:1",
+            ]
+        )
+        assert len(raw) == 960 * 90 * 3
+        for index in range(6):
+            offset = (45 * 960 + index * 160 + 80) * 3
+            red, green, blue = raw[offset : offset + 3]
+            assert red > 200 and green < 40 and blue < 40
+    assert any("将使用相邻有效帧" in message for message, _ in logs)
+    assert progress == [(i + 1) / 6 for i in range(6)]
+    assert not list(tmp_path.glob("tmp*"))
+
+
+@pytest.mark.parametrize("error", [derive.FFmpegError("Permission denied"), RuntimeError("stop")])
+def test_seeking_sprite_does_not_hide_operational_errors(tmp_path, monkeypatch, error):
+    from reelvault.media.probe import MediaInfo
+
+    async def fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(derive, "run_command", fail)
+    with pytest.raises(type(error), match=str(error)):
+        asyncio.run(
+            derive._sprite_by_seeking(
+                "ffmpeg",
+                tmp_path / "source.mp4",
+                MediaInfo(duration=6),
+                tmp_path / SPRITE,
+                1,
+                6,
+                "scale=160:90",
+                "tile=6x1",
+                None,
+                None,
+            )
+        )
+
+
+@pytest.mark.parametrize("failure", ["decode", "empty", "cancel"])
+def test_seeking_sprite_backfills_initial_frames(tmp_path, monkeypatch, failure):
+    from reelvault.media.ffmpeg import Canceled, ProcessHandle
+    from reelvault.media.probe import MediaInfo
+
+    logs = []
+
+    async def run(args, **kwargs):
+        if args[-1].endswith(".png"):
+            from pathlib import Path
+
+            output = Path(args[-1])
+            if output.name in {"0000.png", "0001.png", "0003.png"}:
+                if failure == "decode":
+                    output.write_bytes(b"partial")
+                    raise derive.FFmpegError("Invalid NAL unit size")
+                if failure == "cancel":
+                    raise Canceled()
+                return
+            output.write_bytes(b"valid frame")
+            return
+        # Verify both initial gaps and later gaps are filled before tiling.
+        from pathlib import Path
+
+        frames = Path(args[args.index("-i") + 1]).parent
+        assert [p.read_bytes() for p in sorted(frames.glob("*.png"))] == [b"valid frame"] * 6
+
+    monkeypatch.setattr(derive, "run_command", run)
+
+    async def generate():
+        await derive._sprite_by_seeking(
+            "ffmpeg",
+            tmp_path / "source.mp4",
+            MediaInfo(duration=6),
+            tmp_path / SPRITE,
+            1,
+            6,
+            "scale=160:90",
+            "tile=6x1",
+            ProcessHandle(on_log=lambda message, level: logs.append(message)),
+            None,
+        )
+
+    if failure == "cancel":
+        with pytest.raises(Canceled):
+            asyncio.run(generate())
+    else:
+        asyncio.run(generate())
+        assert sum("将使用相邻有效帧" in message for message in logs) == 3
