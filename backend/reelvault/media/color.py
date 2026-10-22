@@ -1,4 +1,5 @@
-"""Make SDR derivatives of tagged HDR10/HLG sources; stream copies retain HDR."""
+"""Normalise source pictures for re-encoding: deinterlace interlaced sources and make
+SDR derivatives of tagged HDR10/HLG sources; stream copies keep the original."""
 
 from __future__ import annotations
 
@@ -24,16 +25,28 @@ def sdr_filter(info: MediaInfo) -> str:
     )
 
 
+def deinterlace_filter(info: MediaInfo) -> str:
+    # One frame per frame keeps the probed rate that timing code relies on; only
+    # frames flagged as interlaced are processed, so mixed content stays intact.
+    return "bwdif=mode=send_frame:parity=auto:deint=interlaced" if info.interlaced else ""
+
+
+def source_filter(info: MediaInfo) -> str:
+    return ",".join(f for f in (deinterlace_filter(info), sdr_filter(info)) if f)
+
+
 def sdr_commands(
     commands: list[list[str]], sources: list[tuple[Path, MediaInfo]]
 ) -> list[list[str]]:
-    """Insert tone mapping before source video filters, including complex graphs.
+    """Insert source normalisation before source video filters, including complex graphs.
 
-    Match actual input paths so uploaded overlays/palettes and intermediate SDR
-    files are never tone mapped a second time.
+    Match actual input paths so uploaded overlays/palettes and intermediate files are
+    never deinterlaced or tone mapped a second time.
     """
-    hdr = {str(path.resolve()): info for path, info in sources if info.is_hdr}
-    if not hdr:
+    normalised = {
+        str(path.resolve()): info for path, info in sources if info.is_hdr or info.interlaced
+    }
+    if not normalised:
         return commands
     result = []
     for original in commands:
@@ -44,12 +57,12 @@ def sdr_commands(
             result.append(args)
             continue
         inputs = [args[i + 1] for i, value in enumerate(args[:-1]) if value == "-i"]
-        changed = False
+        tone_mapped = False
         for index, path in enumerate(inputs):
-            info = hdr.get(str(Path(path).resolve()))
+            info = normalised.get(str(Path(path).resolve()))
             if info is None:
                 continue
-            tone = sdr_filter(info)
+            tone = source_filter(info)
             if "-filter_complex" in args:
                 pos = args.index("-filter_complex") + 1
                 graph = args[pos]
@@ -65,16 +78,18 @@ def sdr_commands(
                     prefix += f",split={len(labels)}"
                 args[pos] = prefix + "".join(labels) + ";" + graph
             elif index == 0:
-                if "-vf" in args:
-                    pos = args.index("-vf") + 1
+                # FFmpeg applies only one of several -vf/-filter:v options.
+                flag = next((f for f in ("-vf", "-filter:v") if f in args), None)
+                if flag:
+                    pos = args.index(flag) + 1
                     args[pos] = tone + "," + args[pos]
                 else:
                     args[-1:-1] = ["-vf", tone]
             else:
                 continue
-            changed = True
+            tone_mapped = tone_mapped or info.is_hdr
         if (
-            changed
+            tone_mapped
             and args[-1] != "-"
             and Path(args[-1]).suffix.lower() not in {".png", ".gif", ".webp", ".jpg"}
         ):

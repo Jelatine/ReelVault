@@ -28,6 +28,7 @@ class MediaInfo:
     video_codec: str = ""
     video_index: int = 0
     pix_fmt: str = ""
+    field_order: str = ""
     video_profile: str = ""
     video_level: int = 0
     video_bitrate: int = 0
@@ -55,6 +56,10 @@ class MediaInfo:
     @property
     def is_hdr(self) -> bool:
         return self.color_transfer in {"smpte2084", "arib-std-b67"}
+
+    @property
+    def interlaced(self) -> bool:
+        return self.field_order in {"tt", "bb", "tb", "bt"}
 
     @property
     def high_bit_depth(self) -> bool:
@@ -85,6 +90,7 @@ class MediaInfo:
             "video_index": self.video_index,
             "audio_index": self.audio_index,
             "pix_fmt": self.pix_fmt,
+            "field_order": self.field_order,
             "video_profile": self.video_profile,
             "video_level": self.video_level,
             "video_bitrate": self.video_bitrate,
@@ -172,6 +178,7 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     ]
     info.video_codec = video.get("codec_name", "")
     info.pix_fmt = video.get("pix_fmt", "")
+    info.field_order = video.get("field_order", "")
     info.video_has_b_frames = int(video.get("has_b_frames") or 0) > 0
     info.video_profile = video.get("profile", "")
     # ffprobe reports unknown levels as -99.

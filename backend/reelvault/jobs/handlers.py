@@ -343,7 +343,10 @@ async def edit(ctx: JobContext, job: Job) -> None:
         result = out.with_suffix("." + plan.ext)
         commands = sdr_commands(plan.commands, sources)
         if commands != plan.commands:
-            ctx.log("HDR 视频重编码为 BT.709 SDR；无损复制保留原始 HDR", "info")
+            if any(info.is_hdr for _, info in sources):
+                ctx.log("HDR 视频重编码为 BT.709 SDR；无损复制保留原始 HDR", "info")
+            if any(info.interlaced for _, info in sources):
+                ctx.log("隔行扫描视频重编码时去隔行；无损复制保留原始场序", "info")
         plan.commands = commands
 
         n = len(plan.commands)
