@@ -346,10 +346,18 @@ def test_real_wrapped_ffmpeg_pause_resume_and_cancel(samples):
             "ffmpeg",
             [
                 "-re",
+                "-stream_loop",
+                "-1",
                 "-i",
                 str(samples["a"]),
                 "-c:v",
                 "libx264",
+                "-preset",
+                "ultrafast",
+                "-tune",
+                "zerolatency",
+                "-stats_period",
+                "0.1",
                 "-f",
                 "null",
                 "-",
@@ -369,7 +377,8 @@ def test_real_wrapped_ffmpeg_pause_resume_and_cancel(samples):
             )
         )
         try:
-            for _ in range(100):
+            for _ in range(500):
+                assert not task.done(), "FFmpeg exited before reporting progress"
                 if values and values[-1] > 0.05:
                     break
                 await asyncio.sleep(0.02)
@@ -380,7 +389,7 @@ def test_real_wrapped_ffmpeg_pause_resume_and_cancel(samples):
             await asyncio.sleep(0.6)
             assert values == before
             handle.resume()
-            for _ in range(100):
+            for _ in range(500):
                 if values[-1] > before[-1]:
                     break
                 await asyncio.sleep(0.02)

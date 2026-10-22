@@ -177,7 +177,8 @@ def test_progress_logs_are_throttled_and_stdout_is_preserved(monkeypatch):
         f"total_size=1048576\nprogress={'end' if n == 4 else 'continue'}\n"
         for n in range(1, 5)
     ]
-    script = f"import sys;sys.stdout.write({''.join(blocks)!r})"
+    # Emit exact bytes on every platform, including Windows text-mode CRLF hosts.
+    script = f"import sys;sys.stdout.buffer.write({''.join(blocks).encode()!r})"
     events = []
     ticks = iter([0, 0, 1, 11, 12, 13])
     monkeypatch.setattr(ffmpeg, "time", SimpleNamespace(monotonic=lambda: next(ticks)))

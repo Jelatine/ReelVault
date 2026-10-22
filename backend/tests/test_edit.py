@@ -51,8 +51,14 @@ def test_trim_single(client: TestClient, clip: dict[str, Any], mode: str) -> Non
 
 def test_fast_trim_matroska_with_b_frames(client: TestClient, samples: dict[str, Path]) -> None:
     source = upload_ready(client, samples["mkv"])
-    edit = {"op": "trim", "mode": "fast", "segments": [{"start": 1, "end": 2}]}
-    v = result_video(client, run_edit(client, source["id"], edit))
+    # AAC priming can shift Matroska keyframes slightly past whole seconds.
+    # Request points inside the GOP so both timestamp layouts snap to the same GOP.
+    edit = {"op": "trim", "mode": "fast", "segments": [{"start": 1.1, "end": 1.9}]}
+    job = run_edit(client, source["id"], edit)
+    segment = job["params"]["edit"]["segments"][0]
+    assert 0.99 <= segment["start"] <= 1.1
+    assert 1.9 <= segment["end"] <= 2.1
+    v = result_video(client, job)
     # Without compensation the copy starts at the keyframe before the snapped one.
     assert v["container"] == "mkv"
     assert 0.9 < v["duration"] < 1.4

@@ -26,7 +26,9 @@ test('字幕全文搜索、时间点跳转、故障刷新恢复和手机英文�
   const asset = await (await page.request.post('/api/subtitle-assets', { headers, multipart: { file: { name: 'speech.vtt', mimeType: 'text/vtt', buffer: Buffer.from(vtt) } } })).json()
   expect(asset.id).toBeTruthy()
   const track = await (await page.request.post(`/api/videos/${video.id}/subtitles`, { headers, data: { asset_id: asset.id, label: '中文字幕', language: 'zh' } })).json()
-  await page.goto('/content')
+  expect(track.id).toBeTruthy()
+  // Scope to this run's video, including retries that retain the previous upload.
+  await page.goto(`/content?video_id=${video.id}`)
   await page.getByRole('textbox', { name: '搜索字幕内容', exact: true }).fill('海边')
   await page.getByRole('button', { name: '搜索', exact: true }).click()
   await expect(page.getByText('找到 1 个字幕片段', { exact: true })).toBeVisible()
@@ -36,8 +38,9 @@ test('字幕全文搜索、时间点跳转、故障刷新恢复和手机英文�
   expect((await page.request.put(`/api/videos/${video.id}/playback`, { headers, data: { position: 4.5, started: true } })).ok()).toBe(true)
   await page.goto(`/videos/${video.id}?t=2.250&resume=1`)
   await expect.poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.currentTime)).toBeCloseTo(2.25, 1)
-  await expect(page.getByText('管理员尚未启用本地语音转写。已添加的字幕仍可进行内容搜索。')).toBeVisible()
-  await page.getByRole('link', { name: '搜索此视频的字幕', exact: true }).click()
+  // Disabled transcription hides its panel; manually attached subtitles remain searchable.
+  await expect(page.getByText('语音转写与内容搜索', { exact: true })).toHaveCount(0)
+  await page.goto(`/content?video_id=${video.id}`)
   expect(new URL(page.url()).searchParams.get('video_id')).toBe(video.id)
   await page.getByRole('textbox', { name: '搜索字幕内容', exact: true }).fill('紫色')
   await page.getByRole('button', { name: '搜索', exact: true }).click()
@@ -52,9 +55,10 @@ test('字幕全文搜索、时间点跳转、故障刷新恢复和手机英文�
   let fail = true
   await page.route('**/api/content-search?**', route => fail ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Temporary failure' }) }) : route.continue())
   await page.reload()
-  await expect(page.getByRole('alert')).toContainText('Temporary failure')
+  const failure = page.getByRole('alert').filter({ hasText: 'Temporary failure' })
+  await expect(failure).toBeVisible()
   fail = false
-  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await failure.getByRole('button', { name: 'Refresh', exact: true }).click()
   await expect(page.getByText('Matching subtitle segments: 1', { exact: true })).toBeVisible()
   expect((await page.request.delete(`/api/videos/${video.id}/subtitles/${track.id}`, { headers })).ok()).toBe(true)
   await page.reload()

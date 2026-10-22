@@ -341,7 +341,8 @@ def test_written_job_files_are_not_reserved_twice(client, settings, monkeypatch,
     directory.mkdir()
     path = directory / "output.part"
     path.write_bytes(b"x" * (8 * MIB))
-    written = path.stat().st_blocks * 512
+    stat = path.stat()
+    written = getattr(stat, "st_blocks", (stat.st_size + 511) // 512) * 512
     # Free space already reflects the partial output, leaving only future growth
     # to reserve. The old calculation rejected this upload and raised a warning.
     disk(monkeypatch, 158 * MIB)
