@@ -854,9 +854,13 @@ def plan_embed_cover(src: Source, cover: Path, out: Path) -> OpPlan:
     return OpPlan([args], info.duration, ext=ext)
 
 
-def plan_audio(
-    p: AudioParams, src: Source, out: Path, asset: tuple[Path, int] | None = None
-) -> OpPlan:
+LOUDNESS_KEYS = ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")
+
+
+def _audio_graph(
+    p: AudioParams, src: Source, asset: tuple[Path, int] | None
+) -> tuple[list[str], list[str], str]:
+    """Inputs and filter chains up to the selected (unnormalised) audio label."""
     path, info = src
     duration = info.duration
     if duration <= 0:
@@ -867,9 +871,6 @@ def plan_audio(
         raise OpError("音频开始时间必须小于视频时长")
     if p.mode == "adjust" and not info.has_audio:
         raise OpError("该视频没有音轨，请选择替换音轨或背景音乐")
-    ext = copy_ext(info)
-    if ext == "webm":
-        ext = "mkv"  # WebM cannot hold the AAC output.
     args = ["-i", str(path)]
     chains = []
     common = "aformat=sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS"
@@ -899,9 +900,45 @@ def plan_audio(
         selected = "mixed"
     else:
         selected = "original" if p.mode == "adjust" else "music"
+    return args, chains, selected
+
+
+def loudness_command(
+    p: AudioParams, src: Source, asset: tuple[Path, int] | None = None
+) -> list[str]:
+    """First loudnorm pass: measure exactly the audio the final pass will normalise."""
+    args, chains, selected = _audio_graph(p, src, asset)
+    chains.append(f"[{selected}]loudnorm=I={p.target_lufs}:TP=-1.5:LRA=11:print_format=json[m]")
+    args += ["-filter_complex", ";".join(chains), "-map", "[m]", "-t", str(src[1].duration)]
+    return [*args, "-f", "null", "-"]
+
+
+def plan_audio(
+    p: AudioParams,
+    src: Source,
+    out: Path,
+    asset: tuple[Path, int] | None = None,
+    measured: dict[str, float] | None = None,
+) -> OpPlan:
+    path, info = src
+    duration = info.duration
+    args, chains, selected = _audio_graph(p, src, asset)
+    ext = copy_ext(info)
+    if ext == "webm":
+        ext = "mkv"  # WebM cannot hold the AAC output.
     filters = []
     if p.normalize:
-        filters.append(f"loudnorm=I={p.target_lufs}:TP=-1.5:LRA=11:linear=false")
+        loudnorm = f"loudnorm=I={p.target_lufs}:TP=-1.5:LRA=11"
+        if measured:
+            # Second pass: a single gain keeps the dynamics when the targets allow it.
+            i, tp, lra, thresh, offset = (measured[key] for key in LOUDNESS_KEYS)
+            loudnorm += (
+                f":measured_I={i}:measured_TP={tp}:measured_LRA={lra}"
+                f":measured_thresh={thresh}:offset={offset}:linear=true"
+            )
+        else:
+            loudnorm += ":linear=false"
+        filters.append(loudnorm)
     if p.fade_in:
         filters.append(f"afade=t=in:st=0:d={p.fade_in}")
     if p.fade_out:

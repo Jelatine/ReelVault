@@ -16,7 +16,8 @@ from reelvault.backup import BackupError, create_backup, restore_backup
 from reelvault.config import Settings
 from reelvault.main import create_app
 from reelvault.media.ffmpeg import ffmpeg_args, run_command
-from reelvault.media.ops import AudioParams, OpError, plan_audio
+from reelvault.media.loudness import measure_loudness, parse_loudness
+from reelvault.media.ops import AudioParams, OpError, loudness_command, plan_audio
 from reelvault.media.probe import probe
 
 from .conftest import HEADERS, login, upload_ready, wait_job, wait_ready
@@ -319,3 +320,64 @@ def test_original_audio_start_delay_is_preserved(
         assert (await probe("ffprobe", str(target))).duration == pytest.approx(4, abs=0.1)
 
     asyncio.run(run())
+
+
+def integrated_loudness(path: Path) -> dict[str, str]:
+    stats = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-i", str(path), "-vn", "-af"]
+        + ["loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json", "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return dict(json.loads(re.findall(r"\{[^{}]+\}", stats.stderr)[-1]))
+
+
+def test_parse_loudness_rejects_silence_and_garbage() -> None:
+    block = (
+        '{"input_i" : "-23.10", "input_tp" : "-5.00", "input_lra" : "3.20",'
+        ' "input_thresh" : "-33.40", "target_offset" : "0.10"}'
+    )
+    assert parse_loudness(f"noise\n{block}\n") == {
+        "input_i": -23.1,
+        "input_tp": -5.0,
+        "input_lra": 3.2,
+        "input_thresh": -33.4,
+        "target_offset": 0.1,
+    }
+    assert parse_loudness(block.replace('"-23.10"', '"-inf"')) is None
+    assert parse_loudness("no summary") is None
+
+
+def test_real_two_pass_loudnorm_is_linear(samples: dict[str, Path], tmp_path: Path) -> None:
+    async def render() -> tuple[Path, list[str]]:
+        source = samples["a"]
+        src = (source, await probe("ffprobe", str(source)))
+        params = AudioParams(normalize=True, target_lufs=-16)
+        measured = await measure_loudness(
+            "ffmpeg", loudness_command(params, src), duration=src[1].duration
+        )
+        assert measured is not None
+        plan = plan_audio(params, src, tmp_path / "two-pass.mp4", measured=measured)
+        await run_command(ffmpeg_args("ffmpeg", plan.commands[0]))
+        return tmp_path / "two-pass.mp4", plan.commands[0]
+
+    out, command = asyncio.run(render())
+    graph = command[command.index("-filter_complex") + 1]
+    assert "measured_I=" in graph and "linear=true" in graph
+    assert float(integrated_loudness(out)["input_i"]) == pytest.approx(-16, abs=0.5)
+
+
+def test_normalize_job_records_measurement(client: TestClient, samples: dict[str, Path]) -> None:
+    video = upload_ready(client, samples["a"])
+    edit = {"op": "audio", "normalize": True, "target_lufs": -18}
+    r = client.post(f"/api/videos/{video['id']}/edit", json={"edit": edit})
+    job = wait_job(client, r.json()["id"])
+    assert job["status"] == "succeeded", job["error"]
+    assert set(job["params"]["loudness"]) == {
+        "input_i",
+        "input_tp",
+        "input_lra",
+        "input_thresh",
+        "target_offset",
+    }

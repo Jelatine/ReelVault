@@ -1041,6 +1041,8 @@
   "读取源视频": "Reading source video",
   "保存结果": "Saving result",
   "校验输出": "Validating output",
+  "测量响度": "Measuring loudness",
+  "无法测量有效响度（如静音），改用单遍动态标准化": "Could not measure usable loudness (e.g. silence); using single-pass dynamic normalization",
   "输出校验失败：{{detail}}": "Output validation failed: {{detail}}",
   "预期时长 {{expected}} 秒，实际 {{actual}} 秒": "Expected {{expected}} seconds, got {{actual}} seconds",
   "媒体处理超过 {{seconds}} 秒，已停止进程": "Media processing exceeded {{seconds}} seconds; the process was stopped",
