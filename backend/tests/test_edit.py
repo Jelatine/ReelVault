@@ -49,6 +49,29 @@ def test_trim_single(client: TestClient, clip: dict[str, Any], mode: str) -> Non
     assert 1.5 < v["duration"] < 2.6
 
 
+def test_fast_trim_matroska_with_b_frames(client: TestClient, samples: dict[str, Path]) -> None:
+    source = upload_ready(client, samples["mkv"])
+    edit = {"op": "trim", "mode": "fast", "segments": [{"start": 1, "end": 2}]}
+    v = result_video(client, run_edit(client, source["id"], edit))
+    # Without compensation the copy starts at the keyframe before the snapped one.
+    assert v["container"] == "mkv"
+    assert 0.9 < v["duration"] < 1.4
+
+
+def test_fast_trim_seek_compensation(tmp_path: Path) -> None:
+    params = ops.TrimParams(mode="fast", segments=[ops.Segment(start=1, end=3)])
+
+    def seek(**fields: Any) -> tuple[float, float]:
+        info = MediaInfo(duration=4, audio_codec="aac", audio_index=1, **fields)
+        args = ops.plan_trim(params, (tmp_path / "in", info), tmp_path / "out.mp4").commands[0]
+        return float(args[args.index("-ss") + 1]), float(args[args.index("-t") + 1])
+
+    start, length = seek(container="mkv", video_has_b_frames=True)
+    assert start == pytest.approx(1 + 3 / 23 + 0.001) and start + length == pytest.approx(3)
+    assert seek(container="mkv") == (1, 2)
+    assert seek(container="mp4", video_has_b_frames=True) == (1, 2)
+
+
 def test_trim_multi_segment(client: TestClient, clip: dict[str, Any]) -> None:
     edit = {"op": "trim", "segments": [{"start": 0, "end": 1}, {"start": 2.5, "end": 4}]}
     v = result_video(client, run_edit(client, clip["id"], edit))

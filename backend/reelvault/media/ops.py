@@ -371,6 +371,7 @@ OP_LABELS = {
 # ---------------------------------------------------------------- helpers
 
 COPY_CONTAINERS = {"mp4", "mov", "m4v", "mkv", "webm"}
+MATROSKA_SEEK_BACKOFF = 3 / 23
 
 
 def copy_ext(info: MediaInfo) -> str:
@@ -523,8 +524,16 @@ def plan_trim(p: TrimParams, src: Source, out: Path) -> OpPlan:
 
     if len(segs) == 1:
         start, end = segs[0]
-        args = ["-ss", f"{start:.3f}", "-i", str(path), "-t", f"{end - start:.3f}"]
         if p.mode == "fast":
+            seek = start
+            if info.container in {"mkv", "webm"} and info.video_has_b_frames:
+                # FFmpeg backs a seek off by 3/23 s for demuxers that seek by DTS when
+                # B-frames delay output; Matroska would then land on the previous keyframe.
+                seek = start + MATROSKA_SEEK_BACKOFF + 0.001
+                if end - seek <= 0.01:
+                    seek = start
+            # -t counts from the requested seek point, not from the copied keyframe.
+            args = ["-ss", f"{seek:.6f}", "-i", str(path), "-t", f"{end - seek:.6f}"]
             ext = copy_ext(info)
             # Copied subtitle packets keep cues from before the cut and overrun the end.
             args += maps(info)
@@ -533,6 +542,7 @@ def plan_trim(p: TrimParams, src: Source, out: Path) -> OpPlan:
                 args += MP4_FLAGS
             out = out.with_suffix("." + ext)
             return OpPlan([args + [str(out)]], total, ext=ext)
+        args = ["-ss", f"{start:.3f}", "-i", str(path), "-t", f"{end - start:.3f}"]
         args += [*maps(info, subtitles=True), *video_target(info).args(p.crf), *aac()]
         args += [*subtitle_codec(info), *MP4_FLAGS, str(out)]
         return OpPlan([args], total)

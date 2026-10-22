@@ -44,6 +44,8 @@ class MediaInfo:
     audio_delay: float = 0
     video_delay: float = 0
     video_duration: float = 0
+    # Decoder reorder delay; FFmpeg's input seek backs off when it is non-zero.
+    video_has_b_frames: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -170,6 +172,7 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     ]
     info.video_codec = video.get("codec_name", "")
     info.pix_fmt = video.get("pix_fmt", "")
+    info.video_has_b_frames = int(video.get("has_b_frames") or 0) > 0
     info.video_profile = video.get("profile", "")
     # ffprobe reports unknown levels as -99.
     info.video_level = max(0, int(video.get("level") or 0))
