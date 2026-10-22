@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from .ops import MP4_FLAGS, EffectParams, OpError, OpPlan, Source, aac, atempo_chain, x264
+from .ops import MP4_FLAGS, EffectParams, OpError, OpPlan, Source, aac, atempo_chain, video_target
 
 # Bound frame storage in each reverse filter. Decoders/encoders need additional memory.
 REVERSE_BUFFER_BYTES = 128 * 1024 * 1024
@@ -29,13 +29,14 @@ def plan_effect(
     if p.mode != "freeze" and last <= first:
         raise OpError("效果片段至少需要一帧")
     total = frames / fps
+    target = video_target(info)
     normalized = tmp / "source.mkv"
     graph = [
         f"[0:{info.video_index}]setpts=PTS-STARTPTS,"
         f"tpad=start_mode=clone:start_duration={max(0, info.video_delay):.9f}:"
         f"stop_mode=clone:stop_duration={total:.9f},"
         f"fps={fps:.9f},trim=end_frame={frames},setpts=PTS-STARTPTS,"
-        "pad=ceil(iw/2)*2:ceil(ih/2)*2,format=yuv420p[v]"
+        f"pad=ceil(iw/2)*2:ceil(ih/2)*2,format={target.pix_fmt}[v]"
     ]
     maps = ["-map", "[v]"]
     audio = info.has_audio
@@ -46,7 +47,7 @@ def plan_effect(
             f"apad,atrim=duration={total:.9f},asetpts=PTS-STARTPTS[a]"
         )
         maps += ["-map", "[a]"]
-    lossless = ["-c:v", "ffv1", "-level", "3", "-g", "1", "-pix_fmt", "yuv420p"]
+    lossless = ["-c:v", "ffv1", "-level", "3", "-g", "1", "-pix_fmt", target.pix_fmt]
     if audio:
         lossless += ["-c:a", "pcm_s16le"]
     commands = [
@@ -157,7 +158,7 @@ def plan_effect(
             "-map",
             "0:v:0",
             *(["-map", "0:a:0", *aac()] if audio else []),
-            *x264(p.crf),
+            *target.args(p.crf),
             "-t",
             f"{duration:.9f}",
             *MP4_FLAGS,

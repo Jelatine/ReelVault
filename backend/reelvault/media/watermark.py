@@ -3,7 +3,17 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from .ops import MP4_FLAGS, OpError, OpPlan, Source, WatermarkParams, audio_for_mp4, maps, x264
+from .ops import (
+    MP4_FLAGS,
+    OpError,
+    OpPlan,
+    Source,
+    WatermarkParams,
+    audio_for_mp4,
+    maps,
+    subtitle_codec,
+    video_target,
+)
 
 FONT = Path(__file__).resolve().parents[1] / "resources" / "fonts" / "NotoSansCJKsc-Regular.otf"
 
@@ -44,8 +54,8 @@ def plan_watermark(
         x, y = placement(p, "main_w", "main_h", "overlay_w", "overlay_h")
         graph += f"[0:{info.video_index}][logo]overlay=x='{x}':y='{y}':eof_action=repeat[v]"
         args += ["-filter_complex", graph, "-map", "[v]"]
-        if info.audio_index is not None:
-            args += ["-map", f"0:{info.audio_index}"]
+        # The overlay output replaces the source video map; keep its other tracks.
+        args += maps(info, subtitles=True)[2:]
     else:
         if not FONT.is_file():
             raise OpError("内置中文字体缺失，请重新安装程序")
@@ -61,6 +71,7 @@ def plan_watermark(
             f"box={int(p.box)}:boxcolor=black@{p.opacity * 0.4:.6f}:boxborderw=4:"
             f"x='{x}':y='{y}':fix_bounds=1"
         )
-        args += [*maps(info), "-vf", filt]
-    args += [*x264(p.crf), *audio_for_mp4(info), *MP4_FLAGS, str(out)]
+        args += [*maps(info, subtitles=True), "-vf", filt]
+    args += [*video_target(info).args(p.crf), *audio_for_mp4(info), *subtitle_codec(info)]
+    args += [*MP4_FLAGS, str(out)]
     return OpPlan([args], info.duration, cwd=tmp)

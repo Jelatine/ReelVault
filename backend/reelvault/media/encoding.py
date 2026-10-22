@@ -70,22 +70,28 @@ def hardware_command(
     encoder = FAMILIES[family][1 if software == "libx264" else 2]
     crf = int(args[args.index("-crf") + 1]) if "-crf" in args else 23
     bitrate = "-b:v" in args
+    # 10-bit output is only requested for HEVC; every family encodes it as Main10 P010.
+    ten_bit = software == "libx265" and any(
+        args[i] == "-pix_fmt" and args[i + 1] == "yuv420p10le" for i in range(len(args) - 1)
+    )
+    main10 = ["-profile:v", "main10"] if ten_bit else []
     if family == "videotoolbox":
         quality = max(1, min(100, round(100 - crf * 100 / 51)))
         rate = [] if bitrate else ["-q:v", str(quality)]
-        options = ["-allow_sw", "0", *rate, "-pix_fmt", "yuv420p"]
+        options = ["-allow_sw", "0", *rate, "-pix_fmt", "p010le" if ten_bit else "yuv420p"]
     elif family == "qsv":
         rate = [] if bitrate else ["-global_quality", str(max(1, crf))]
-        options = [*rate, "-preset", "medium", "-pix_fmt", "nv12"]
+        options = [*rate, "-preset", "medium", "-pix_fmt", "p010le" if ten_bit else "nv12"]
         if "-force_key_frames" in args:
             options += ["-forced_idr", "1"]
     elif family == "nvenc":
         rate = ["-rc", "vbr"] if bitrate else ["-rc", "constqp", "-qp", str(crf)]
-        options = [*rate, "-preset", "p4", "-pix_fmt", "yuv420p"]
+        options = [*rate, "-preset", "p4", "-pix_fmt", "p010le" if ten_bit else "yuv420p"]
         if "-force_key_frames" in args:
             options += ["-forced-idr", "1"]
     else:
         options = ["-rc_mode", "VBR"] if bitrate else ["-rc_mode", "CQP", "-qp", str(crf)]
+    options += main10
     dropped = {"-preset", "-crf", "-pix_fmt"}
     if family == "nvenc":
         # NVENC counts its B-frames against the level's DPB, so -refs 3 with -level 4.0
@@ -110,7 +116,7 @@ def hardware_command(
             i += 1
     if family == "vaapi":
         result = ["-vaapi_device", device, *result]
-        upload = "format=nv12,hwupload"
+        upload = f"format={'p010' if ten_bit else 'nv12'},hwupload"
         if "-filter_complex" in result:
             pos = result.index("-filter_complex") + 1
             pending = True

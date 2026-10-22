@@ -55,6 +55,10 @@ class MediaInfo:
         return self.color_transfer in {"smpte2084", "arib-std-b67"}
 
     @property
+    def high_bit_depth(self) -> bool:
+        return any(depth in self.pix_fmt for depth in ("p10", "p12", "p010", "p016"))
+
+    @property
     def browser_playable(self) -> bool:
         return (
             self.container in BROWSER_CONTAINERS
@@ -159,6 +163,11 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     info.video_duration = float(video.get("duration") or 0)
     info.extra = {**(fmt.get("tags") or {}), **(video.get("tags") or {})}
     info.extra["subtitle_streams"] = subtitle_streams(data)
+    info.extra["audio_streams"] = [
+        {"index": int(s["index"]), "codec": s.get("codec_name") or "unknown"}
+        for s in data.get("streams") or []
+        if s.get("codec_type") == "audio"
+    ]
     info.video_codec = video.get("codec_name", "")
     info.pix_fmt = video.get("pix_fmt", "")
     info.video_profile = video.get("profile", "")

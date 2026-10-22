@@ -5,7 +5,17 @@ import shutil
 from pathlib import Path
 
 from .ffmpeg import FFmpegError, ffmpeg_args, run_command
-from .ops import MP4_FLAGS, OpError, OpPlan, Source, SubtitleParams, audio_for_mp4, maps, x264
+from .ops import (
+    MP4_FLAGS,
+    OpError,
+    OpPlan,
+    Source,
+    SubtitleParams,
+    audio_for_mp4,
+    audio_indices,
+    maps,
+    video_target,
+)
 
 FORMATS = {".srt": "srt", ".ass": "ass", ".vtt": "webvtt"}
 
@@ -51,9 +61,9 @@ def plan_subtitle(
                 f"[0:{info.video_index}][sub]overlay=eof_action=pass:shortest=0[v]"
             )
             args = ["-i", str(path), "-filter_complex", graph, "-map", "[v]"]
-            if info.audio_index is not None:
-                args += ["-map", f"0:{info.audio_index}"]
-            args += [*x264(p.crf), *audio_for_mp4(info), *MP4_FLAGS, str(out)]
+            for index in audio_indices(info):
+                args += ["-map", f"0:{index}"]
+            args += [*video_target(info).args(p.crf), *audio_for_mp4(info), *MP4_FLAGS, str(out)]
             return OpPlan([args], info.duration)
         name = "subtitle.ass"
         commands.append(
@@ -65,7 +75,7 @@ def plan_subtitle(
         *maps(info),
         "-vf",
         f"subtitles=filename={name}",
-        *x264(p.crf),
+        *video_target(info).args(p.crf),
         *audio_for_mp4(info),
         *MP4_FLAGS,
         str(out),

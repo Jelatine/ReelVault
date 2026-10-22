@@ -381,23 +381,94 @@ def x264(crf: int, preset: str = "medium") -> list[str]:
     return ["-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-pix_fmt", "yuv420p"]
 
 
+# CRF is chosen on the x264 scale; x265 reaches similar quality a few steps higher.
+X265_CRF_OFFSET = 3
+
+
+@dataclass(frozen=True)
+class VideoTarget:
+    """Re-encode output that follows the sources instead of always using 8-bit H.264."""
+
+    codec: Literal["h264", "h265"] = "h264"
+    ten_bit: bool = False
+
+    @property
+    def pix_fmt(self) -> str:
+        return "yuv420p10le" if self.ten_bit else "yuv420p"
+
+    def args(self, crf: int, preset: str = "medium") -> list[str]:
+        if self.codec == "h264":
+            return x264(crf, preset)
+        crf = min(51, crf + X265_CRF_OFFSET)
+        return [
+            "-c:v", "libx265", "-preset", preset, "-crf", str(crf),
+            "-pix_fmt", self.pix_fmt, "-tag:v", "hvc1",
+        ]  # fmt: skip
+
+
+def video_target(*infos: MediaInfo) -> VideoTarget:
+    """HEVC sources stay HEVC; 10-bit SDR stays 10-bit (HDR is tone mapped to 8-bit)."""
+    if not infos or any(info.video_codec != "hevc" for info in infos):
+        return VideoTarget()
+    return VideoTarget("h265", all(i.high_bit_depth and not i.is_hdr for i in infos))
+
+
 def aac(bitrate: int = 160) -> list[str]:
     return ["-c:a", "aac", "-b:a", f"{bitrate}k"]
 
 
+def audio_codecs(info: MediaInfo) -> list[str]:
+    streams = info.extra.get("audio_streams") or []
+    return [str(s["codec"]) for s in streams] or ([info.audio_codec] if info.audio_codec else [])
+
+
 def audio_for_mp4(info: MediaInfo) -> list[str]:
-    if info.audio_codec in {"aac", "mp3"}:
+    if all(codec in {"aac", "mp3"} for codec in audio_codecs(info)):
         return ["-c:a", "copy"]
     return aac()
 
 
 MP4_FLAGS = ["-movflags", "+faststart"]
+TEXT_SUBTITLE_CODECS = {"subrip", "ass", "ssa", "webvtt", "mov_text", "text"}
 
 
-def maps(info: MediaInfo, audio: bool = True) -> list[str]:
+def audio_indices(info: MediaInfo) -> list[int]:
+    """The primary audio track first, then every other audio track."""
+    if info.audio_index is None:
+        return []
+    others = [
+        int(s["index"])
+        for s in info.extra.get("audio_streams") or []
+        if int(s["index"]) != info.audio_index
+    ]
+    return [info.audio_index, *others]
+
+
+def subtitle_indices(info: MediaInfo, container: str = "mp4") -> list[int]:
+    """Subtitle tracks the output container can hold; MP4/WebM take text tracks only."""
+    streams = info.extra.get("subtitle_streams") or []
+    return [
+        int(s["index"]) for s in streams if container == "mkv" or s["codec"] in TEXT_SUBTITLE_CODECS
+    ]
+
+
+def subtitle_codec(info: MediaInfo, container: str = "mp4") -> list[str]:
+    if not subtitle_indices(info, container):
+        return []
+    return {"mkv": ["-c:s", "copy"], "webm": ["-c:s", "webvtt"]}.get(
+        container, ["-c:s", "mov_text"]
+    )
+
+
+def maps(
+    info: MediaInfo, audio: bool = True, *, subtitles: bool = False, container: str = "mp4"
+) -> list[str]:
+    """Video first (VAAPI relies on it), then all audio tracks and optional subtitles."""
     out = ["-map", f"0:{info.video_index}"]
-    if audio and info.audio_index is not None:
-        out += ["-map", f"0:{info.audio_index}"]
+    for index in audio_indices(info) if audio else []:
+        out += ["-map", f"0:{index}"]
+    for index in subtitle_indices(info, container) if subtitles else []:
+        out += ["-map", f"0:{index}"]
     return out
 
 
@@ -433,8 +504,9 @@ def plan_rotate(p: RotateParams, src: Source, out: Path) -> OpPlan:
         filters.append("hflip")
     elif p.flip == "vertical":
         filters.append("vflip")
-    args = ["-i", str(path), *maps(info), "-vf", ",".join(filters), *x264(p.crf)]
-    args += [*audio_for_mp4(info), *MP4_FLAGS, str(out)]
+    args = ["-i", str(path), *maps(info, subtitles=True), "-vf", ",".join(filters)]
+    args += [*video_target(info).args(p.crf), *audio_for_mp4(info), *subtitle_codec(info)]
+    args += [*MP4_FLAGS, str(out)]
     return OpPlan([args], info.duration)
 
 
@@ -451,15 +523,18 @@ def plan_trim(p: TrimParams, src: Source, out: Path) -> OpPlan:
 
     if len(segs) == 1:
         start, end = segs[0]
-        args = ["-ss", f"{start:.3f}", "-i", str(path), "-t", f"{end - start:.3f}", *maps(info)]
+        args = ["-ss", f"{start:.3f}", "-i", str(path), "-t", f"{end - start:.3f}"]
         if p.mode == "fast":
             ext = copy_ext(info)
+            # Copied subtitle packets keep cues from before the cut and overrun the end.
+            args += maps(info)
             args += ["-c", "copy", "-avoid_negative_ts", "make_zero"]
             if ext in {"mp4", "mov", "m4v"}:
                 args += MP4_FLAGS
             out = out.with_suffix("." + ext)
             return OpPlan([args + [str(out)]], total, ext=ext)
-        args += [*x264(p.crf), *aac(), *MP4_FLAGS, str(out)]
+        args += [*maps(info, subtitles=True), *video_target(info).args(p.crf), *aac()]
+        args += [*subtitle_codec(info), *MP4_FLAGS, str(out)]
         return OpPlan([args], total)
 
     v, a = f"0:{info.video_index}", f"0:{info.audio_index}"
@@ -477,7 +552,7 @@ def plan_trim(p: TrimParams, src: Source, out: Path) -> OpPlan:
     args = ["-i", str(path), "-filter_complex", graph, "-map", "[v]"]
     if has_audio:
         args += ["-map", "[a]", *aac()]
-    args += [*x264(p.crf), *MP4_FLAGS, str(out)]
+    args += [*video_target(info).args(p.crf), *MP4_FLAGS, str(out)]
     return OpPlan([args], total)
 
 
@@ -523,7 +598,11 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
         listing.write_text(
             "".join("file '" + str(path).replace("'", "'\\''") + "'\n" for path, _ in sources)
         )
-        args = ["-f", "concat", "-safe", "0", "-i", str(listing), *maps(first)]
+        # Only the primary tracks: later files need not carry the same extra tracks.
+        primary = ["-map", f"0:{first.video_index}"]
+        if first.audio_index is not None:
+            primary += ["-map", f"0:{first.audio_index}"]
+        args = ["-f", "concat", "-safe", "0", "-i", str(listing), *primary]
         args += ["-c", "copy", *MP4_FLAGS, str(out)]
         return OpPlan([args], total, files=[listing])
 
@@ -532,6 +611,7 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
     h = even(p.height or first.height)
     fps = p.fps or (min(first.fps, 60) if first.fps else 30)
     any_audio = any(i.has_audio for _, i in sources)
+    target = video_target(*(info for _, info in sources))
 
     args = []
     for path, _ in sources:
@@ -550,7 +630,7 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
     for idx, (_, info) in enumerate(sources):
         chains.append(
             f"[{idx}:{info.video_index}]scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},format=yuv420p[v{idx}]"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},format={target.pix_fmt}[v{idx}]"
         )
         labels.append(f"[v{idx}]")
         if any_audio:
@@ -568,7 +648,7 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
     args += ["-filter_complex", graph, "-map", "[v]"]
     if any_audio:
         args += ["-map", "[a]", *aac()]
-    args += [*x264(p.crf), *MP4_FLAGS, str(out)]
+    args += [*target.args(p.crf), *MP4_FLAGS, str(out)]
     return OpPlan([args], total)
 
 
@@ -587,6 +667,7 @@ def plan_compress(
     video_filters: list[str] | None = None,
     audio_filters: list[str] | None = None,
     input_options: list[str] | None = None,
+    subtitles: bool = True,
 ) -> OpPlan:
     path, info = src
     w, h = scaled_dims(info, p.resolution)
@@ -595,17 +676,23 @@ def plan_compress(
         filters.append(f"scale={w}:{h}")
     if p.max_fps and info.fps > p.max_fps:
         filters.append(f"fps={p.max_fps}")
-    filters.append("format=yuv420p")
-    vf = ["-vf", ",".join(filters)]
+    # H.265 keeps a 10-bit SDR source at 10 bits; H.264 stays 8-bit for browsers.
+    ten_bit = p.codec == "h265" and info.high_bit_depth and not info.is_hdr
+    pix_fmt = "yuv420p10le" if ten_bit else "yuv420p"
+    filters.append(f"format={pix_fmt}")
+    vf = ["-vf", ",".join(filters), "-pix_fmt", pix_fmt]
     encoder = "libx264" if p.codec == "h264" else "libx265"
     tag = ["-tag:v", "hvc1"] if p.codec == "h265" else []
     audio = aac(p.audio_bitrate) if info.has_audio else []
     if info.has_audio and audio_filters:
         audio += ["-af", ",".join(audio_filters)]
     input_args = [*(input_options or []), "-i", str(path)]
+    stream_maps = maps(info, subtitles=subtitles)
+    if subtitles:
+        audio += subtitle_codec(info)
 
     if p.target_size_mb is None:
-        args = [*input_args, *maps(info), *vf, "-c:v", encoder, "-preset", p.preset]
+        args = [*input_args, *stream_maps, *vf, "-c:v", encoder, "-preset", p.preset]
         args += ["-crf", str(CRF_TABLE[p.codec][p.quality]), *tag, *audio, *MP4_FLAGS, str(out)]
         return OpPlan([args], info.duration)
 
@@ -627,7 +714,7 @@ def plan_compress(
     rate += ["-bufsize", f"{video_kbps * 2}k"]
     common = [*input_args, *vf, "-c:v", encoder, "-preset", p.preset, *rate]
     pass1 = [*common, *pass_args(1), "-map", f"0:{info.video_index}", "-an", "-f", "null", "-"]
-    pass2 = [*common, *pass_args(2), *maps(info), *tag, *audio, *MP4_FLAGS, str(out)]
+    pass2 = [*common, *pass_args(2), *stream_maps, *tag, *audio, *MP4_FLAGS, str(out)]
     return OpPlan([pass1, pass2], info.duration)
 
 
@@ -672,6 +759,8 @@ def plan_mixed(p: MixedParams, src: Source, out: Path, tmp: Path) -> OpPlan:
         video_filters=filters,
         audio_filters=audio_filters,
         input_options=input_options,
+        # Subtitle timestamps cannot follow a speed change.
+        subtitles=not p.speed,
     )
 
 
@@ -680,8 +769,9 @@ def plan_crop(p: CropParams, src: Source, out: Path) -> OpPlan:
     if p.x + p.width > info.width or p.y + p.height > info.height:
         raise OpError("裁切区域超出画面范围")
     w, h = p.width // 2 * 2, p.height // 2 * 2
-    args = ["-i", str(path), *maps(info), "-vf", f"crop={w}:{h}:{p.x}:{p.y}", *x264(p.crf)]
-    args += [*audio_for_mp4(info), *MP4_FLAGS, str(out)]
+    args = ["-i", str(path), *maps(info, subtitles=True), "-vf", f"crop={w}:{h}:{p.x}:{p.y}"]
+    args += [*video_target(info).args(p.crf), *audio_for_mp4(info), *subtitle_codec(info)]
+    args += [*MP4_FLAGS, str(out)]
     return OpPlan([args], info.duration)
 
 
@@ -690,7 +780,7 @@ def plan_speed(p: SpeedParams, src: Source, out: Path) -> OpPlan:
     args = ["-i", str(path), "-filter:v", f"setpts=PTS/{p.factor}", *maps(info)]
     if info.has_audio:
         args += ["-filter:a", atempo_chain(p.factor), *aac()]
-    args += [*x264(p.crf), *MP4_FLAGS, str(out)]
+    args += [*video_target(info).args(p.crf), *MP4_FLAGS, str(out)]
     return OpPlan([args], info.duration / p.factor)
 
 
@@ -698,22 +788,24 @@ def plan_mute(src: Source, out: Path) -> OpPlan:
     path, info = src
     ext = copy_ext(info)
     out = out.with_suffix("." + ext)
-    args = ["-i", str(path), *maps(info, audio=False), "-c", "copy", "-an", str(out)]
+    args = ["-i", str(path), *maps(info, audio=False, subtitles=True, container=ext)]
+    args += ["-c", "copy", "-an", str(out)]
     return OpPlan([args], info.duration, ext=ext)
 
 
 def plan_convert(p: ConvertParams, src: Source, out: Path) -> OpPlan:
     path, info = src
     out = out.with_suffix("." + p.format)
-    args = ["-i", str(path), *maps(info)]
+    args = ["-i", str(path), *maps(info, subtitles=True, container=p.format)]
     if p.format == "mkv":
         args += ["-c", "copy"]
     elif p.format == "mp4":
-        if info.remuxable_to_mp4:
-            args += ["-c", "copy"]
-        else:
-            args += [*x264(21), *aac()]
-        args += MP4_FLAGS
+        # Copy whatever MP4 can hold; only incompatible tracks are re-encoded.
+        args += ["-c:v", "copy"] if info.video_codec in {"h264", "av1"} else x264(21)
+        if info.has_audio:
+            copy = all(codec in {"aac", "mp3", "opus"} for codec in audio_codecs(info))
+            args += ["-c:a", "copy"] if copy else aac()
+        args += [*subtitle_codec(info), *MP4_FLAGS]
     else:
         args += [
             "-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-row-mt", "1",
@@ -721,6 +813,7 @@ def plan_convert(p: ConvertParams, src: Source, out: Path) -> OpPlan:
         ]  # fmt: skip
         if info.has_audio:
             args += ["-c:a", "libopus", "-b:a", "128k"]
+        args += subtitle_codec(info, "webm")
     return OpPlan([args + [str(out)]], info.duration, ext=p.format)
 
 
@@ -745,7 +838,7 @@ def plan_embed_cover(src: Source, cover: Path, out: Path) -> OpPlan:
         raise OpError("仅 MP4/MOV 文件支持写入封面")
     ext = info.container
     out = out.with_suffix("." + ext)
-    args = ["-i", str(path), "-i", str(cover), *maps(info), "-map", "1:0"]
+    args = ["-i", str(path), "-i", str(cover), *maps(info, subtitles=True), "-map", "1:0"]
     args += ["-c", "copy", "-c:v:1", "mjpeg", "-disposition:v:1", "attached_pic"]
     args += [*MP4_FLAGS, str(out)]
     return OpPlan([args], info.duration, ext=ext)

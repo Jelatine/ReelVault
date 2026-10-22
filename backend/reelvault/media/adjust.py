@@ -3,7 +3,17 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from .ops import MP4_FLAGS, AdjustParams, OpError, OpPlan, Source, audio_for_mp4, maps, x264
+from .ops import (
+    MP4_FLAGS,
+    AdjustParams,
+    OpError,
+    OpPlan,
+    Source,
+    audio_for_mp4,
+    maps,
+    subtitle_codec,
+    video_target,
+)
 
 
 def plan_adjust(
@@ -59,11 +69,12 @@ def plan_adjust(
         [
             "-i",
             str(path),
-            *maps(info),
+            *maps(info, subtitles=True),
             "-vf",
             ",".join(filters),
-            *x264(p.crf),
+            *video_target(info).args(p.crf),
             *audio_for_mp4(info),
+            *subtitle_codec(info),
             *MP4_FLAGS,
             str(out),
         ]

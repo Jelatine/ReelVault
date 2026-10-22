@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .ops import MP4_FLAGS, MergeParams, OpError, OpPlan, Source, aac, even, x264
+from .ops import MP4_FLAGS, MergeParams, OpError, OpPlan, Source, aac, even, video_target
 
 
 def plan_transitions(p: MergeParams, sources: list[Source], out: Path) -> OpPlan:
@@ -17,6 +17,7 @@ def plan_transitions(p: MergeParams, sources: list[Source], out: Path) -> OpPlan
     w, h = even(p.width or first.width), even(p.height or first.height)
     fps = p.fps or (min(first.fps, 60) if first.fps else 30)
     any_audio = any(info.has_audio for _, info in sources)
+    target = video_target(*(info for _, info in sources))
     args: list[str] = []
     chains = []
     for path, _ in sources:
@@ -27,7 +28,7 @@ def plan_transitions(p: MergeParams, sources: list[Source], out: Path) -> OpPlan
             f"[{index}:{info.video_index}]setpts=PTS-STARTPTS,"
             f"scale=w='if(gt(dar,{w}/{h}),{w},max(2,trunc({h}*dar/2)*2))':"
             f"h='if(gt(dar,{w}/{h}),max(2,trunc({w}/dar/2)*2),{h})',setsar=1,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p,"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,fps={fps},format={target.pix_fmt},"
             f"tpad=start_mode=clone:start_duration={max(0, info.video_delay):.6f}:"
             f"stop_mode=clone:stop_duration={duration:.6f},trim=duration={duration:.6f},"
             f"settb=AVTB,setpts=PTS-STARTPTS[v{index}]"
@@ -62,5 +63,5 @@ def plan_transitions(p: MergeParams, sources: list[Source], out: Path) -> OpPlan
     args += ["-filter_complex", ";".join(chains), "-map", f"[{previous_v}]"]
     if any_audio:
         args += ["-map", f"[{previous_a}]", *aac()]
-    args += [*x264(p.crf), "-t", f"{total:.6f}", *MP4_FLAGS, str(out)]
+    args += [*target.args(p.crf), "-t", f"{total:.6f}", *MP4_FLAGS, str(out)]
     return OpPlan([args], total)
