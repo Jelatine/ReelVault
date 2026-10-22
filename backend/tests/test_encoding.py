@@ -12,11 +12,75 @@ from reelvault.config import Settings
 from reelvault.main import create_app
 from reelvault.media import encoding, ops
 from reelvault.media.encoding import EncoderRuntime, hardware_command
-from reelvault.media.ffmpeg import Canceled, FFmpegError, ProcessHandle, RunResult
+from reelvault.media.ffmpeg import (
+    Canceled,
+    FFmpegError,
+    FFmpegOperationalError,
+    FFmpegTimeout,
+    ProcessHandle,
+    RunResult,
+)
 from reelvault.media.hardware_check import verify_operation
 from reelvault.media.probe import probe
 
 from .conftest import HEADERS, login
+
+
+@pytest.mark.parametrize("failure", [FFmpegTimeout("stalled"), FFmpegOperationalError("disk full")])
+def test_operational_errors_do_not_retry_other_encoders(monkeypatch, failure):
+    calls = []
+
+    async def fail(args, **kwargs):
+        calls.append(args)
+        raise failure
+
+    monkeypatch.setattr(encoding, "run_command", fail)
+    runtime = EncoderRuntime("ffmpeg", {"h264_nvenc"})
+    with pytest.raises(type(failure)):
+        asyncio.run(runtime.run([["-i", "in.mp4", *ops.x264(20), "out.mp4"]], "nvenc"))
+    assert len(calls) == 1
+
+
+def test_gpu_wait_is_cancellable_and_releases_slots():
+    async def scenario():
+        runtime = EncoderRuntime("ffmpeg", max_hardware_jobs=1)
+        handle = ProcessHandle()
+        async with runtime.hardware_slot(None):
+
+            async def waiting():
+                async with runtime.hardware_slot(handle):
+                    pytest.fail("a second GPU job acquired the occupied slot")
+
+            task = asyncio.create_task(waiting())
+            await asyncio.sleep(0.05)
+            assert not task.done()
+            handle.cancel()
+            with pytest.raises(Canceled):
+                await asyncio.wait_for(task, 1)
+        # A cancelled waiter must neither leak a slot nor increase the capacity.
+        async with runtime.hardware_slot(None):
+            assert runtime._hardware_slots.locked()
+
+    asyncio.run(scenario())
+
+
+def test_piece_progress_uses_each_steps_duration(monkeypatch):
+    durations = []
+    progress = []
+
+    async def advance(args, *, duration, on_progress, **kwargs):
+        durations.append(duration)
+        on_progress(0.5)
+        return RunResult(b"", "")
+
+    monkeypatch.setattr(encoding, "run_command", advance)
+    runtime = EncoderRuntime("ffmpeg")
+    commands = [
+        ["-i", "source.mp4", "-t", str(seconds), "-c:v", "libx264", "out.mp4"] for seconds in (1, 9)
+    ]
+    asyncio.run(runtime.run(commands, "software", duration=10, on_progress=progress.append))
+    assert durations == [1, 9]
+    assert progress == pytest.approx([0.05, 0.1, 0.55, 1])
 
 
 def test_hardware_filters_and_quality_options() -> None:

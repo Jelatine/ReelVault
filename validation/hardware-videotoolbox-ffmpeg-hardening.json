@@ -1,0 +1,80 @@
+{
+  "timestamp": "2026-10-22T11:14:36.248898+00:00",
+  "platform": "macOS-15.7.4-arm64-arm-64bit",
+  "family": "videotoolbox",
+  "device": null,
+  "passed": true,
+  "operations": [
+    {
+      "operation": "h264",
+      "passed": true,
+      "requested": "videotoolbox",
+      "encoder": "h264_videotoolbox",
+      "decoder": "videotoolbox",
+      "fallback": null,
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "width": 320,
+      "height": 240,
+      "duration": 4.0,
+      "expected_duration": 4.0,
+      "decoded": true
+    },
+    {
+      "operation": "h265",
+      "passed": true,
+      "requested": "videotoolbox",
+      "encoder": "hevc_videotoolbox",
+      "decoder": "videotoolbox",
+      "fallback": null,
+      "video_codec": "hevc",
+      "audio_codec": "aac",
+      "width": 320,
+      "height": 240,
+      "duration": 4.0,
+      "expected_duration": 4.0,
+      "decoded": true
+    },
+    {
+      "operation": "rotate",
+      "passed": true,
+      "requested": "videotoolbox",
+      "encoder": "h264_videotoolbox",
+      "decoder": "videotoolbox",
+      "fallback": null,
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "width": 240,
+      "height": 320,
+      "duration": 4.0,
+      "expected_duration": 4.0,
+      "decoded": true
+    },
+    {
+      "operation": "merge",
+      "passed": true,
+      "requested": "videotoolbox",
+      "encoder": "h264_videotoolbox",
+      "decoder": "videotoolbox",
+      "fallback": null,
+      "video_codec": "h264",
+      "audio_codec": "aac",
+      "width": 320,
+      "height": 240,
+      "duration": 7.0,
+      "expected_duration": 7.0,
+      "decoded": true
+    }
+  ],
+  "ffmpeg": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+  "hdr_regression": {
+    "command": "REELVAULT_TEST_HARDWARE=videotoolbox .venv/bin/pytest -q tests/test_hdr.py",
+    "passed": 11,
+    "failed": 0,
+    "hardware_cases": 4,
+    "transfers": ["smpte2084", "arib-std-b67"],
+    "output_codecs": ["h264", "hevc"],
+    "output_transfer": "bt709",
+    "software_fallback": false
+  }
+}

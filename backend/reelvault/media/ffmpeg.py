@@ -24,6 +24,14 @@ class FFmpegError(RuntimeError):
     pass
 
 
+class FFmpegOperationalError(FFmpegError):
+    """Changing encoders cannot fix this storage/configuration failure."""
+
+
+class FFmpegTimeout(FFmpegOperationalError):
+    """An owned process stopped making progress; do not retry another encoder."""
+
+
 class Canceled(Exception):
     pass
 
@@ -38,6 +46,8 @@ class ProcessHandle:
     process_group: bool = False
     # Niceness for background work, so serving pages and video keeps the CPU first.
     nice: int = 0
+    stall_timeout: float = 600
+    threads: int = 0
     on_log: Callable[[str, str], None] | None = field(default=None, repr=False)
     _resumed: asyncio.Event = field(default_factory=asyncio.Event)
     _windows_job: WindowsJob | None = field(default=None, repr=False)
@@ -245,10 +255,41 @@ async def run_command(
     on_progress: ProgressCallback | None = None,
     handle: ProcessHandle | None = None,
     cwd: Path | None = None,
+    timeout: float = 0,
 ) -> RunResult:
     """Run ffmpeg/ffprobe. When `duration` is set, ffmpeg's -progress output on stdout is
     parsed into a 0..1 fraction and reported through `on_progress`."""
     control = handle or ProcessHandle()
+    # Only FFmpeg commands receive codec/filter options, never ffprobe or workers.
+    is_ffmpeg = "-hide_banner" in args and "-nostdin" in args
+    # Palette generation and a full-video sprite emit their sole frame only at EOF.
+    # Their frame/time counters cannot distinguish a busy decoder from a stall.
+    single_frame = any(
+        args[i] in {"-frames:v", "-vframes"} and args[i + 1] == "1" for i in range(len(args) - 1)
+    )
+    stall_timeout = control.stall_timeout if is_ffmpeg and not single_frame else 0
+    if is_ffmpeg and control.threads:
+        threads = str(control.threads)
+        args = [
+            args[0],
+            "-filter_threads",
+            threads,
+            "-filter_complex_threads",
+            threads,
+            *args[1:],
+        ]
+        # Codec options are scoped to inputs/outputs, so set each output encoder too.
+        for index in reversed(range(len(args) - 1)):
+            if args[index] == "-i":
+                args[index:index] = ["-threads", threads]
+            elif args[index] == "-c:v":
+                args[index:index] = ["-threads:v", threads]
+        if "libx265" in args:
+            pools = f"pools={threads}:frame-threads={min(control.threads, 16)}"
+            if "-x265-params" in args:
+                args[args.index("-x265-params") + 1] += ":" + pools
+            else:
+                args[-1:-1] = ["-x265-params", pools]
     track = on_progress is not None and duration > 0
     # All job-owned FFmpeg calls share this handle, including derived assets and
     # hardware retries. Other commands (ffprobe, downloads) keep their stdout intact.
@@ -269,17 +310,45 @@ async def run_command(
     started = time.monotonic()
     stderr_tail = bytearray()
     stdout_chunks: list[bytes] = []
+    loop = asyncio.get_running_loop()
+    last_activity = loop.time()
+    active_time = 0.0
+    progress_values: dict[str, int] = {}
+
+    async def watch() -> None:
+        nonlocal last_activity, active_time
+        previous = loop.time()
+        interval = min(1.0, min(v for v in (timeout, stall_timeout, 4) if v > 0) / 4)
+        while True:
+            await asyncio.sleep(interval)
+            now = loop.time()
+            if control.canceled:
+                raise Canceled()
+            if control.paused:
+                last_activity = now
+            else:
+                active_time += now - previous
+                if timeout and active_time >= timeout:
+                    raise FFmpegTimeout(f"媒体处理超过 {timeout:g} 秒，已停止进程")
+                if stall_timeout and now - last_activity >= stall_timeout:
+                    raise FFmpegTimeout(f"FFmpeg 已连续 {stall_timeout:g} 秒无处理进展，已停止进程")
+            previous = now
 
     async def read_stderr() -> None:
+        nonlocal last_activity
         assert proc.stderr
         # readlines has a 64 KiB limit; a long diagnostic used to abandon the child.
         while chunk := await proc.stderr.read(8192):
+            if "-progress" not in args:
+                last_activity = loop.time()
             stderr_tail.extend(chunk)
             del stderr_tail[:-16384]
 
     async def read_stdout() -> None:
+        nonlocal last_activity
         assert proc.stdout
-        if not track and not log_progress:
+        parse_progress = "-progress" in args and "pipe:1" in args
+        if not track and not log_progress and not parse_progress:
             stdout_chunks.append(await proc.stdout.read())
             return
         pending = b""
@@ -297,6 +366,11 @@ async def run_command(
                     continue
                 line = raw.decode(errors="replace").strip()
                 key, separator, value = line.partition("=")
+                if key in {"out_time_us", "frame", "total_size"} and value.isdigit():
+                    number = int(value)
+                    if number > progress_values.get(key, -1):
+                        last_activity = loop.time()
+                        progress_values[key] = number
                 if (
                     log_progress
                     and separator
@@ -329,21 +403,40 @@ async def run_command(
                 dropping = True
 
     readers = [asyncio.create_task(read_stderr()), asyncio.create_task(read_stdout())]
+    watchdog = asyncio.create_task(watch()) if timeout or stall_timeout else None
+
+    async def finish() -> int:
+        await asyncio.gather(*readers)
+        return await proc.wait()
+
+    completion = asyncio.create_task(finish())
     try:
         if log_event:
             log_event(f"FFmpeg 开始：{_operation_summary(args)}", "info")
-        await asyncio.gather(*readers)
-        code = await proc.wait()
-    except BaseException:
-        # Clean up on parser/callback failures as well as task cancellation. Kill the
-        # whole session, including children that inherit stdout/stderr from wrappers.
-        control.kill_process()
-        for reader in readers:
-            reader.cancel()
-        await asyncio.gather(*readers, return_exceptions=True)
-        await proc.communicate()
+        if watchdog:
+            done, _ = await asyncio.wait(
+                {completion, watchdog}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if watchdog in done:
+                await watchdog
+        code = await completion
+    except FFmpegTimeout as error:
+        if log_event:
+            log_event(str(error), "warning")
         raise
     finally:
+        # Parser/callback failures, timeout and cancellation all reap the owned tree,
+        # including descendants that inherited a departed wrapper's pipes.
+        if not completion.done() or completion.cancelled() or completion.exception() is not None:
+            control.kill_process()
+            completion.cancel()
+            for reader in readers:
+                reader.cancel()
+            await asyncio.gather(completion, *readers, return_exceptions=True)
+            await proc.communicate()
+        if watchdog:
+            watchdog.cancel()
+            await asyncio.gather(watchdog, return_exceptions=True)
         if control.process is proc:
             control.release_process()
     if handle:
@@ -356,10 +449,26 @@ async def run_command(
         tail = tail.strip()
         if log_event:
             log_event(f"FFmpeg 执行失败（退出码 {code}）：{tail[-2000:]}", "warning")
+        for marker, advice in (
+            ("No space left on device", "磁盘空间不足，请清理输出及临时文件所在磁盘后重试"),
+            ("Read-only file system", "存储位置为只读，请检查挂载状态"),
+            ("Permission denied", "无法访问媒体文件或设备，请检查文件及设备权限"),
+            ("No such filter", "当前 FFmpeg 缺少所需滤镜，请安装完整版本"),
+            ("No such file or directory", "输入文件或处理所需资源不存在，请检查存储位置"),
+        ):
+            if marker in tail:
+                if marker in {"Permission denied", "No such file or directory"} and (
+                    "device" in tail.lower() or "/dev/dri" in tail
+                ):
+                    # Missing/inaccessible GPU devices can still use software.
+                    raise FFmpegError(f"{advice}\n{tail[-2000:]}")
+                raise FFmpegOperationalError(f"{advice}\n{tail[-2000:]}")
         raise FFmpegError(tail[-2000:] or f"{args[0]} exited with code {code}")
     if log_event:
         log_event(f"FFmpeg 完成（耗时 {time.monotonic() - started:.1f} 秒）", "info")
-    return RunResult(stdout=b"".join(stdout_chunks), stderr=tail)
+    return RunResult(
+        stdout=b"".join(stdout_chunks), stderr=tail, extra={"progress": progress_values}
+    )
 
 
 def ffmpeg_args(ffmpeg: str, args: list[str], *, progress: bool = True) -> list[str]:
@@ -375,6 +484,7 @@ async def ffprobe_json(
     result = await run_command(
         [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
         handle=handle,
+        timeout=60,
     )
     data: dict[str, Any] = json.loads(result.stdout or b"{}")
     return data
@@ -382,7 +492,7 @@ async def ffprobe_json(
 
 async def ffmpeg_version(ffmpeg: str) -> str:
     try:
-        result = await run_command([ffmpeg, "-version"])
+        result = await run_command([ffmpeg, "-version"], timeout=15)
     except (FFmpegError, FileNotFoundError):
         return "unavailable"
     first = result.stdout.decode(errors="replace").splitlines()[:1]

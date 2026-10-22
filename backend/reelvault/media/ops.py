@@ -494,6 +494,10 @@ def merge_lossless_ok(sources: list[Source]) -> bool:
             i.coded_height,
             i.rotation,
             i.pix_fmt,
+            i.color_transfer,
+            i.color_primaries,
+            i.color_space,
+            i.color_range,
             i.audio_codec,
             i.sample_rate,
             i.channels,
@@ -661,8 +665,13 @@ def plan_mixed(p: MixedParams, src: Source, out: Path, tmp: Path) -> OpPlan:
         info.audio_codec = None
         info.audio_index = None
     return plan_compress(
-        p.compress, (path, info), out, tmp,
-        video_filters=filters, audio_filters=audio_filters, input_options=input_options,
+        p.compress,
+        (path, info),
+        out,
+        tmp,
+        video_filters=filters,
+        audio_filters=audio_filters,
+        input_options=input_options,
     )
 
 

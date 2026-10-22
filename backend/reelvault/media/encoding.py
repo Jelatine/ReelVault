@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .ffmpeg import FFmpegError, ProcessHandle, ProgressCallback, ffmpeg_args, run_command
+from .ffmpeg import (
+    FFmpegError,
+    FFmpegOperationalError,
+    ProcessHandle,
+    ProgressCallback,
+    ffmpeg_args,
+    run_command,
+)
 
 FAMILIES = {
     "videotoolbox": ("VideoToolbox (macOS)", "h264_videotoolbox", "hevc_videotoolbox"),
@@ -28,7 +38,7 @@ def supported(family: str) -> bool:
 
 async def detect_encoders(ffmpeg: str) -> set[str]:
     try:
-        result = await run_command([ffmpeg, "-hide_banner", "-encoders"])
+        result = await run_command([ffmpeg, "-hide_banner", "-encoders"], timeout=30)
     except (FFmpegError, OSError):
         return set()
     return set(re.findall(r"^\s*V\S{5}\s+(\S+)", result.stdout.decode(errors="replace"), re.M))
@@ -132,6 +142,31 @@ class EncoderRuntime:
     # Encoders whose startup check failed; auto mode skips them until one succeeds.
     unavailable: set[str] = field(default_factory=set)
     probing: bool = False
+    max_hardware_jobs: int = 2
+    _hardware_slots: asyncio.Semaphore = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._hardware_slots = asyncio.Semaphore(self.max_hardware_jobs)
+
+    @asynccontextmanager
+    async def hardware_slot(self, handle: ProcessHandle | None) -> AsyncIterator[None]:
+        """A waiting job remains cancellable even if all GPU slots are occupied."""
+        pending = asyncio.create_task(self._hardware_slots.acquire())
+        try:
+            while not pending.done():
+                if handle:
+                    await handle.checkpoint()
+                await asyncio.wait({pending}, timeout=0.2)
+            await pending
+            if handle:
+                await handle.checkpoint()
+            yield
+        finally:
+            if not pending.done():
+                pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+            if not pending.cancelled() and pending.exception() is None:
+                self._hardware_slots.release()
 
     def choices(self, requested: str, software: str) -> list[str]:
         families = list(FAMILIES) if requested == "auto" else [requested]
@@ -162,10 +197,11 @@ class EncoderRuntime:
                     args = ["-f", "lavfi", "-i", "color=s=256x256:d=0.2", "-c:v", software]
                     args = hardware_command([*args, "-f", "null", "-"], family, self.device)
                     try:
-                        await asyncio.wait_for(
-                            run_command(ffmpeg_args(self.ffmpeg, args, progress=False)),
-                            PROBE_TIMEOUT,
-                        )
+                        async with self.hardware_slot(None):
+                            await asyncio.wait_for(
+                                run_command(ffmpeg_args(self.ffmpeg, args, progress=False)),
+                                PROBE_TIMEOUT,
+                            )
                     except (FFmpegError, OSError, TimeoutError) as error:
                         message = str(error)[-1000:] or f"设备检测超过 {PROBE_TIMEOUT} 秒"
                         self.outcomes[encoder] = {"usable": False, "error": message}
@@ -221,21 +257,40 @@ class EncoderRuntime:
 
         async def execute(planned: list[list[str]]) -> None:
             count = len(planned)
+            durations = []
+            for args in planned:
+                # Piece effects carry their own -t. Normalisation and final encoding
+                # otherwise use the plan duration; two passes each count once.
+                value = duration
+                for index, option in enumerate(args[:-1]):
+                    if option == "-t":
+                        with suppress(ValueError):
+                            value = float(args[index + 1])
+                durations.append(value if math.isfinite(value) and value > 0 else 1.0)
+            total = sum(durations)
+            completed = 0.0
             for i, args in enumerate(planned):
                 if handle and handle.on_log:
                     handle.on_log(f"FFmpeg 执行步骤 {i + 1}/{count}", "info")
                 callback = (
-                    (lambda value, stage=i: on_progress((stage + value) / count))
+                    (
+                        lambda value, start=completed, weight=durations[i]: on_progress(
+                            (start + max(0.0, min(1.0, value)) * weight) / total
+                        )
+                    )
                     if on_progress
                     else None
                 )
                 await run_command(
                     ffmpeg_args(self.ffmpeg, args),
-                    duration=duration,
+                    duration=durations[i],
                     on_progress=callback,
                     handle=handle,
                     cwd=cwd,
                 )
+                completed += durations[i]
+                if on_progress:
+                    on_progress(completed / total)
 
         attempts = [
             (family, decode)
@@ -245,12 +300,13 @@ class EncoderRuntime:
         for family, decode in attempts:
             chosen = FAMILIES[family][1 if software == "libx264" else 2]
             try:
-                await execute(
-                    [
-                        hardware_command(args, family, self.device, decode=decode)
-                        for args in commands
-                    ]
-                )
+                async with self.hardware_slot(handle):
+                    await execute(
+                        [
+                            hardware_command(args, family, self.device, decode=decode)
+                            for args in commands
+                        ]
+                    )
                 self.outcomes[chosen] = {"usable": True, "error": None}
                 self.unavailable.discard(chosen)
                 return {
@@ -259,6 +315,8 @@ class EncoderRuntime:
                     "decoder": DECODERS[family] if decode else None,
                     "fallback": None,
                 }
+            except FFmpegOperationalError:
+                raise
             except FFmpegError as error:
                 fallback = str(error)[-1000:]
                 self.outcomes[chosen] = {"usable": False, "error": fallback}

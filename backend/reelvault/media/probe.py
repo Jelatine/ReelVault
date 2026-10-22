@@ -32,6 +32,9 @@ class MediaInfo:
     video_level: int = 0
     video_bitrate: int = 0
     color_transfer: str = ""
+    color_primaries: str = ""
+    color_space: str = ""
+    color_range: str = ""
     audio_codec: str | None = None
     audio_index: int | None = None
     sample_rate: int = 0
@@ -48,9 +51,14 @@ class MediaInfo:
         return self.audio_codec is not None
 
     @property
+    def is_hdr(self) -> bool:
+        return self.color_transfer in {"smpte2084", "arib-std-b67"}
+
+    @property
     def browser_playable(self) -> bool:
         return (
             self.container in BROWSER_CONTAINERS
+            and not self.is_hdr
             and self.video_codec in BROWSER_VIDEO_CODECS
             and (self.audio_codec is None or self.audio_codec in BROWSER_AUDIO_CODECS)
         )
@@ -75,6 +83,9 @@ class MediaInfo:
             "video_level": self.video_level,
             "video_bitrate": self.video_bitrate,
             "color_transfer": self.color_transfer,
+            "color_primaries": self.color_primaries,
+            "color_space": self.color_space,
+            "color_range": self.color_range,
             "sample_rate": self.sample_rate,
             "channels": self.channels,
             "channel_layout": self.channel_layout,
@@ -155,6 +166,9 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     info.video_level = max(0, int(video.get("level") or 0))
     info.video_bitrate = int(video.get("bit_rate") or 0)
     info.color_transfer = video.get("color_transfer", "")
+    info.color_primaries = video.get("color_primaries", "")
+    info.color_space = video.get("color_space", "")
+    info.color_range = video.get("color_range", "")
     info.coded_width = int(video.get("width") or 0)
     info.coded_height = int(video.get("height") or 0)
     info.rotation = _rotation(video)

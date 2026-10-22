@@ -4,7 +4,13 @@ import i18n, { currentLanguage, tr } from './i18n'
 export function serverText(text: string | null | undefined): string {
   if (!text || currentLanguage() === 'zh') return text ?? ''
   if (i18n.exists(text)) return tr(text)
+  const newline = text.indexOf('\n')
+  if (newline > 0 && i18n.exists(text.slice(0, newline))) return tr(text.slice(0, newline)) + text.slice(newline)
   let match: RegExpMatchArray | null
+  if ((match = text.match(/^输出校验失败：(.+)$/))) return tr('输出校验失败：{{detail}}', { detail: serverText(match[1]) })
+  if ((match = text.match(/^预期时长 ([\d.]+) 秒，实际 ([\d.]+) 秒$/))) return tr('预期时长 {{expected}} 秒，实际 {{actual}} 秒', { expected: match[1], actual: match[2] })
+  if ((match = text.match(/^媒体处理超过 ([\d.]+) 秒，已停止进程$/))) return tr('媒体处理超过 {{seconds}} 秒，已停止进程', { seconds: match[1] })
+  if ((match = text.match(/^FFmpeg 已连续 ([\d.]+) 秒无处理进展，已停止进程$/))) return tr('FFmpeg 已连续 {{seconds}} 秒无处理进展，已停止进程', { seconds: match[1] })
   if ((match = text.match(/^FFmpeg 开始：([\s\S]*)$/))) return tr('FFmpeg 开始：{{detail}}', { detail: match[1] })
   if ((match = text.match(/^FFmpeg 进度：([\s\S]*)$/))) return tr('FFmpeg 进度：{{detail}}', { detail: match[1] })
   if ((match = text.match(/^FFmpeg 完成（耗时 ([\d.]+) 秒）$/))) return tr('FFmpeg 完成（耗时 {{seconds}} 秒）', { seconds: match[1] })

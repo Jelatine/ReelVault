@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from .color import SDR_TAGS, sdr_filter
 from .encoding import EncoderRuntime
 from .ffmpeg import ProcessHandle, ProgressCallback, ffmpeg_args, run_command
 from .probe import MediaInfo, probe
@@ -45,9 +46,10 @@ async def generate(
     variants = ladder(info)
     fps = min(30, max(1, info.fps or 25))
     count = len(variants)
+    tone = sdr_filter(info)
     # Decode and normalise timing once, then split into every rendition in one process.
     graph = (
-        f"[0:{info.video_index}]setpts=PTS-STARTPTS,"
+        f"[0:{info.video_index}]" + (tone + "," if tone else "") + "setpts=PTS-STARTPTS,"
         f"tpad=start_mode=clone:start_duration={max(0, info.video_delay):.9f}:"
         f"stop_mode=clone:stop_duration={info.duration:.9f},fps={fps:.9f},"
         f"trim=duration={info.duration:.9f},setpts=PTS-STARTPTS,"
@@ -104,6 +106,8 @@ async def generate(
             args += ["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]
         else:
             args += ["-an"]
+        if tone:
+            args += SDR_TAGS
         args += [
             "-sn",
             "-dn",

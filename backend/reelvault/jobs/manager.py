@@ -34,7 +34,12 @@ class JobContext:
     def __init__(self, manager: JobManager, job_id: str) -> None:
         self.manager = manager
         self.job_id = job_id
-        self.handle = ProcessHandle(nice=manager.settings.job_nice, on_log=self.log)
+        self.handle = ProcessHandle(
+            nice=manager.settings.job_nice,
+            on_log=self.log,
+            stall_timeout=manager.settings.ffmpeg_stall_timeout,
+            threads=manager.settings.ffmpeg_threads,
+        )
         self.video_ids: list[str] = []
         self._last_flush = 0.0
         self.progress = 0.0
@@ -172,7 +177,11 @@ class JobManager:
         handlers: dict[str, Handler],
     ) -> None:
         self.settings = settings
-        self.encoding = EncoderRuntime(settings.ffmpeg, device=settings.vaapi_device)
+        self.encoding = EncoderRuntime(
+            settings.ffmpeg,
+            device=settings.vaapi_device,
+            max_hardware_jobs=settings.ffmpeg_hardware_workers,
+        )
         self.sessionmaker = sessionmaker
         self.handlers = handlers
         self._wake = asyncio.Event()

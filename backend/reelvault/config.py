@@ -159,6 +159,11 @@ class Settings(BaseSettings):
     # CPU niceness of job subprocesses (ffmpeg etc.), so pages and playback stay
     # responsive while encoding; Windows uses below-normal priority. 0 disables.
     job_nice: int = Field(10, ge=0, le=19)
+    # Inactivity, not total encoding time. Paused time is excluded; 0 disables.
+    ffmpeg_stall_timeout: int = Field(600, ge=0, le=86400)
+    # Per-codec/filter thread hint; 0 lets FFmpeg choose automatically.
+    ffmpeg_threads: int = Field(0, ge=0, le=256)
+    ffmpeg_hardware_workers: int = Field(2, ge=1, le=32)
     webdav_enabled: bool = Field(False, exclude=True)
     webdav_token_hash: str = Field("", repr=False, exclude=True, pattern=r"^([a-f0-9]{64})?$")
     transcription_enabled: bool = False

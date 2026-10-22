@@ -115,6 +115,12 @@ Windows 双击该文件 → 安装证书 → 本地计算机 → 「受信任的
 
 编码任务会占满 CPU。任务子进程默认以较低优先级运行（`REELVAULT_JOB_NICE=10`），CPU 繁忙时播放和页面请求优先，空闲算力仍全部用于编码。每个 FFmpeg 本身会使用全部核心，4 核以下或内存较少的机器建议在网页「设置 → 任务并发」中设为 1（或在 `.env` 中设置 `REELVAULT_WORKERS=1`）。
 
+需要进一步限制负载时，可设置 `REELVAULT_FFMPEG_THREADS=2`，向每个输入解码器、输出视频编码器和滤镜线程池传入线程预算（H.265 软件编码同时限制 x265 的线程池）；这是各线程池的限制，不是整个进程的 CPU 硬上限。`REELVAULT_FFMPEG_HARDWARE_WORKERS=1` 可限制同时执行的硬件编码任务，其余任务等待资源，等待期间仍可取消。上述环境变量修改后重启生效。
+
+编辑结果在保存或替换原视频前，会检查轨道、有效尺寸、时长及首尾各最多两秒的解码；校验失败时保留原视频。此检查不等同于全片完整解码。动图 WebP 因部分 FFmpeg 构建无法解码动画，改为检查 RIFF、帧数据边界和动画时长。编码默认连续 600 秒无进展时停止并报告错误，暂停时间不计入；可用 `REELVAULT_FFMPEG_STALL_TIMEOUT` 调整，`0` 关闭。仅在结束时输出单帧的雪碧图、调色板等步骤不使用无进展判断，避免长视频正常解码被误判；仍可手动取消。媒体探测和输出解码采样各有 60 秒超时。
+
+带 PQ／HLG 标记的 HDR 视频在重编码编辑、兼容播放副本、HLS、预览和缩略图中转换为 BT.709 SDR，采用 FFmpeg 的 [`zscale` 与 `tonemap`](https://ffmpeg.org/ffmpeg-filters.html#tonemap) 色调映射，需要 FFmpeg 编译了这两个滤镜。无损复制保留原始 HDR；色彩参数不同的视频不会自动无损合并。当前不提供保留 HDR 的重编码模式，也不承诺保留 Dolby Vision 动态元数据；缺少必要色彩信息或滤镜时会报告失败，原文件保留。
+
 Windows 的 Docker Desktop 在 WSL 2 虚拟机中运行容器，虚拟机默认最多使用一半内存。参考 [`deploy/windows/wslconfig.example`](deploy/windows/wslconfig.example) 按本机配置调整后复制为 `%UserProfile%\.wslconfig`，执行 `wsl --shutdown` 并重新启动 Docker Desktop 生效，说明见 [WSL 配置文档](https://learn.microsoft.com/windows/wsl/wsl-config)。数据目录放在 Windows 盘（如 `D:\...`）时，容器需跨文件系统读写，大文件处理和播放都会明显变慢；建议把项目放在 WSL 文件系统内（如 `\\wsl$\Ubuntu\home\<用户>\ReelVault`）。
 
 v0.3.0 起默认端口由 8080 改为 34123。从旧版本升级的 Docker 部署需同步修改端口映射：改为 `-p 34123:34123`（compose 中 `"34123:34123"`）；若要保留原访问地址，可映射 `-p 8080:34123`，或设置 `REELVAULT_PORT=8080` 并保留 `-p 8080:8080`。Ubuntu 安装的环境文件已写明 `REELVAULT_PORT=8080`，升级后端口不变；macOS 重新执行 `install-launchd.sh` 后改用 34123。反向代理按实际端口配置。
@@ -258,6 +264,9 @@ Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https
 | `REELVAULT_ADMIN_USER` / `REELVAULT_ADMIN_PASSWORD` | 空 | 预置管理员账号（仅在尚无账号时生效） |
 | `REELVAULT_WORKERS` | `2` | 任务并发数，1–32；网页保存的设置优先 |
 | `REELVAULT_JOB_NICE` | `10` | 任务子进程（ffmpeg、转写、下载）的 CPU 优先级降级值，0–19，`0` 关闭；Windows 原生运行时使用「低于正常」优先级 |
+| `REELVAULT_FFMPEG_THREADS` | `0` | FFmpeg 编解码与滤镜线程预算，0–256；`0` 由 FFmpeg 自动选择，不是进程 CPU 硬上限 |
+| `REELVAULT_FFMPEG_HARDWARE_WORKERS` | `2` | 硬件编码并发上限，1–32，同时受总任务并发限制 |
+| `REELVAULT_FFMPEG_STALL_TIMEOUT` | `600` | FFmpeg 连续无进展超时秒数，0–86400；暂停不计时，单帧扫描步骤除外，`0` 关闭 |
 | `REELVAULT_TRASH_RETENTION_DAYS` | `30` | 回收站自动彻底删除的保留天数；`0` 禁用，修改后重启生效 |
 | `REELVAULT_REMEMBER_DAYS` | `30` | 「记住我」有效天数（滑动续期） |
 | `REELVAULT_SESSION_IDLE_HOURS` | `12` | 未勾选「记住我」时的闲置过期时间 |

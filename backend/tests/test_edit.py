@@ -185,9 +185,7 @@ def test_mixed_rotate_compress(client: TestClient, samples: dict[str, Path]) -> 
 
 
 @pytest.mark.parametrize("mute", [False, True])
-def test_mixed_trim_crop_speed_target(
-    client: TestClient, clip: dict[str, Any], mute: bool
-) -> None:
+def test_mixed_trim_crop_speed_target(client: TestClient, clip: dict[str, Any], mute: bool) -> None:
     edit = {
         "op": "mixed",
         "trim": {"start": 1, "end": 3},
@@ -287,7 +285,9 @@ def test_replace_mode_keeps_id_and_backs_up(
     backup = trash[0]
     assert backup["status"] == "ready"
     assert (backup["width"], backup["height"], backup["duration"]) == (
-        clip["width"], clip["height"], clip["duration"]
+        clip["width"],
+        clip["height"],
+        clip["duration"],
     )
     assert client.get("/api/jobs", params={"video_id": backup["id"]}).json() == []
     for name, content in assets.items():

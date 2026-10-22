@@ -21,6 +21,7 @@ from ..media import derive, ops
 from ..media.adjust import plan_adjust
 from ..media.animation import plan_animation
 from ..media.assets import audio_asset, image_asset, lut_asset, subtitle_asset
+from ..media.color import sdr_commands
 from ..media.composite import plan_composite
 from ..media.effects import plan_effect
 from ..media.probe import MediaInfo, probe
@@ -28,6 +29,7 @@ from ..media.scenes import SceneParams, detect_scenes, source_signature
 from ..media.subtitles import plan_subtitle
 from ..media.timing import snap_cut, timing_index
 from ..media.transfer import move_output
+from ..media.validation import validate_output
 from ..media.watermark import plan_watermark
 from ..models import Job, SceneAnalysis, Video, new_id, utcnow
 from ..playback_cache import remove_copy
@@ -339,6 +341,10 @@ async def edit(ctx: JobContext, job: Job) -> None:
             case ops.AnimationParams():
                 plan = plan_animation(params, sources[0], out, tmp)
         result = out.with_suffix("." + plan.ext)
+        commands = sdr_commands(plan.commands, sources)
+        if commands != plan.commands:
+            ctx.log("HDR 视频重编码为 BT.709 SDR；无损复制保留原始 HDR", "info")
+        plan.commands = commands
 
         n = len(plan.commands)
         ctx.check_canceled()
@@ -363,8 +369,27 @@ async def edit(ctx: JobContext, job: Job) -> None:
                 db.commit()
         if encoding["fallback"]:
             ctx.log(f"硬件编码失败，已回退软件编码：{encoding['fallback']}", "warning")
-        if not result.exists() or result.stat().st_size == 0:
-            raise RuntimeError("ffmpeg 未生成输出文件")
+        ctx.set_progress(0.96, "校验输出")
+        final_command = plan.commands[-1]
+        audio_output = isinstance(params, ops.ExtractAudioParams)
+        expect_audio = "-an" not in final_command and (
+            audio_output
+            or (
+                ("-c:a" in final_command or "-c" in final_command)
+                and any(info.has_audio for _, info in sources)
+            )
+            or isinstance(params, ops.AudioParams)
+            and params.mode != "adjust"
+        )
+        await validate_output(
+            s.ffmpeg,
+            s.ffprobe,
+            result,
+            expected_duration=plan.duration,
+            video=not audio_output,
+            audio=expect_audio,
+            handle=ctx.handle,
+        )
         ctx.set_progress(0.97, "保存结果")
         await ctx.handle.checkpoint()
 

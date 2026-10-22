@@ -6,6 +6,16 @@ import type { Job } from './types'
 
 afterEach(async () => { await setLanguage('zh') })
 
+it('localizes output validation and timeout diagnostics without altering raw FFmpeg details', async () => {
+  await setLanguage('en')
+  expect(serverText('校验输出')).toBe('Validating output')
+  expect(serverText('输出校验失败：缺少音频轨道')).toBe('Output validation failed: The audio track is missing')
+  expect(serverText('输出校验失败：预期时长 4.000 秒，实际 1.000 秒')).toBe('Output validation failed: Expected 4.000 seconds, got 1.000 seconds')
+  expect(serverText('FFmpeg 已连续 600 秒无处理进展，已停止进程')).toBe('FFmpeg made no progress for 600 seconds; the process was stopped')
+  expect(serverText('媒体处理超过 60 秒，已停止进程')).toBe('Media processing exceeded 60 seconds; the process was stopped')
+  expect(serverText('当前 FFmpeg 缺少所需滤镜，请安装完整版本\nNo such filter: zscale')).toBe('FFmpeg is missing a required filter. Install a full build\nNo such filter: zscale')
+})
+
 it('localizes FFmpeg events and preserves processing details', async () => {
   await setLanguage('en')
   expect(serverText('FFmpeg 开始：-c:v libx264 -vf scale=640:-2 → output.mp4')).toBe('FFmpeg started: -c:v libx264 -vf scale=640:-2 → output.mp4')

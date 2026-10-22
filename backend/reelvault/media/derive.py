@@ -8,6 +8,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from .color import sdr_commands
 from .encoding import EncoderRuntime
 from .ffmpeg import FFmpegError, ProcessHandle, ProgressCallback, ffmpeg_args, run_command
 from .probe import MediaInfo
@@ -62,6 +63,7 @@ async def extract_frame(
         "-map", f"0:{info.video_index}", "-frames:v", "1",
         "-vf", vf, *JPEG, str(out),
     ]  # fmt: skip
+    args = sdr_commands([args], [(src, info)])[0]
     await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
 
 
@@ -98,6 +100,7 @@ async def make_preview(
         "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "30",
         "-movflags", "+faststart", str(out),
     ]  # fmt: skip
+    args = sdr_commands([args], [(src, info)])[0]
     if encoding:
         return await encoding.run([args], encoder, handle=handle)
     await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
@@ -193,6 +196,7 @@ async def _sprite_by_seeking(
                 "-map", f"0:{info.video_index}", "-an", "-frames:v", "1",
                 "-vf", vf, str(frame),
             ]  # fmt: skip
+            args = sdr_commands([args], [(src, info)])[0]
             try:
                 await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
             except FFmpegError as error:
@@ -277,6 +281,7 @@ async def make_sprite(
             "-map", f"0:{info.video_index}", "-an", "-vf", vf,
             "-frames:v", "1", *JPEG, str(out_dir / SPRITE),
         ]  # fmt: skip
+        args = sdr_commands([args], [(src, info)])[0]
         await run_command(
             ffmpeg_args(ffmpeg, args),
             duration=info.duration,
@@ -303,7 +308,7 @@ async def make_playable(
     args = ["-i", str(src), "-map", f"0:{info.video_index}"]
     if info.audio_index is not None:
         args += ["-map", f"0:{info.audio_index}"]
-    if info.remuxable_to_mp4:
+    if info.remuxable_to_mp4 and not info.is_hdr:
         args += ["-c", "copy"]
     else:
         args += [
@@ -311,6 +316,7 @@ async def make_playable(
             "-c:a", "aac", "-b:a", "160k",
         ]  # fmt: skip
     args += ["-movflags", "+faststart", "-f", "mp4", str(out)]
+    args = sdr_commands([args], [(src, info)])[0]
     if encoding:
         return await encoding.run(
             [args], encoder, duration=info.duration, on_progress=on_progress, handle=handle
