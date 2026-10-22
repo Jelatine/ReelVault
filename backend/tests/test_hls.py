@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from reelvault.media.ffmpeg import ProcessHandle
-from reelvault.media.hls import generate, ladder
+from reelvault.media.hls import generate, h264_level, ladder
 from reelvault.media.probe import MediaInfo, probe
 from reelvault.models import HlsPackage, Job, Video
 
@@ -353,3 +353,40 @@ def test_real_hls_pause_and_cancel_remove_partial_package(client, settings, samp
     assert not (settings.tmp_dir / f"job-{job['id']}").exists()
     assert not (settings.derived_dir / video["id"] / "hls" / job["id"]).exists()
     assert client.get(f"/api/videos/{video['id']}/hls").json()["package"] is None
+
+
+def test_ladder_short_side_high_rungs_frame_rate_and_source_cap():
+    def sides(**fields):
+        return [side for side, _ in ladder(MediaInfo(duration=1, **fields))]
+
+    assert sides(width=1080, height=1920) == [360, 720, 1080]
+    assert sides(width=3840, height=2160) == [360, 720, 1080, 1440, 2160]
+    rates = dict(ladder(MediaInfo(duration=1, width=1920, height=1080, fps=60)))
+    assert rates[1080] == 7_500_000
+    capped = dict(ladder(MediaInfo(duration=1, width=1920, height=1080, bitrate=1_200_000)))
+    assert capped == {360: 800_000, 720: 1_200_000, 1080: 1_200_000}
+    assert h264_level(1080, 30) == "4.0" and h264_level(1080, 60) == "4.2"
+    assert h264_level(1440, 30) == "5.0" and h264_level(2160, 60) == "5.2"
+
+
+def test_real_portrait_60fps_keeps_rate_size_and_declares_codecs(tmp_path):
+    src = make_video(tmp_path / "portrait60.mp4", duration=1, size="720x1280", rate=60)
+    info = asyncio.run(probe("ffprobe", str(src)))
+    out = tmp_path / "hls"
+    renditions = asyncio.run(
+        generate(
+            "ffmpeg", "ffprobe", src, info, out, handle=ProcessHandle(), on_progress=lambda _: None
+        )
+    )
+    # Portrait renditions rank by width instead of being capped at 1080 pixels tall.
+    assert [(r["width"], r["height"]) for r in renditions] == [(360, 640), (720, 1280)]
+    master = (out / "master.m3u8").read_text()
+    assert 'FRAME-RATE=60.000,CODECS="avc1.4D402A,mp4a.40.2"' in master
+    level = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries"]
+        + ["stream=level,avg_frame_rate", "-of", "csv=p=0", str(out / "v1/index.m3u8")],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()[0]
+    assert level == "42,60/1"

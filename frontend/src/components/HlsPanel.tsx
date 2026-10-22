@@ -48,7 +48,7 @@ export default function HlsPanel({ video, data, queryError, refetch, usingHls, s
     {data?.stale && <Alert color="orange">{tr("源文件已变化或缓存文件缺失，需要重新生成。")}</Alert>}
     {active && <><Text size="sm">{data!.job!.message} · {data!.job!.status === 'paused' ? tr("已暂停") : tr("生成中")}</Text><Progress aria-label={tr("任务进度")} value={data!.job!.progress * 100} /></>}
     {data?.job?.status === 'failed' && !data.job_stale && <Alert color="red">{tr("HLS 生成失败：")}{data.job.error}</Alert>}
-    {data?.package && <Text size="sm">{tr("已生成 ")}{data.package.renditions.map((r) => `${r.height}p`).join(' / ')} · {formatBytes(data.package.size)}{tr("。自动模式按带宽切换，可在播放器设置中固定清晰度。")}</Text>}
+    {data?.package && <Text size="sm">{tr("已生成 ")}{data.package.renditions.map((r) => `${Math.min(r.width, r.height)}p`).join(' / ')} · {formatBytes(data.package.size)}{tr("。自动模式按带宽切换，可在播放器设置中固定清晰度。")}</Text>}
     <Group>
       {data?.package && <Button size="xs" variant="light" disabled={!data.enabled} onClick={() => switchSource(!usingHls)}>{usingHls ? tr("改用原始播放") : tr("使用自适应播放")}</Button>}
       {!data?.package && <Button size="xs" loading={busy} disabled={!data?.enabled || active} onClick={() => generate(false)}>{tr("生成 HLS 清晰度")}</Button>}

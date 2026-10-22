@@ -211,6 +211,8 @@ def submit_hls(
         duration=video.duration,
         width=video.width,
         height=video.height,
+        fps=video.fps,
+        bitrate=video.bitrate,
         audio_codec=video.audio_codec,
     )
     check_budget(db, settings, estimated_bytes(info))
