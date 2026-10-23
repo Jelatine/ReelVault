@@ -54,6 +54,7 @@ export interface VideoMedia {
   variable_frame_rate?: boolean
   auto_cover_time?: number
   custom_cover?: boolean
+  dolby_vision_profile?: number
   nominal_fps?: number
   coded_width?: number
   coded_height?: number
@@ -138,6 +139,7 @@ export interface SystemInfo {
   ffmpeg_version: string
   /** Optional FFmpeg feature -> available; null when FFmpeg could not be queried. */
   ffmpeg_features?: Record<string, boolean> | null
+  hdr_tone_mapper?: string | null
   workers: number
   running_jobs: number
   queued_jobs: number

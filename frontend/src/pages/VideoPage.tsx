@@ -172,7 +172,7 @@ function InfoPanel({ video }: { video: Video }) {
     [tr("视频"), [
       [codecName(video.video_codec), codecProfile(video.video_codec, media)].filter(Boolean).join(' ') || '-',
       depth && `${depth}-bit${media.pix_fmt ? ` (${media.pix_fmt})` : ''}`,
-      dynamicRange(media.color_transfer),
+      media.dolby_vision_profile ? tr('杜比视界 Profile {{v0}}', { v0: media.dolby_vision_profile }) : dynamicRange(media.color_transfer),
       formatBitrate(media.video_bitrate),
     ].filter(Boolean).join(' · ')],
     [tr("音频"), video.audio_codec ? [

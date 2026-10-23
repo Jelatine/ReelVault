@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from .color import SDR_TAGS, source_filter
+from .color import SDR_TAGS, needs_tone_mapping, source_filter, tone_device_args
 from .encoding import EncoderRuntime
 from .ffmpeg import ProcessHandle, ProgressCallback, ffmpeg_args, run_command
 from .probe import MediaInfo, probe
@@ -64,7 +64,9 @@ def copy_codecs(info: MediaInfo, keyframes: list[float] | None) -> str | None:
 
 
 def source_codecs(info: MediaInfo) -> str | None:
-    if info.is_hdr or info.interlaced or info.variable_frame_rate or not info.video_level:
+    if info.is_hdr or info.dolby_vision_only or info.interlaced or info.variable_frame_rate:
+        return None
+    if not info.video_level:
         return None
     if info.rotation or abs(info.video_delay) > 0.002 or not 0 < info.fps <= MAX_FPS:
         return None
@@ -164,7 +166,8 @@ async def generate(
         graph += f";[0:{info.audio_index}]{audio_chain},asplit={count}" + "".join(
             f"[a{i}]" for i in range(count)
         )
-    args = ["-i", str(source.resolve()), "-filter_complex", graph]
+    device = tone_device_args() if needs_tone_mapping(info) else []
+    args = [*device, "-i", str(source.resolve()), "-filter_complex", graph]
     if copied:
         # Source keyframes are at most COPY_MAX_GOP apart: no keyframes in between.
         gop = str(math.ceil(fps * (COPY_MAX_GOP + 1)))
@@ -206,7 +209,7 @@ async def generate(
             args += ["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]
         else:
             args += ["-an"]
-        if info.is_hdr:
+        if needs_tone_mapping(info):
             args += SDR_TAGS
         args += [
             "-sn",

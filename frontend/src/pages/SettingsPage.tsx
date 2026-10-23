@@ -219,6 +219,7 @@ function SystemPanel() {
         </Text>
       </SimpleGrid>
       <FfmpegFeatures features={data.ffmpeg_features} />
+      {data.hdr_tone_mapper && <Text size="sm" c="dimmed">{tr("HDR 色调映射：{{v0}}", { v0: data.hdr_tone_mapper === 'zscale' ? tr('zscale（CPU）') : tr('{{v0}}（GPU）', { v0: data.hdr_tone_mapper }) })}</Text>}
     </Stack>
   )
 }

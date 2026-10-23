@@ -44,6 +44,9 @@ class MediaInfo:
     color_primaries: str = ""
     color_space: str = ""
     color_range: str = ""
+    # Dolby Vision configuration record: profile and base-layer compatibility id.
+    dolby_vision_profile: int = 0
+    dolby_vision_compatibility: int = 0
     audio_codec: str | None = None
     audio_index: int | None = None
     sample_rate: int = 0
@@ -64,6 +67,12 @@ class MediaInfo:
     @property
     def is_hdr(self) -> bool:
         return self.color_transfer in {"smpte2084", "arib-std-b67"}
+
+    @property
+    def dolby_vision_only(self) -> bool:
+        """Dolby Vision without an HDR10/HLG/SDR base layer (profile 5): its colours
+        need the dynamic metadata, so plain decoders show green and purple."""
+        return self.dolby_vision_profile > 0 and self.dolby_vision_compatibility == 0
 
     @property
     def variable_frame_rate(self) -> bool:
@@ -106,6 +115,7 @@ class MediaInfo:
         return (
             self.video_codec == "hevc"
             and not self.is_hdr
+            and not self.dolby_vision_only
             and (self.audio_codec is None or self.audio_codec in {"aac", "mp3", "opus"})
         )
 
@@ -145,6 +155,7 @@ class MediaInfo:
             "color_primaries": self.color_primaries,
             "color_space": self.color_space,
             "color_range": self.color_range,
+            "dolby_vision_profile": self.dolby_vision_profile,
             "sample_rate": self.sample_rate,
             "channels": self.channels,
             "channel_layout": self.channel_layout,
@@ -237,6 +248,12 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     info.color_primaries = video.get("color_primaries", "")
     info.color_space = video.get("color_space", "")
     info.color_range = video.get("color_range", "")
+    for side_data in video.get("side_data_list") or []:
+        if side_data.get("side_data_type") == "DOVI configuration record":
+            info.dolby_vision_profile = int(side_data.get("dv_profile") or 0)
+            info.dolby_vision_compatibility = int(
+                side_data.get("dv_bl_signal_compatibility_id") or 0
+            )
     info.coded_width = int(video.get("width") or 0)
     info.coded_height = int(video.get("height") or 0)
     info.rotation = _rotation(video)

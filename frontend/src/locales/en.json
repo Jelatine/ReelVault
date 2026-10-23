@@ -1805,5 +1805,10 @@
   "封装为 HEVC MP4": "Remuxing to HEVC MP4",
   "源视频不是可直接播放的 HEVC，请生成 H.264 播放缓存": "The source is not directly playable HEVC; generate the H.264 playback cache",
   "当前为上传的自定义封面": "The current cover is an uploaded image",
-  "当前为自动选取的封面（{{v0}}，已避开黑场和纯色画面）": "The current cover was chosen automatically ({{v0}}, avoiding black and flat frames)"
+  "当前为自动选取的封面（{{v0}}，已避开黑场和纯色画面）": "The current cover was chosen automatically ({{v0}}, avoiding black and flat frames)",
+  "HDR 色调映射：{{v0}}": "HDR tone mapping: {{v0}}",
+  "zscale（CPU）": "zscale (CPU)",
+  "杜比视界 Profile {{v0}}": "Dolby Vision Profile {{v0}}",
+  "{{v0}}（GPU）": "{{v0}} (GPU)",
+  "杜比视界 Profile 5 视频没有 HDR10 基础层，当前 FFmpeg 无法正确转换颜色（需要可用的 libplacebo），重新编码的画面会偏色": "Dolby Vision Profile 5 video has no HDR10 base layer; this FFmpeg cannot convert its colours (a working libplacebo is required), so re-encoded pictures will have wrong colours"
 }

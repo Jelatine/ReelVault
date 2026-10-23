@@ -64,6 +64,7 @@ from .jobs.manager import JobManager
 from .library import abs_path
 from .maintenance import maintain
 from .media.capabilities import detect_capabilities
+from .media.color import detect_tone_mapper
 from .media.encoding import detect_encoders
 from .media.ffmpeg import ffmpeg_version
 from .migrate import upgrade
@@ -242,6 +243,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             manager = JobManager(settings, app.state.sessionmaker, HANDLERS)
             manager.encoding.compiled = await detect_encoders(settings.ffmpeg)
             manager.capabilities = await detect_capabilities(settings.ffmpeg)
+            if manager.capabilities:
+                manager.capabilities.tone_mapper = await detect_tone_mapper(
+                    settings.ffmpeg, manager.capabilities.filters, settings.vaapi_device
+                )
             app.state.jobs = manager
             await manager.start()
             importer = Importer(settings, app.state.sessionmaker, manager)

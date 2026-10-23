@@ -3,26 +3,104 @@ SDR derivatives of tagged HDR10/HLG sources; stream copies keep the original."""
 
 from __future__ import annotations
 
+import asyncio
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
+from .ffmpeg import FFmpegError, ffmpeg_args, run_command
 from .probe import MediaInfo
 
 SDR_TAGS = ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"]
+STRIP_HDR_SIDE_DATA = (
+    "sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA,"
+    "sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL"
+)
+# GPU tone mappers in order of preference; zscale+tonemap on the CPU is the fallback.
+TONE_MAPPERS = ("libplacebo", "opencl", "vaapi")
+TONE_FILTERS = {"libplacebo": "libplacebo", "opencl": "tonemap_opencl", "vaapi": "tonemap_vaapi"}
 
 
-def sdr_filter(info: MediaInfo) -> str:
-    if not info.is_hdr:
-        return ""
+@dataclass
+class ToneMapping:
+    mapper: str = "zscale"
+    vaapi_device: str = "/dev/dri/renderD128"
+
+
+# Chosen once at startup by detect_tone_mapper; every HDR conversion uses it.
+TONE = ToneMapping()
+
+
+def tone_device_args(mapper: str | None = None) -> list[str]:
+    """Global options that create the filter device; they precede the inputs."""
+    match mapper or TONE.mapper:
+        case "opencl":
+            return ["-init_hw_device", "opencl=rv_tone", "-filter_hw_device", "rv_tone"]
+        case "vaapi":
+            device = f"vaapi=rv_tone:{TONE.vaapi_device}"
+            return ["-init_hw_device", device, "-filter_hw_device", "rv_tone"]
+    # libplacebo creates its own Vulkan device.
+    return []
+
+
+def tone_map_filter(transfer: str, mapper: str | None = None) -> str:
+    """HDR10/HLG (or, with libplacebo, Dolby Vision) to 8-bit BT.709 SDR."""
+    match mapper or TONE.mapper:
+        case "libplacebo":
+            # libplacebo also applies Dolby Vision reshaping metadata.
+            return (
+                "libplacebo=tonemapping=mobius:colorspace=bt709:color_primaries=bt709:"
+                "color_trc=bt709:range=limited:format=yuv420p," + STRIP_HDR_SIDE_DATA
+            )
+        case "opencl":
+            return (
+                "format=p010le,hwupload,tonemap_opencl=tonemap=mobius:desat=2:t=bt709:m=bt709:"
+                "p=bt709:r=tv:format=nv12,hwdownload,format=nv12,format=yuv420p,"
+                + STRIP_HDR_SIDE_DATA
+            )
+        case "vaapi":
+            return (
+                "format=p010le,hwupload,tonemap_vaapi=format=nv12:t=bt709:m=bt709:p=bt709,"
+                "hwdownload,format=nv12,format=yuv420p," + STRIP_HDR_SIDE_DATA
+            )
     # Explicit input transfer handles containers missing some colour tags. Unknown
     # primaries/matrix are left to zscale: fail instead of guessing a colour gamut.
     return (
-        f"zscale=tin={info.color_transfer}:t=linear:npl=100,format=gbrpf32le,"
+        f"zscale=tin={transfer}:t=linear:npl=100,format=gbrpf32le,"
         "zscale=p=bt709,tonemap=tonemap=mobius:desat=2,"
-        "zscale=t=bt709:m=bt709:r=limited,format=yuv420p,"
-        "sidedata=mode=delete:type=MASTERING_DISPLAY_METADATA,"
-        "sidedata=mode=delete:type=CONTENT_LIGHT_LEVEL"
+        "zscale=t=bt709:m=bt709:r=limited,format=yuv420p," + STRIP_HDR_SIDE_DATA
     )
+
+
+def needs_tone_mapping(info: MediaInfo) -> bool:
+    # Dolby Vision profile 5 has no HDR10 base layer; only libplacebo reads its metadata.
+    return info.is_hdr or (info.dolby_vision_only and TONE.mapper == "libplacebo")
+
+
+def sdr_filter(info: MediaInfo) -> str:
+    return tone_map_filter(info.color_transfer or "smpte2084") if needs_tone_mapping(info) else ""
+
+
+async def detect_tone_mapper(ffmpeg: str, filters: set[str], vaapi_device: str) -> str:
+    """Use the first GPU tone mapper that converts a synthetic PQ frame, else zscale."""
+    TONE.vaapi_device = vaapi_device
+    source = (
+        "color=s=64x64:d=0.2,format=yuv420p10le,"
+        "setparams=color_trc=smpte2084:color_primaries=bt2020:colorspace=bt2020nc"
+    )
+    for mapper in TONE_MAPPERS:
+        if TONE_FILTERS[mapper] not in filters:
+            continue
+        args = [*tone_device_args(mapper), "-f", "lavfi", "-i", source]
+        args += ["-vf", tone_map_filter("smpte2084", mapper), "-f", "null", "-"]
+        try:
+            await asyncio.wait_for(run_command(ffmpeg_args(ffmpeg, args, progress=False)), 20)
+        except (FFmpegError, OSError, TimeoutError):
+            continue
+        TONE.mapper = mapper
+        return mapper
+    TONE.mapper = "zscale"
+    return "zscale"
 
 
 def deinterlace_filter(info: MediaInfo) -> str:
@@ -35,6 +113,14 @@ def source_filter(info: MediaInfo) -> str:
     return ",".join(f for f in (deinterlace_filter(info), sdr_filter(info)) if f)
 
 
+def reencodes_video(args: list[str]) -> bool:
+    if "-vn" in args:
+        return False
+    return not any(
+        args[i] in {"-c", "-c:v"} and args[i + 1] == "copy" for i in range(len(args) - 1)
+    )
+
+
 def sdr_commands(
     commands: list[list[str]], sources: list[tuple[Path, MediaInfo]]
 ) -> list[list[str]]:
@@ -44,16 +130,16 @@ def sdr_commands(
     never deinterlaced or tone mapped a second time.
     """
     normalised = {
-        str(path.resolve()): info for path, info in sources if info.is_hdr or info.interlaced
+        str(path.resolve()): info
+        for path, info in sources
+        if needs_tone_mapping(info) or info.interlaced
     }
     if not normalised:
         return commands
     result = []
     for original in commands:
         args = list(original)
-        if "-vn" in args or any(
-            args[i] in {"-c", "-c:v"} and args[i + 1] == "copy" for i in range(len(args) - 1)
-        ):
+        if not reencodes_video(args):
             result.append(args)
             continue
         inputs = [args[i + 1] for i, value in enumerate(args[:-1]) if value == "-i"]
@@ -87,7 +173,12 @@ def sdr_commands(
                     args[-1:-1] = ["-vf", tone]
             else:
                 continue
-            tone_mapped = tone_mapped or info.is_hdr
+            tone_mapped = tone_mapped or needs_tone_mapping(info)
+        if tone_mapped:
+            # A GPU tone mapper needs its device before the first input.
+            device = tone_device_args()
+            if device and "-init_hw_device" not in args:
+                args[0:0] = device
         if (
             tone_mapped
             and args[-1] != "-"

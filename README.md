@@ -121,6 +121,8 @@ Windows 双击该文件 → 安装证书 → 本地计算机 → 「受信任的
 
 带 PQ／HLG 标记的 HDR 视频在重编码编辑、兼容播放副本、HLS、预览和缩略图中转换为 BT.709 SDR，采用 FFmpeg 的 [`zscale` 与 `tonemap`](https://ffmpeg.org/ffmpeg-filters.html#tonemap) 色调映射，需要 FFmpeg 编译了这两个滤镜。无损复制保留原始 HDR；色彩参数不同的视频不会自动无损合并。当前不提供保留 HDR 的重编码模式，也不承诺保留 Dolby Vision 动态元数据；缺少必要色彩信息或滤镜时会报告失败，原文件保留。
 
+启动时依次试用 GPU 色调映射 `libplacebo`（Vulkan）、`tonemap_opencl`、`tonemap_vaapi`（使用 `REELVAULT_VAAPI_DEVICE`），对一帧合成 PQ 画面转换成功的第一个用于所有 HDR 转 SDR，均不可用时使用上述 CPU 的 zscale；设置页显示当前方式。杜比视界在详情页标注 Profile；Profile 5 没有 HDR10 基础层，只有 libplacebo 能按其元数据转换颜色，其他方式下重新编码会偏色，任务日志会提示，HEVC 原流播放与 HLS 原流复制也不用于这类视频。
+
 Windows 的 Docker Desktop 在 WSL 2 虚拟机中运行容器，虚拟机默认最多使用一半内存。参考 [`deploy/windows/wslconfig.example`](deploy/windows/wslconfig.example) 按本机配置调整后复制为 `%UserProfile%\.wslconfig`，执行 `wsl --shutdown` 并重新启动 Docker Desktop 生效，说明见 [WSL 配置文档](https://learn.microsoft.com/windows/wsl/wsl-config)。数据目录放在 Windows 盘（如 `D:\...`）时，容器需跨文件系统读写，大文件处理和播放都会明显变慢；建议把项目放在 WSL 文件系统内（如 `\\wsl$\Ubuntu\home\<用户>\ReelVault`）。
 
 v0.3.0 起默认端口由 8080 改为 34123。从旧版本升级的 Docker 部署需同步修改端口映射：改为 `-p 34123:34123`（compose 中 `"34123:34123"`）；若要保留原访问地址，可映射 `-p 8080:34123`，或设置 `REELVAULT_PORT=8080` 并保留 `-p 8080:8080`。Ubuntu 安装的环境文件已写明 `REELVAULT_PORT=8080`，升级后端口不变；macOS 重新执行 `install-launchd.sh` 后改用 34123。反向代理按实际端口配置。

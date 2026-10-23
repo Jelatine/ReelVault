@@ -21,7 +21,7 @@ from ..media import chapters, derive, ops
 from ..media.adjust import plan_adjust
 from ..media.animation import plan_animation
 from ..media.assets import audio_asset, image_asset, lut_asset, subtitle_asset
-from ..media.color import sdr_commands
+from ..media.color import needs_tone_mapping, reencodes_video, sdr_commands
 from ..media.composite import plan_composite
 from ..media.effects import plan_effect
 from ..media.loudness import measure_loudness, measure_noise_floor
@@ -449,6 +449,13 @@ async def edit(ctx: JobContext, job: Job) -> None:
                     metadata.write_text(chapters.ffmetadata(mapped), encoding="utf-8")
                 plan.commands[-1] = chapters.with_chapters(plan.commands[-1], metadata)
         commands = sdr_commands(plan.commands, sources)
+        untreated = [i for _, i in sources if i.dolby_vision_only and not needs_tone_mapping(i)]
+        if untreated and any(reencodes_video(args) for args in commands):
+            ctx.log(
+                "杜比视界 Profile 5 视频没有 HDR10 基础层，当前 FFmpeg 无法正确转换颜色"
+                "（需要可用的 libplacebo），重新编码的画面会偏色",
+                "warning",
+            )
         if commands != plan.commands:
             if any(info.is_hdr for _, info in sources):
                 ctx.log("HDR 视频重编码为 BT.709 SDR；无损复制保留原始 HDR", "info")

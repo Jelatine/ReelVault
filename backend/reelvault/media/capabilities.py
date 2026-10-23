@@ -42,6 +42,8 @@ class Capabilities:
     av1_two_pass: bool | None = None
     # Command-line options from `-h long`, with their leading dash.
     options: set[str] = field(default_factory=set)
+    # HDR to SDR conversion actually usable: libplacebo, opencl, vaapi or zscale.
+    tone_mapper: str = "zscale"
 
     def missing(self, feature: str) -> list[str]:
         if feature == "av1_two_pass":
