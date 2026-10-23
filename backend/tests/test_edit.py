@@ -198,11 +198,14 @@ def test_compress_h265(client: TestClient, clip: dict[str, Any]) -> None:
 
 
 def test_compress_av1_crf_and_target_size(client: TestClient, samples: dict[str, Path]) -> None:
+    features = client.get("/api/system/info").json()["ffmpeg_features"]
+    if not features["av1"]:
+        pytest.skip("FFmpeg build lacks libsvtav1")
     long = upload_ready(client, samples["long"])
     edit = {"op": "compress", "codec": "av1", "preset": "ultrafast", "resolution": 360}
     v = result_video(client, run_edit(client, long["id"], edit))
     assert v["video_codec"] == "av1" and v["height"] == 360
-    if client.get("/api/system/info").json()["ffmpeg_features"].get("av1_two_pass") is False:
+    if features.get("av1_two_pass") is False:
         response = client.post(
             f"/api/videos/{long['id']}/edit",
             json={"edit": {**edit, "target_size_mb": 0.4, "audio_bitrate": 64}},
