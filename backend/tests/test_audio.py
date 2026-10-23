@@ -50,12 +50,12 @@ def music(tmp_path: Path) -> Path:
     return path
 
 
-def pcm(path: Path, start=0.0, duration=None) -> list[float]:
+def pcm(path: Path, start=0.0, duration=None, channels=1) -> list[float]:
     args = ["ffmpeg", "-v", "error", "-ss", str(start), "-i", str(path)]
     if duration is not None:
         args += ["-t", str(duration)]
     data = subprocess.check_output(
-        args + ["-vn", "-ac", "1", "-ar", "48000", "-f", "f32le", "pipe:1"]
+        args + ["-vn", "-ac", str(channels), "-ar", "48000", "-f", "f32le", "pipe:1"]
     )
     values = array.array("f")
     values.frombytes(data)
@@ -407,7 +407,8 @@ def test_real_denoise_reduces_background_noise(tmp_path: Path) -> None:
 
     plain, _ = asyncio.run(render(AudioParams(), "plain.mp4"))
     clean, floor = asyncio.run(render(AudioParams(denoise=24), "clean.mp4"))
-    assert floor == pytest.approx(rms_db(pcm(plain, 0.5, 3)), abs=3)
+    # Read the stereo output as is: FFmpeg versions differ in stereo-to-mono downmix gain.
+    assert floor == pytest.approx(rms_db(pcm(plain, 0.5, 3, channels=2)), abs=3)
     assert rms(pcm(clean, 1.5, 2)) < rms(pcm(plain, 1.5, 2)) * 0.5
     assert not list(tmp_path.glob("noise-floor.txt"))
     with pytest.raises(ValueError, match="降噪"):
