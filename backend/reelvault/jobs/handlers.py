@@ -299,7 +299,39 @@ async def edit(ctx: JobContext, job: Job) -> None:
                             "edit": params.model_dump(),
                         },
                     )
-                plan = ops.plan_trim(params, sources[0], out, tmp)
+                if params.mode == "smart":
+                    blocker = ops.smart_cut_blocker(sources[0][1])
+                    if blocker:
+                        ctx.log(f"无法智能剪切，改为精确剪辑：{blocker}", "info")
+                        params.mode = "precise"
+                        _set_job(
+                            ctx,
+                            job.id,
+                            params={
+                                **job.params,
+                                "requested_edit": job.params["edit"],
+                                "edit": params.model_dump(),
+                            },
+                        )
+                if params.mode == "smart":
+                    ctx.set_progress(0, "读取帧索引")
+                    index = await timing_index(
+                        s,
+                        first_video.id,
+                        sources[0][0],
+                        sources[0][1].video_index,
+                        handle=ctx.handle,
+                    )
+                    plan = ops.plan_smart_trim(
+                        params, sources[0], out, tmp, index["frames"], index["keyframes"]
+                    )
+                    copied = sum(
+                        "-c" in args and args[args.index("-c") + 1] == "copy"
+                        for args in plan.commands[:-1]
+                    )
+                    ctx.log(f"智能剪切：{copied} 段直接复制，其余切点附近重新编码", "info")
+                else:
+                    plan = ops.plan_trim(params, sources[0], out, tmp)
             case ops.MergeParams():
                 plan = ops.plan_merge(params, sources, out, tmp)
             case ops.CompositeParams():

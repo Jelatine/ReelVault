@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Annotated, Literal
@@ -63,7 +64,8 @@ class TrimParams(BaseModel):
     op: Literal["trim"] = "trim"
     segments: list[Segment] = Field(min_length=1, max_length=50)
     # fast: stream copy, cuts land on keyframes. precise: re-encode, frame accurate.
-    mode: Literal["fast", "precise"] = "precise"
+    # smart: frame accurate, re-encoding only from each cut to the nearest keyframe.
+    mode: Literal["fast", "precise", "smart"] = "precise"
     crf: int = Field(20, ge=0, le=51)
 
 
@@ -630,6 +632,144 @@ def plan_trim(p: TrimParams, src: Source, out: Path, tmp: Path | None = None) ->
         args += ["-map", "[a]", *aac()]
     args += [*video_target(info).args(p.crf), *MP4_FLAGS, str(out)]
     return OpPlan([args], total)
+
+
+# H.264 profiles libx264 can match; the concat demuxer converts H.264 parts to Annex B
+# with their own in-band parameter sets, so re-encoded and copied parts can be joined.
+SMART_PROFILES = {
+    "Constrained Baseline": "baseline",
+    "Baseline": "baseline",
+    "Main": "main",
+    "High": "high",
+}
+
+
+def smart_cut_blocker(info: MediaInfo) -> str | None:
+    """Why a smart cut falls back to a full re-encode, or None when it can run."""
+    if info.video_codec != "h264":
+        return "智能剪切仅支持 H.264 视频"
+    if info.video_profile not in SMART_PROFILES or info.pix_fmt not in {"yuv420p", "yuvj420p"}:
+        return "智能剪切仅支持 8-bit 4:2:0 的 Baseline／Main／High 档次"
+    if info.interlaced or info.is_hdr:
+        return "隔行扫描或 HDR 视频无法智能剪切"
+    if info.rotation:
+        return "带旋转标记的视频无法智能剪切"
+    if info.fps <= 0:
+        return "无法获取帧率"
+    return None
+
+
+@dataclass
+class SmartPart:
+    start: int  # first frame index
+    end: int  # frame index after the last frame
+    copy: bool
+
+
+def smart_parts(
+    frames: list[float], keyframes: list[float], start: float, end: float
+) -> list[SmartPart]:
+    """Copy whole GOPs inside [start, end) and re-encode the partial GOPs at both cuts.
+
+    Assumes closed GOPs: frames shown before a keyframe are decoded before it.
+    """
+    first = bisect.bisect_left(frames, start - 1e-6)
+    last = bisect.bisect_left(frames, end - 1e-6)
+    if first >= last:
+        return []
+    keys = {round(k, 6) for k in keyframes}
+    inside = [i for i in range(first, last) if round(frames[i], 6) in keys]
+    if not inside:
+        return [SmartPart(first, last, False)]
+    copy_start = inside[0]
+    # The copy may run to the cut when the cut is a keyframe or the end of the file.
+    copy_end = last if last == len(frames) or round(frames[last], 6) in keys else inside[-1]
+    parts = []
+    if first < copy_start:
+        parts.append(SmartPart(first, copy_start, False))
+    if copy_start < copy_end:
+        parts.append(SmartPart(copy_start, copy_end, True))
+    if copy_end < last:
+        parts.append(SmartPart(copy_end, last, False))
+    return parts
+
+
+def plan_smart_trim(
+    p: TrimParams,
+    src: Source,
+    out: Path,
+    tmp: Path,
+    frames: list[float],
+    keyframes: list[float],
+) -> OpPlan:
+    path, info = src
+    profile = SMART_PROFILES[info.video_profile]
+    encode = ["-c:v", "libx264", "-preset", "medium", "-crf", str(p.crf), "-profile:v", profile]
+    if info.video_level:
+        encode += ["-level:v", f"{info.video_level / 10:.1f}"]
+    encode += ["-pix_fmt", info.pix_fmt, "-fps_mode", "passthrough"]
+    video_only = ["-map", f"0:{info.video_index}", "-an", "-sn", "-dn"]
+    commands: list[list[str]] = []
+    parts: list[Path] = []
+    spans: list[tuple[float, float]] = []
+    for segment in p.segments:
+        segment_parts = smart_parts(frames, keyframes, segment.start, segment.end)
+        if not segment_parts:
+            continue
+        first, last = segment_parts[0].start, segment_parts[-1].end
+        spans.append((frames[first], frames[last] if last < len(frames) else info.duration))
+        for part in segment_parts:
+            target = tmp / f"smart{len(parts)}.mp4"
+            count = ["-frames:v", str(part.end - part.start)]
+            if part.copy:
+                seek = frames[part.start] + 0.001
+                if info.container in {"mkv", "webm"} and info.video_has_b_frames:
+                    seek += MATROSKA_SEEK_BACKOFF
+                args = ["-ss", f"{seek:.6f}", "-i", str(path), *count, *video_only]
+                args += ["-c", "copy", "-avoid_negative_ts", "make_zero", str(target)]
+            else:
+                # Accurate seek drops frames before -ss; a quarter frame early keeps the
+                # first frame despite timestamp rounding but not the one before it.
+                seek = max(0.0, frames[part.start] - 0.25 / info.fps)
+                args = ["-ss", f"{seek:.6f}", "-i", str(path), *count, *video_only, *encode]
+                args.append(str(target))
+            commands.append(args)
+            parts.append(target)
+    if not parts:
+        raise OpError("剪辑区间超出视频时长")
+    total = sum(e - s for s, e in spans)
+    listing = tmp / "smart-concat.txt"
+    listing.write_text(concat_listing(parts))
+    files = [listing, *parts]
+    final = ["-f", "concat", "-safe", "0", "-i", str(listing)]
+    if info.has_audio:
+        # One continuous audio encode avoids AAC priming gaps at every join.
+        audio = tmp / "smart-audio.m4a"
+        chains, labels = [], []
+        for track, index in enumerate(audio_indices(info)):
+            pieces = [f"[s{track}_{i}]" for i in range(len(spans))]
+            split = "".join(pieces)
+            chains.append(f"[0:{index}]asplit={len(spans)}{split}" if len(spans) > 1 else "")
+            trimmed = []
+            for i, (s, e) in enumerate(spans):
+                source = pieces[i] if len(spans) > 1 else f"[0:{index}]"
+                chains.append(
+                    f"{source}atrim=start={s:.6f}:end={e:.6f},asetpts=PTS-STARTPTS[t{track}_{i}]"
+                )
+                trimmed.append(f"[t{track}_{i}]")
+            chains.append(f"{''.join(trimmed)}concat=n={len(spans)}:v=0:a=1[a{track}]")
+            labels.append(f"[a{track}]")
+        graph = ";".join(chain for chain in chains if chain)
+        args = ["-i", str(path), "-filter_complex", graph]
+        for label in labels:
+            args += ["-map", label]
+        commands.append([*args, *aac(), str(audio)])
+        files.append(audio)
+        final += ["-i", str(audio), "-map", "0:v", "-map", "1:a"]
+    else:
+        final += ["-map", "0:v"]
+    commands.append([*final, "-c", "copy", *MP4_FLAGS, str(out.with_suffix(".mp4"))])
+    return OpPlan(commands, total, files=files)
 
 
 def merge_lossless_ok(sources: list[Source]) -> bool:

@@ -47,3 +47,15 @@ test('fast mode snaps every segment and merges segments that meet after snapping
   fireEvent.click(screen.getByRole('button', { name: /剪辑（输出时长/ }))
   expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'fast', segments: [{ start: 0, end: 0.4 }, { start: 0.5, end: 4 }] }), expect.anything())
 })
+
+test('smart mode keeps every segment and warns when the video is not H.264', () => {
+  const { rerender } = render(<MantineProvider><TrimPanel video={{ id: 'one', duration: 4, video_codec: 'h264' } as Video} currentTime={0}
+    seek={vi.fn()} play={vi.fn()} pause={vi.fn()} setOverlay={vi.fn()} /></MantineProvider>)
+  fireEvent.click(screen.getByText('智能（仅重编码切点附近）'))
+  expect(screen.getByLabelText('画质 CRF（越小越清晰）')).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: /剪辑（输出时长/ }))
+  expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'smart', segments: [{ start: 0, end: 4 }] }), expect.anything())
+  rerender(<MantineProvider><TrimPanel video={{ id: 'one', duration: 4, video_codec: 'hevc' } as Video} currentTime={0}
+    seek={vi.fn()} play={vi.fn()} pause={vi.fn()} setOverlay={vi.fn()} /></MantineProvider>)
+  expect(screen.getByText('智能剪切仅支持 H.264，此视频将改为精确剪辑。')).toBeDefined()
+})

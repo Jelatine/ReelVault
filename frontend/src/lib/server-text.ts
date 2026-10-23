@@ -36,6 +36,8 @@ export function serverText(text: string | null | undefined): string {
   if ((match = text.match(/^(.+)（(\d+) 步）$/))) return tr('{{operation}}（{{steps}} 步）', { operation: serverText(match[1]), steps: match[2] })
   if ((match = text.match(/^已检测 (\d+) 个切点、(\d+) 个章节$/))) return tr('已检测 {{cuts}} 个切点、{{chapters}} 个章节', { cuts: match[1], chapters: match[2] })
   if ((match = text.match(/^重试失败任务 (\w+)$/))) return tr('重试失败任务 {{id}}', { id: match[1] })
+  if ((match = text.match(/^无法智能剪切，改为精确剪辑：(.+)$/))) return tr('无法智能剪切，改为精确剪辑：{{reason}}', { reason: serverText(match[1]) })
+  if ((match = text.match(/^智能剪切：(\d+) 段直接复制，其余切点附近重新编码$/))) return tr('智能剪切：{{count}} 段直接复制，其余切点附近重新编码', { count: match[1] })
   if ((match = text.match(/^无法无损旋转，重新编码：(.+)$/))) return tr('无法无损旋转，重新编码：{{reason}}', { reason: serverText(match[1]) })
   if ((match = text.match(/^硬件编码失败，已回退软件编码：([\s\S]+)$/))) return tr('硬件编码失败，已回退软件编码：{{detail}}', { detail: match[1] })
   if ((match = text.match(/^正在下载 v(.+)$/))) return tr('正在下载 v{{version}}', { version: match[1] })

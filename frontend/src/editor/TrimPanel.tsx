@@ -27,7 +27,7 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
   const [crf, setCrf] = useState(20)
   const [segments, setSegments] = useState<Seg[]>([{ start: 0, end: duration }])
   const [active, setActive] = useState(0)
-  const [mode, setMode] = useState<'precise' | 'fast'>('precise')
+  const [mode, setMode] = useState<'precise' | 'fast' | 'smart'>('precise')
   const [output, setOutput] = useState(defaultOutput)
   const previewEnd = useRef<number | null>(null)
   const { submit, busy } = useSubmitEdit(video.id)
@@ -72,7 +72,7 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
         setCrf(Number(params.crf ?? 20))
         const applied = (params.segments as Seg[]).map((segment) => ({ ...segment, end: Math.min(segment.end, duration) })).filter((segment) => segment.end > segment.start)
         setSegments(applied.length ? applied : [{ start: 0, end: duration }])
-        setMode(params.mode === 'fast' ? 'fast' : 'precise')
+        setMode(params.mode === 'fast' || params.mode === 'smart' ? params.mode : 'precise')
         setActive(0)
       }} />
       <Text size="sm" c="dimmed">{tr("选择要保留的片段。可添加多个片段，将按顺序拼接。")}</Text>
@@ -159,9 +159,10 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
         <Text size="sm" mb={4}>{tr("剪辑模式")}</Text>
         <SegmentedControl
           value={mode}
-          onChange={(v) => setMode(v as 'precise' | 'fast')}
+          onChange={(v) => setMode(v as typeof mode)}
           data={[
             { value: 'precise', label: tr("精确（重新编码）") },
+            { value: 'smart', label: tr("智能（仅重编码切点附近）") },
             { value: 'fast', label: tr("快速（无损，按关键帧）") },
           ]}
         />
@@ -175,6 +176,11 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
           </> : tr("正在读取关键帧，载入后显示实际切点。")}
         </Alert>
       )}
+      {mode === 'smart' && <Text size="xs" c={video.video_codec && video.video_codec !== 'h264' ? 'orange' : 'dimmed'}>
+        {video.video_codec && video.video_codec !== 'h264'
+          ? tr("智能剪切仅支持 H.264，此视频将改为精确剪辑。")
+          : tr("切点精确到帧：完整的关键帧间隔直接复制，只重新编码每个切点到相邻关键帧之间的画面；音频重新编码。")}
+      </Text>}
       {!fast && <NumberInput label={tr("画质 CRF（越小越清晰）")} min={0} max={51} value={crf} onChange={(value) => setCrf(Number(value))} />}
       <OutputFields value={output} onChange={setOutput} />
       <SequencePreview pause={pause} disabled={fast && !actual}

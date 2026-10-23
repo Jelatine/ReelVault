@@ -1785,5 +1785,17 @@
   "片段 {{v0}}：": "Segment {{v0}}: ",
   "吸附后相邻或重叠的片段已合并。": "Segments that touch or overlap after snapping are merged.",
   "音视频流时间基可能使文件时长略有差异。": "Audio/video time bases may cause small differences in file duration.",
-  "多段先逐段复制再无损拼接，片段衔接处音频可能有极短的间隙。": " Multiple segments are copied one by one and joined losslessly; audio may have a very short gap at each join."
+  "多段先逐段复制再无损拼接，片段衔接处音频可能有极短的间隙。": " Multiple segments are copied one by one and joined losslessly; audio may have a very short gap at each join.",
+  "智能（仅重编码切点附近）": "Smart (re-encode only around cuts)",
+  "智能剪切仅支持 H.264，此视频将改为精确剪辑。": "Smart cutting supports H.264 only; this video will use precise trimming.",
+  "切点精确到帧：完整的关键帧间隔直接复制，只重新编码每个切点到相邻关键帧之间的画面；音频重新编码。": "Frame-accurate cuts: whole keyframe intervals are copied and only the frames between each cut and the nearest keyframe are re-encoded; audio is re-encoded.",
+  "智能": "Smart",
+  "无法智能剪切，改为精确剪辑：{{reason}}": "Cannot smart cut, using precise trimming: {{reason}}",
+  "智能剪切：{{count}} 段直接复制，其余切点附近重新编码": "Smart cut: {{count}} parts copied directly; the rest re-encoded around the cuts",
+  "智能剪切仅支持 H.264 视频": "Smart cutting supports H.264 video only",
+  "智能剪切仅支持 8-bit 4:2:0 的 Baseline／Main／High 档次": "Smart cutting supports only 8-bit 4:2:0 Baseline/Main/High profiles",
+  "隔行扫描或 HDR 视频无法智能剪切": "Interlaced or HDR video cannot be smart cut",
+  "带旋转标记的视频无法智能剪切": "Videos with rotation metadata cannot be smart cut",
+  "无法获取帧率": "Cannot read the frame rate",
+  "读取帧索引": "Reading frame index"
 }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +12,9 @@ from reelvault.config import Settings
 from reelvault.media import derive, ops
 from reelvault.media.ops import atempo_chain
 from reelvault.media.probe import MediaInfo
+from reelvault.models import Video
 
-from .conftest import upload_ready, wait_job, wait_ready
+from .conftest import make_video, upload_ready, wait_job, wait_ready
 
 
 def run_edit(
@@ -178,6 +181,89 @@ def test_fast_trim_multi_segment_plan(tmp_path: Path) -> None:
     )
     with pytest.raises(ops.OpError):
         ops.plan_trim(params, (tmp_path / "in", info), tmp_path / "out.mp4")
+
+
+def test_smart_parts_copy_whole_gops_and_reencode_cut_gops() -> None:
+    frames = [round(i * 0.04, 6) for i in range(250)]
+    keys = frames[::50]  # every 2 s
+    parts = ops.smart_parts(frames, keys, 1.3, 7.7)
+    assert [(p.start, p.end, p.copy) for p in parts] == [
+        (33, 50, False),
+        (50, 150, True),
+        (150, 193, False),
+    ]
+    # Cuts on a keyframe and at the end of the file need no re-encoding.
+    assert [(p.start, p.end, p.copy) for p in ops.smart_parts(frames, keys, 2, 100)] == [
+        (50, 250, True)
+    ]
+    assert [(p.start, p.end, p.copy) for p in ops.smart_parts(frames, keys, 2, 6)] == [
+        (50, 150, True)
+    ]
+    # Inside one GOP everything is re-encoded; outside the file nothing is cut.
+    assert [(p.start, p.end, p.copy) for p in ops.smart_parts(frames, keys, 2.1, 3)] == [
+        (53, 75, False)
+    ]
+    assert ops.smart_parts(frames, keys, 20, 30) == []
+
+
+def test_smart_cut_blockers() -> None:
+    info = MediaInfo(
+        duration=4, video_codec="h264", video_profile="High", pix_fmt="yuv420p", fps=25
+    )
+    assert ops.smart_cut_blocker(info) is None
+    assert "H.264" in (ops.smart_cut_blocker(replace(info, video_codec="hevc")) or "")
+    assert ops.smart_cut_blocker(replace(info, video_profile="High 10"))
+    assert ops.smart_cut_blocker(replace(info, field_order="tt"))
+    assert ops.smart_cut_blocker(replace(info, rotation=90))
+
+
+def frame_hashes(path: Path) -> list[str]:
+    output = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v", "-f", "framemd5", "-"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return [
+        line.rsplit(",", 1)[1].strip() for line in output.splitlines() if not line.startswith("#")
+    ]
+
+
+def test_smart_trim_copies_inner_gops_frame_exactly(
+    client: TestClient, settings: Settings, samples: dict[str, Path]
+) -> None:
+    source = upload_ready(client, samples["long"])
+    segments = [{"start": 1.3, "end": 3.7}, {"start": 10.5, "end": 12}]
+    job = run_edit(client, source["id"], {"op": "trim", "mode": "smart", "segments": segments})
+    assert job["params"]["edit"]["mode"] == "smart"
+    v = result_video(client, job)
+    assert v["video_codec"] == "h264" and v["audio_codec"] == "aac"
+    assert v["duration"] == pytest.approx(3.9, abs=0.08)
+    with client.app.state.sessionmaker() as db:
+        out = settings.data_dir / db.get(Video, v["id"]).file_path
+    produced, original = frame_hashes(out), frame_hashes(samples["long"])
+    # 60 frames from 1.32 s and 37 from 10.52 s (25 fps, a keyframe every second). The GOP
+    # from 2 s is copied bit-exactly; 3.00-3.68 s ends at a cut, so it is re-encoded.
+    assert len(produced) == 97
+    assert produced[17:42] == original[50:75]
+    assert produced[42] != original[75]
+    assert produced[60 + 12 :] == original[275:300]  # 11.00-11.96 s
+    ffmpeg_ok = subprocess.run(
+        ["ffmpeg", "-v", "error", "-xerror", "-i", str(out), "-f", "null", "-"]
+    )
+    assert ffmpeg_ok.returncode == 0
+
+
+def test_smart_trim_falls_back_to_precise(
+    client: TestClient, samples: dict[str, Path], tmp_path: Path
+) -> None:
+    hevc = make_video(tmp_path / "hevc.mp4", duration=3, codec="libx265", extra=["-tag:v", "hvc1"])
+    source = upload_ready(client, hevc)
+    edit = {"op": "trim", "mode": "smart", "segments": [{"start": 0.5, "end": 2}]}
+    job = run_edit(client, source["id"], edit)
+    assert job["params"]["edit"]["mode"] == "precise"
+    assert job["params"]["requested_edit"]["mode"] == "smart"
+    assert 1.3 < result_video(client, job)["duration"] < 1.7
 
 
 def test_merge_lossless_and_reencode(client: TestClient, samples: dict[str, Path]) -> None:

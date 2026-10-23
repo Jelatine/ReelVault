@@ -18,7 +18,7 @@ export function describeEdit(edit: Record<string, unknown>): string {
     case 'compress':
       return tr("压缩 · {{v0}} · {{v1}} · {{v2}}", { v0: ({ h264: 'H.264', h265: 'H.265', av1: 'AV1' }[String(edit.codec)] ?? 'H.264'), v1: edit.resolution ? tr("{{v0}}p 上限", { v0: edit.resolution }) : tr("原分辨率"), v2: edit.target_size_mb ? tr("目标 {{v0}} MB", { v0: edit.target_size_mb }) : ({ high: tr("高画质"), medium: tr("中画质"), low: tr("低画质") }[String(edit.quality)] ?? tr("中画质")) })
     case 'rotate': return tr("旋转 {{v0}}° · {{v1}}", { v0: edit.angle ?? 90, v1: edit.flip === 'horizontal' ? tr("水平翻转") : edit.flip === 'vertical' ? tr("垂直翻转") : tr("不翻转") })
-    case 'trim': return tr("剪辑 · {{v0}} · {{v1}}", { v0: edit.mode === 'fast' ? tr("快速（关键帧吸附）") : tr("精确"), v1: (edit.segments as { start: number; end: number }[]).map((segment) => `${timecode(segment.start)}–${timecode(segment.end)}`).join(', ') })
+    case 'trim': return tr("剪辑 · {{v0}} · {{v1}}", { v0: edit.mode === 'fast' ? tr("快速（关键帧吸附）") : edit.mode === 'smart' ? tr("智能") : tr("精确"), v1: (edit.segments as { start: number; end: number }[]).map((segment) => `${timecode(segment.start)}–${timecode(segment.end)}`).join(', ') })
     case 'speed': return tr("变速 · {{v0}}×", { v0: edit.factor })
     case 'crop': return tr("裁切 · {{v0}}×{{v1}} · 起点 ({{v2}}, {{v3}})", { v0: edit.width, v1: edit.height, v2: edit.x, v3: edit.y })
     case 'mute': return tr("静音 · 保留画面，移除音轨")
