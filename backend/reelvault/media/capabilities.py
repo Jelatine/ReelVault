@@ -32,6 +32,7 @@ FEATURES: dict[str, tuple[str, ...]] = {
     "lossless_rotate": ("-display_rotation",),
     "webm": ("libvpx-vp9", "libopus"),
     "mp3": ("libmp3lame",),
+    "vmaf": ("libvmaf",),
 }
 
 

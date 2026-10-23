@@ -104,6 +104,7 @@ export interface Job {
   params: { edit?: { op: string; [k: string]: unknown }; output?: { mode: string }; name?: string
     url?: string; title?: string; imported_title?: string; storage_id?: string; result?: unknown
     encoding?: { requested: string; encoder: string; decoder?: string | null; fallback: string | null }
+    quality?: { metric: 'vmaf' | 'ssim'; score: number }
     summary?: { total: number; scanned: number; cached: number; visual_failed: number; similar_pairs: number; errors: { video_id: string; error: string }[] } }
   video_ids: string[]
   result_video_id: string | null

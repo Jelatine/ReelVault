@@ -111,6 +111,8 @@ class CompressParams(BaseModel):
     target_size_mb: float | None = Field(None, gt=0, allow_inf_nan=False)
     audio_bitrate: Literal[64, 96, 128, 160, 192, 256] = 128
     preset: Literal["ultrafast", "veryfast", "faster", "fast", "medium", "slow"] = "medium"
+    # Score the result against the source (VMAF, or SSIM without libvmaf).
+    measure_quality: bool = False
 
 
 class CropParams(BaseModel):

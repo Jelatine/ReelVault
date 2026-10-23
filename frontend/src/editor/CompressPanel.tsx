@@ -24,6 +24,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
   const [audio, setAudio] = useState('128')
   const [maxFps, setMaxFps] = useState<string>('original')
   const [preset, setPreset] = useState('medium')
+  const [measure, setMeasure] = useState(false)
   const [output, setOutput] = useState(defaultOutput)
   const { submit, busy } = useSubmitEdit(video.id)
 
@@ -52,6 +53,8 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
     resolution: resolution === 'original' ? null : Number(resolution),
     target_size_mb: useTarget ? targetMb : null,
     audio_bitrate: Number(audio), max_fps: maxFps === 'original' ? null : Number(maxFps), preset,
+    // Mixed edits change the timeline, so only plain compression can be scored.
+    ...(measure && !mixed ? { measure_quality: true } : {}),
   }
   const edit = mixed ? { op: 'mixed', ...operations, compress: compression } : compression
   const valid = !mixed || (!!(operations.trim || operations.crop || operations.rotate || operations.speed || operations.mute)
@@ -76,6 +79,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
         setAudio(String(params.audio_bitrate ?? 128))
         setMaxFps(params.max_fps ? String(params.max_fps) : 'original')
         setPreset(String(params.preset ?? 'medium'))
+        setMeasure(!!params.measure_quality)
       }} />
       {mixed && <MixedFields {...ctx} value={operations} onChange={setOperations} />}
       <Text size="sm">{tr("原始大小 ")}<b>{formatBytes(video.size)}</b>{tr("，预计压缩后约 ")}<b>{formatBytes(estimate)}</b>
@@ -149,6 +153,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
           ]}
         />
       </Group>
+      {!mixed && <Switch label={tr('完成后评估画质（有 libvmaf 时用 VMAF，否则用 SSIM）')} checked={measure} onChange={(e) => setMeasure(e.currentTarget.checked)} />}
       <OutputFields value={output} onChange={setOutput} />
       {mixed && !valid && <Text size="sm" c="red">{tr('请选择要与压缩组合的操作，并检查时间、裁切范围、旋转及倍速设置。')}</Text>}
       <Button loading={busy} disabled={!valid} onClick={run}>{mixed ? tr('开始混合编辑') : tr("开始压缩")}</Button>

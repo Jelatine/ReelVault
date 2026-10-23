@@ -36,6 +36,8 @@ export function serverText(text: string | null | undefined): string {
   if ((match = text.match(/^(.+)（(\d+) 步）$/))) return tr('{{operation}}（{{steps}} 步）', { operation: serverText(match[1]), steps: match[2] })
   if ((match = text.match(/^已检测 (\d+) 个切点、(\d+) 个章节$/))) return tr('已检测 {{cuts}} 个切点、{{chapters}} 个章节', { cuts: match[1], chapters: match[2] })
   if ((match = text.match(/^重试失败任务 (\w+)$/))) return tr('重试失败任务 {{id}}', { id: match[1] })
+  if ((match = text.match(/^画质评估：(VMAF|SSIM) ([\d.]+)$/))) return tr('画质评估：{{metric}} {{score}}', { metric: match[1], score: match[2] })
+  if ((match = text.match(/^画质评估失败：([\s\S]*)$/))) return tr('画质评估失败：{{detail}}', { detail: match[1] })
   if ((match = text.match(/^发现 (\d+) 处解码错误$/))) return tr('发现 {{v0}} 处解码错误', { v0: match[1] })
   if ((match = text.match(/^未能安排完整解码检查：([\s\S]+)$/))) return tr('未能安排完整解码检查：{{detail}}', { detail: serverText(match[1]) })
   if ((match = text.match(/^保留片段超过 (\d+) 个，请增大最短静音时长或降低静音阈值$/))) return tr('保留片段超过 {{max}} 个，请增大最短静音时长或降低静音阈值', { max: match[1] })

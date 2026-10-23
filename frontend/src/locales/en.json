@@ -1838,5 +1838,11 @@
   "未发现解码错误": "No decoding errors found",
   "源视频已变化，检查结果未保存": "The source video changed; the check result was not saved",
   "请等待视频处理完成后再检查": "Wait until the video has been processed before checking it",
-  "修复 · 丢弃损坏数据包并无损重新封装": "Repair · discard damaged packets and remux losslessly"
+  "修复 · 丢弃损坏数据包并无损重新封装": "Repair · discard damaged packets and remux losslessly",
+  "完成后评估画质（有 libvmaf 时用 VMAF，否则用 SSIM）": "Score the quality afterwards (VMAF with libvmaf, otherwise SSIM)",
+  "画质：{{metric}} {{score}}": "Quality: {{metric}} {{score}}",
+  "VMAF 画质评估": "VMAF quality scoring",
+  "画质评估：{{metric}} {{score}}": "Quality score: {{metric}} {{score}}",
+  "画质评估失败：{{detail}}": "Quality scoring failed: {{detail}}",
+  "评估画质": "Scoring quality"
 }

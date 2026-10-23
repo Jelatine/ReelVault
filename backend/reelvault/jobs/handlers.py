@@ -31,8 +31,11 @@ from ..media.detect import (
     keep_segments,
 )
 from ..media.effects import plan_effect
+from ..media.ffmpeg import FFmpegError, FFmpegOperationalError
 from ..media.loudness import measure_loudness, measure_noise_floor
 from ..media.probe import MediaInfo, probe
+from ..media.quality import measure_quality
+from ..media.quality import metric as quality_metric
 from ..media.scenes import SceneParams, detect_scenes, source_signature
 from ..media.subtitles import plan_subtitle
 from ..media.timing import merge_spans, snap_cut, timing_index
@@ -523,6 +526,27 @@ async def edit(ctx: JobContext, job: Job) -> None:
             audio=expect_audio,
             handle=ctx.handle,
         )
+        if isinstance(params, ops.CompressParams) and params.measure_quality:
+            caps = ctx.manager.capabilities
+            name = quality_metric(caps.filters if caps else None)
+            ctx.set_progress(0.96, "评估画质")
+            try:
+                measured = await measure_quality(
+                    s.ffmpeg,
+                    (result, await probe(s.ffprobe, str(result), ctx.handle)),
+                    sources[0],
+                    name,
+                    handle=ctx.handle,
+                )
+            except FFmpegOperationalError:
+                raise
+            except FFmpegError as error:
+                ctx.log(f"画质评估失败：{str(error)[-500:]}", "warning")
+            else:
+                if measured:
+                    _set_job(ctx, job.id, params={**job.params, "quality": measured})
+                    label = "VMAF" if measured["metric"] == "vmaf" else "SSIM"
+                    ctx.log(f"画质评估：{label} {measured['score']}", "info")
         ctx.set_progress(0.97, "保存结果")
         await ctx.handle.checkpoint()
 

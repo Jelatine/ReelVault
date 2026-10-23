@@ -246,6 +246,7 @@ function FfmpegFeatures({ features }: { features?: Record<string, boolean> | nul
     av1: tr("AV1 编码"),
     av1_two_pass: tr('AV1 两遍编码'),
     lossless_rotate: tr("无损旋转"),
+    vmaf: tr("VMAF 画质评估"),
     webm: tr("WebM 转换"),
     mp3: tr("MP3 导出"),
   }

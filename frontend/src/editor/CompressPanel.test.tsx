@@ -83,3 +83,13 @@ test('standalone compression keeps the existing payload', () => {
   expect(submit.mock.calls[0][0]).not.toHaveProperty('rotate')
   client.clear()
 })
+
+test('plain compression can ask for a quality score; mixed edits cannot', () => {
+  setup([], false)
+  fireEvent.click(screen.getByRole('switch', { name: '完成后评估画质（有 libvmaf 时用 VMAF，否则用 SSIM）' }))
+  fireEvent.click(screen.getByRole('button', { name: '开始压缩' }))
+  expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ op: 'compress', measure_quality: true }), expect.anything())
+  cleanup()
+  setup()
+  expect(screen.queryByRole('switch', { name: '完成后评估画质（有 libvmaf 时用 VMAF，否则用 SSIM）' })).toBeNull()
+})
