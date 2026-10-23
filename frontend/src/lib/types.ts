@@ -132,6 +132,8 @@ export interface DeviceSession {
 export interface SystemInfo {
   version: string
   ffmpeg_version: string
+  /** Optional FFmpeg feature -> available; null when FFmpeg could not be queried. */
+  ffmpeg_features?: Record<string, boolean> | null
   workers: number
   running_jobs: number
   queued_jobs: number

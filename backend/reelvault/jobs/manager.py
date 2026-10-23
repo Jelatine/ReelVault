@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
 from ..locations import library_root, location_of
+from ..media.capabilities import Capabilities
 from ..media.encoding import EncoderRuntime
 from ..media.ffmpeg import Canceled, ProcessHandle
 from ..models import Job, JobLog, Video, utcnow
@@ -182,6 +183,8 @@ class JobManager:
             device=settings.vaapi_device,
             max_hardware_jobs=settings.ffmpeg_hardware_workers,
         )
+        # Optional FFmpeg filters/encoders, detected at startup; None skips the checks.
+        self.capabilities: Capabilities | None = None
         self.sessionmaker = sessionmaker
         self.handlers = handlers
         self._wake = asyncio.Event()

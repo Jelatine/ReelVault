@@ -218,8 +218,38 @@ function SystemPanel() {
         <Text size="sm">{tr("运行中 / 排队 / 暂停：")}{data.running_jobs} / {data.queued_jobs} / {data.paused_jobs ?? 0}
         </Text>
       </SimpleGrid>
+      <FfmpegFeatures features={data.ffmpeg_features} />
     </Stack>
   )
+}
+
+function FfmpegFeatures({ features }: { features?: Record<string, boolean> | null }) {
+  useTranslation()
+  if (!features) return null
+  const labels: Record<string, string> = {
+    hdr_tone_mapping: tr("HDR 转 SDR"),
+    deinterlace: tr("去隔行"),
+    loudness: tr("响度标准化"),
+    audio_denoise: tr("音频降噪"),
+    stabilize: tr("防抖"),
+    lut: tr("LUT 调色"),
+    denoise: tr("画面降噪"),
+    subtitle_burn: tr("烧录字幕"),
+    text_watermark: tr("文字水印"),
+    transitions: tr("合并转场"),
+    crop_detect: tr("黑边检测"),
+    silence_detect: tr("静音检测"),
+    gif: tr("GIF 导出"),
+    webp: tr("WebP 动图导出"),
+    h265: tr("H.265 编码"),
+    av1: tr("AV1 编码"),
+    webm: tr("WebM 转换"),
+    mp3: tr("MP3 导出"),
+  }
+  const missing = Object.entries(features).filter(([, ok]) => !ok).map(([key]) => labels[key] ?? key)
+  return missing.length
+    ? <Text size="sm" c="orange">{tr("当前 FFmpeg 不支持：")}{missing.join(tr("、"))}</Text>
+    : <Text size="sm" c="dimmed">{tr("FFmpeg 可选功能均可用")}</Text>
 }
 
 export default function SettingsPage() {

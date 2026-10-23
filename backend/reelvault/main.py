@@ -63,6 +63,7 @@ from .jobs.handlers import HANDLERS
 from .jobs.manager import JobManager
 from .library import abs_path
 from .maintenance import maintain
+from .media.capabilities import detect_capabilities
 from .media.encoding import detect_encoders
 from .media.ffmpeg import ffmpeg_version
 from .migrate import upgrade
@@ -238,6 +239,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)
             manager = JobManager(settings, app.state.sessionmaker, HANDLERS)
             manager.encoding.compiled = await detect_encoders(settings.ffmpeg)
+            manager.capabilities = await detect_capabilities(settings.ffmpeg)
             app.state.jobs = manager
             await manager.start()
             importer = Importer(settings, app.state.sessionmaker, manager)

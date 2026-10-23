@@ -20,6 +20,7 @@ from ..jobs.manager import JobManager, add_log
 from ..library import abs_path
 from ..media import ops
 from ..media.assets import AssetError, audio_asset, image_asset, lut_asset, subtitle_asset
+from ..media.capabilities import missing_components
 from ..models import EditPreset, Job, JobLog, Video
 from ..storage import budget_transaction, check_budget, job_bytes, job_requirements
 from .deps import get_jobs, get_settings
@@ -157,6 +158,19 @@ class BatchEditBody(BaseModel):
         return self
 
 
+def require_components(jobs: JobManager, edit: ops.EditParams) -> None:
+    """Fail at submission instead of after queueing when FFmpeg lacks a component."""
+    missing = missing_components(jobs.capabilities, edit)
+    if missing:
+        components = ", ".join(missing)
+        raise APIError(
+            400,
+            f"当前 FFmpeg 缺少此操作所需的组件：{components}，请安装完整版本",
+            code="ffmpeg_component_missing",
+            params={"components": components},
+        )
+
+
 @router.post("/jobs/batch")
 def batch_edit(
     body: BatchEditBody, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
@@ -168,6 +182,7 @@ def batch_edit(
             raise APIError(404, "预设不存在", code="preset_not_found")
         edit = TypeAdapter(ops.EditParams).validate_python(preset.edit)
     assert edit is not None
+    require_components(jobs, edit)
     if isinstance(edit, ops.AnimationParams) and body.output.mode == "replace":
         raise APIError(400, "动图为下载文件，不能替换原视频", code="animation_cannot_replace")
     if isinstance(edit, (ops.MergeParams, ops.CompositeParams)):
@@ -199,6 +214,7 @@ def submit_edit(
         if isinstance(body.edit, (ops.MergeParams, ops.CompositeParams))
         else [video_id]
     )
+    require_components(jobs, body.edit)
     if isinstance(body.edit, ops.AnimationParams) and body.output.mode == "replace":
         raise APIError(400, "动图为下载文件，不能替换原视频", code="animation_cannot_replace")
     if isinstance(body.edit, ops.CompositeParams):

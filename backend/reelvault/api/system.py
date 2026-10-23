@@ -133,6 +133,7 @@ def info(
     return {
         "version": __version__,
         "ffmpeg_version": request.app.state.ffmpeg_version,
+        "ffmpeg_features": jobs.capabilities.status() if jobs.capabilities else None,
         "workers": settings.workers,
         "running_jobs": int(
             db.scalar(select(func.count()).select_from(Job).where(Job.status == "running")) or 0

@@ -742,5 +742,9 @@
   "ai_face_missing": {
     "zh": "人脸记录不存在或已过期",
     "en": "The face observation is missing or expired."
+  },
+  "ffmpeg_component_missing": {
+    "en": "FFmpeg is missing components this operation needs: {{components}}. Install a full FFmpeg build.",
+    "zh": "当前 FFmpeg 缺少此操作所需的组件：{{components}}，请安装完整版本"
   }
 }
