@@ -425,3 +425,79 @@ def test_real_hardware_output(samples: dict[str, Path], tmp_path: Path, operatio
             device=os.environ.get("REELVAULT_TEST_VAAPI_DEVICE", "/dev/dri/renderD128"),
         )
     )
+
+
+def test_single_pass_and_bitrate_scaling() -> None:
+    two_pass = ["-i", "in", "-c:v", "libx265", "-b:v", "1000k", "-maxrate", "1500k"]
+    two_pass += ["-bufsize", "2000k", "-x265-params", "pass=2:stats=/t/2pass.log", "out.mp4"]
+    single = encoding.single_pass(two_pass)
+    assert "-x265-params" not in single and single[-1] == "out.mp4"
+    scaled = encoding.scale_bitrate(single, 0.5)
+    assert (
+        scaled[scaled.index("-b:v") + 1] == "500k"
+        and scaled[scaled.index("-bufsize") + 1] == "1000k"
+    )
+    x264 = ["-c:v", "libx264", "-b:v", "800k", "-pass", "2", "-passlogfile", "/t/2pass", "o.mp4"]
+    assert encoding.single_pass(x264) == ["-c:v", "libx264", "-b:v", "800k", "o.mp4"]
+
+
+def target_size_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sizes: list[int]
+) -> tuple[dict[str, Any], list[list[str]]]:
+    info = ops.MediaInfo(width=640, height=360, duration=10, fps=25, video_codec="h264")
+    params = ops.CompressParams(target_size_mb=1)
+    plan = ops.plan_compress(params, (tmp_path / "in.mp4", info), tmp_path / "out.mp4", tmp_path)
+    calls: list[list[str]] = []
+    remaining = list(sizes)
+
+    async def run(args: list[str], **kwargs: Any) -> None:
+        calls.append(args)
+        out = Path(args[-1])
+        if out.suffix == ".mp4":
+            out.write_bytes(b"x" * (remaining.pop(0) if remaining and "-pass" not in args else 1))
+        elif "-passlogfile" in args:
+            Path(args[args.index("-passlogfile") + 1] + "-0.log").write_text("stats")
+
+    monkeypatch.setattr(encoding, "run_command", run)
+    runtime = EncoderRuntime("ffmpeg", {"h264_nvenc"})
+    result = asyncio.run(runtime.run(plan.commands, "nvenc", target_bytes=plan.target_bytes))
+    return result, calls
+
+
+def test_hardware_target_size_corrects_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mib = 1024 * 1024
+    result, calls = target_size_run(monkeypatch, tmp_path, [int(1.3 * mib), mib])
+    assert result["encoder"] == "h264_nvenc" and result["hardware_passes"] == 2
+    assert len(calls) == 2 and all("-pass" not in c and "h264_nvenc" in c for c in calls)
+    assert calls[0][calls[0].index("-multipass") + 1] == "fullres"
+    first = int(calls[0][calls[0].index("-b:v") + 1].rstrip("k"))
+    second = int(calls[1][calls[1].index("-b:v") + 1].rstrip("k"))
+    assert second == round(first * 0.97 / 1.3)
+
+
+def test_hardware_target_size_falls_back_to_software_two_pass(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mib = 1024 * 1024
+    result, calls = target_size_run(monkeypatch, tmp_path, [2 * mib, 2 * mib])
+    assert result["encoder"] == "libx264" and "超出目标大小" in result["fallback"]
+    assert [c[c.index("-c:v") + 1] for c in calls] == [
+        "h264_nvenc",
+        "h264_nvenc",
+        "libx264",
+        "libx264",
+    ]
+    assert calls[-1][calls[-1].index("-pass") + 1] == "2"
+    # Without a target the plan stays on software two-pass as before.
+    runtime = EncoderRuntime("ffmpeg", {"h264_nvenc"})
+    calls.clear()
+    info = ops.MediaInfo(width=640, height=360, duration=10, fps=25, video_codec="h264")
+    plan = ops.plan_compress(
+        ops.CompressParams(target_size_mb=1),
+        (tmp_path / "in.mp4", info),
+        tmp_path / "o.mp4",
+        tmp_path,
+    )
+    assert asyncio.run(runtime.run(plan.commands, "nvenc"))["encoder"] == "libx264"

@@ -55,7 +55,7 @@ AV1 兼容性收尾验证：后端完整回归 710 项通过、20 项跳过，�
 
 工程
 - [x] `run_command` 以 `-hide_banner`+`-nostdin` 判断是否为 FFmpeg，较脆弱；改由 `ffmpeg_args` 显式标记。`ffmpeg_args` 返回 `FFmpegCommand`（`list` 子类，可指定 `loglevel`），`run_command` 只对它注入线程限制、启用停滞检测并写任务日志；手写的响度、底噪、检测、画质与完整性命令改用 `ffmpeg_args`。ffprobe、能力探测与工作进程保持普通列表。
-- [ ] 目标大小压缩支持硬件编码（NVENC／QSV 的 VBR 或多遍）。
+- [x] 目标大小压缩支持硬件编码（NVENC／QSV 的 VBR 或多遍）。`OpPlan.target_bytes` 传给编码运行时：有可用硬件时取两遍计划的第二遍去掉统计参数作单遍 VBR（NVENC 加 `-multipass fullres`），结果超出目标 8% 以上则按实际比例×0.97 降码率重编码一次，仍超出则回退软件两遍；结果记录 `hardware_passes`。仅以模拟输出测试了流程，未在 GPU 上验证码率精度。
 - [ ] QSV、VAAPI 实机验证（见第 7 节）；本轮新增的 HEVC Main10、HLS Level 4.2–5.2 也只做了参数测试，未在硬件上运行。
 
 ## FFmpeg 可靠性改进（2026-10-22）

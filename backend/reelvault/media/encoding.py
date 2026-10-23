@@ -155,6 +155,41 @@ def hardware_command(
     return result
 
 
+class TargetMissed(FFmpegError):
+    """A hardware target-size encode finished but stayed too large."""
+
+
+# Hardware encoders have no stats-file two-pass; a single VBR pass may miss the target,
+# so it is accepted within this margin and corrected once by the measured ratio.
+TARGET_TOLERANCE = 1.08
+
+
+def single_pass(args: list[str]) -> list[str]:
+    """The final pass of a software two-pass command, without its statistics options."""
+    result: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] in {"-pass", "-passlogfile"} or (
+            args[i] == "-x265-params" and "pass=" in args[i + 1]
+        ):
+            i += 2
+            continue
+        result.append(args[i])
+        i += 1
+    return result
+
+
+def scale_bitrate(args: list[str], factor: float) -> list[str]:
+    result = list(args)
+    for i, arg in enumerate(result[:-1]):
+        if arg in {"-b:v", "-maxrate", "-bufsize"}:
+            value = result[i + 1]
+            kilo = value.endswith("k")
+            number = float(value[:-1] if kilo else value) * factor
+            result[i + 1] = f"{max(1, round(number))}{'k' if kilo else ''}"
+    return result
+
+
 @dataclass
 class EncoderRuntime:
     ffmpeg: str
@@ -266,16 +301,23 @@ class EncoderRuntime:
         handle: ProcessHandle | None = None,
         on_progress: ProgressCallback | None = None,
         cwd: Path | None = None,
+        target_bytes: int | None = None,
     ) -> dict[str, Any]:
+        """``target_bytes`` lets a two-pass target-size plan use one hardware VBR pass."""
         software = next((enc for args in commands if (enc := software_encoder(args))), None)
         families = self.choices(requested, software) if software and requested != "software" else []
         fallback = None
+        hardware_plan = commands
         if software and requested != "software":
             if any("-pass" in args or "-x265-params" in args for args in commands):
-                families = []
-                fallback = "目标大小压缩使用软件两遍编码"
+                if target_bytes and families:
+                    hardware_plan = [single_pass(commands[-1])]
+                else:
+                    families = []
+                    fallback = "目标大小压缩使用软件两遍编码"
             elif not families:
                 fallback = "所选硬件编码器未编译，使用软件编码"
+        sized = hardware_plan is not commands
 
         async def execute(planned: list[list[str]]) -> None:
             count = len(planned)
@@ -331,15 +373,42 @@ class EncoderRuntime:
             if software and (chosen := family_encoder(family, software))
             for decode in ((True, False) if family in DECODERS else (False,))
         ]
+
+        def adapt(args: list[str], family: str, decode: bool) -> list[str]:
+            changed = hardware_command(args, family, self.device, decode=decode)
+            if sized and family == "nvenc":
+                # Two-pass rate control inside a single NVENC encode.
+                changed[-1:-1] = ["-multipass", "fullres"]
+            return changed
+
+        def output_size(args: list[str]) -> int:
+            out = Path(args[-1])
+            if not out.is_absolute() and cwd:
+                out = cwd / out
+            return out.stat().st_size
+
         for family, chosen, decode in attempts:
             try:
                 async with self.hardware_slot(handle):
-                    await execute(
-                        [
-                            hardware_command(args, family, self.device, decode=decode)
-                            for args in commands
-                        ]
-                    )
+                    planned = hardware_plan
+                    await execute([adapt(args, family, decode) for args in planned])
+                    passes = 1
+                    if sized and target_bytes:
+                        size = output_size(planned[-1])
+                        if size > target_bytes * TARGET_TOLERANCE:
+                            # Correct once by the measured ratio, with a little headroom.
+                            planned = [scale_bitrate(planned[-1], target_bytes / size * 0.97)]
+                            if handle and handle.on_log:
+                                handle.on_log(
+                                    f"硬件编码结果超出目标大小 {size / target_bytes:.0%}，"
+                                    "按比例降低码率重新编码",
+                                    "info",
+                                )
+                            await execute([adapt(args, family, decode) for args in planned])
+                            passes = 2
+                            size = output_size(planned[-1])
+                        if size > target_bytes * TARGET_TOLERANCE:
+                            raise TargetMissed(f"硬件编码仍超出目标大小 {size / target_bytes:.0%}")
                 self.outcomes[chosen] = {"usable": True, "error": None}
                 self.unavailable.discard(chosen)
                 return {
@@ -347,7 +416,12 @@ class EncoderRuntime:
                     "encoder": chosen,
                     "decoder": DECODERS[family] if decode else None,
                     "fallback": None,
+                    **({"hardware_passes": passes} if sized else {}),
                 }
+            except TargetMissed as error:
+                # The device works; software two-pass hits the size more precisely.
+                fallback = str(error)
+                break
             except FFmpegOperationalError:
                 raise
             except FFmpegError as error:

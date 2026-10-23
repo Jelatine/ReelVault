@@ -36,6 +36,8 @@ export function serverText(text: string | null | undefined): string {
   if ((match = text.match(/^(.+)（(\d+) 步）$/))) return tr('{{operation}}（{{steps}} 步）', { operation: serverText(match[1]), steps: match[2] })
   if ((match = text.match(/^已检测 (\d+) 个切点、(\d+) 个章节$/))) return tr('已检测 {{cuts}} 个切点、{{chapters}} 个章节', { cuts: match[1], chapters: match[2] })
   if ((match = text.match(/^重试失败任务 (\w+)$/))) return tr('重试失败任务 {{id}}', { id: match[1] })
+  if ((match = text.match(/^硬件编码结果超出目标大小 (\d+%)，按比例降低码率重新编码$/))) return tr('硬件编码结果超出目标大小 {{ratio}}，按比例降低码率重新编码', { ratio: match[1] })
+  if ((match = text.match(/^硬件编码仍超出目标大小 (\d+%)$/))) return tr('硬件编码仍超出目标大小 {{ratio}}', { ratio: match[1] })
   if ((match = text.match(/^音频波形生成失败：([\s\S]*)$/))) return tr('音频波形生成失败：{{detail}}', { detail: match[1] })
   if ((match = text.match(/^画质评估：(VMAF|SSIM) ([\d.]+)$/))) return tr('画质评估：{{metric}} {{score}}', { metric: match[1], score: match[2] })
   if ((match = text.match(/^画质评估失败：([\s\S]*)$/))) return tr('画质评估失败：{{detail}}', { detail: match[1] })

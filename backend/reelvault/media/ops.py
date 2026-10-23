@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import bisect
+import math
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Annotated, Literal
@@ -29,6 +30,8 @@ class OpPlan:
     ext: str = "mp4"
     files: list[Path] = field(default_factory=list)
     cwd: Path | None = None
+    # Output size a target-size compression aims for, in bytes.
+    target_bytes: int | None = None
 
 
 # ---------------------------------------------------------------- parameters
@@ -959,7 +962,8 @@ def plan_compress(
     common = [*input_args, *vf, "-c:v", encoder, "-preset", preset, *rate]
     pass1 = [*common, *pass_args(1), "-map", f"0:{info.video_index}", "-an", "-f", "null", "-"]
     pass2 = [*common, *pass_args(2), *stream_maps, *tag, *audio, *MP4_FLAGS, str(out)]
-    return OpPlan([pass1, pass2], info.duration)
+    target = math.floor(p.target_size_mb * 1024 * 1024)
+    return OpPlan([pass1, pass2], info.duration, target_bytes=target)
 
 
 def plan_mixed(p: MixedParams, src: Source, out: Path, tmp: Path) -> OpPlan:

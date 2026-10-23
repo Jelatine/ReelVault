@@ -522,6 +522,7 @@ async def edit(ctx: JobContext, job: Job) -> None:
             on_progress=cb,
             handle=ctx.handle,
             cwd=plan.cwd,
+            target_bytes=plan.target_bytes,
         )
         with ctx.db() as db:
             stored = db.get(Job, job.id)

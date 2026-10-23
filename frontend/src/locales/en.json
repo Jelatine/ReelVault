@@ -627,7 +627,6 @@
   "旋转 {{v0}}° · {{v1}}": "Rotate {{v0}}° · {{v1}}",
   "无声": "Silent",
   "无损（需格式一致）": "Lossless (matching formats required)",
-  "无损操作直接复制原流；目标大小压缩使用软件两遍编码。": "Lossless operations copy the original streams. Target-size compression uses two-pass software encoding.",
   "无权执行此操作": "You do not have permission for this action.",
   "无法从该目录导入，请检查配置": "Cannot import from this directory. Check its configuration.",
   "无法升级": "Update unavailable",
@@ -1845,5 +1844,8 @@
   "画质评估：{{metric}} {{score}}": "Quality score: {{metric}} {{score}}",
   "画质评估失败：{{detail}}": "Quality scoring failed: {{detail}}",
   "评估画质": "Scoring quality",
-  "音频波形生成失败：{{detail}}": "Audio waveform generation failed: {{detail}}"
+  "音频波形生成失败：{{detail}}": "Audio waveform generation failed: {{detail}}",
+  "无损操作直接复制原流；目标大小压缩用硬件时为单遍 VBR（NVENC 使用 multipass），超出目标约 8% 时按比例重编码一次，仍超出则改用软件两遍编码。": "Lossless operations copy the original streams. With hardware, target-size compression is a single VBR pass (NVENC uses multipass); if the result exceeds the target by about 8% it is re-encoded once at a proportionally lower bitrate, and if it is still too large software two-pass is used.",
+  "硬件编码结果超出目标大小 {{ratio}}，按比例降低码率重新编码": "The hardware encode is {{ratio}} of the target size; re-encoding at a proportionally lower bitrate",
+  "硬件编码仍超出目标大小 {{ratio}}": "The hardware encode is still {{ratio}} of the target size"
 }
