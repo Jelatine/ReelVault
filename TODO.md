@@ -51,7 +51,7 @@ AV1 兼容性收尾验证：后端完整回归 710 项通过、20 项跳过，�
 - [x] 导入时完整解码检查（`-v error -f null -`）标记损坏文件，提供 `-err_detect ignore_err` 重新封装修复。入库成功后提交优先级 0 的 `integrity` 任务（`REELVAULT_INTEGRITY_CHECK`，默认开启），解码主视频与主音轨，记录错误数、是否中断与前 20 行示例到 `meta.integrity`（含文件签名，重新探测时清除）；详情页显示并可重新检查。新增编辑操作 `repair`：`-err_detect ignore_err -fflags +genpts+discardcorrupt` 后流复制重新封装（MP4 外的容器输出 MKV），实测人为损坏的 TS 由 6 处错误降为 0。
 - [x] 画质评估：`libvmaf`／`ssim` 报告压缩质量，或实现目标质量压缩。实现了报告：`CompressParams.measure_quality` 为真时，保存前把输出与源比较（源按输出尺寸、帧率缩放，HDR／隔行先规范化），有 libvmaf 用 VMAF（`n_subsample=5`），否则 SSIM；分数存为任务的 `params.quality` 并写入日志，任务行显示；评估失败只记警告。混合编辑改变时间轴，不提供。目标质量压缩（按分数搜索 CRF）未做。
 - [x] 剪辑时间轴音频波形（`showwavespic`）。改用峰值数据而非 `showwavespic` 图片，前端按主题绘制：入库与「重新生成缩略图」时以 `aresample=48000,asetnsamples,astats` 把主音轨分成约 1000 个窗口取峰值（dBFS 转线性），写入 `derived/<id>/waveform.json`，`waveform_url` 带版本号；时间轴底部 18px 绘制，按最大峰值归一化以便看清安静的音轨。生成失败只记录警告。旧视频需重新生成缩略图后才有波形。
-- [ ] 去隔行可选 `send_field`（双倍帧率，更流畅），需同步调整依赖 `info.fps` 的时间计算。
+- [x] 去隔行可选 `send_field`（双倍帧率，更流畅），需同步调整依赖 `info.fps` 的时间计算。`REELVAULT_DEINTERLACE_MODE=field` 时 `bwdif` 改为 `send_field`；新增 `processed_fps(info)`（隔行且按场时为两倍），用于合并、转场与片段效果的默认帧率、HLS 输出帧率与码率档、压缩的最高帧率判断。实测 25i 源旋转重编码输出 50 fps、时长不变、逐行。默认仍为 `frame`。
 
 工程
 - [ ] `run_command` 以 `-hide_banner`+`-nostdin` 判断是否为 FFmpeg，较脆弱；改由 `ffmpeg_args` 显式标记。

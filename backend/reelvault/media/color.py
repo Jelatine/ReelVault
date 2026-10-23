@@ -31,6 +31,21 @@ class ToneMapping:
 TONE = ToneMapping()
 
 
+@dataclass
+class Deinterlacing:
+    # frame: one frame per frame; field: one frame per field (double rate, smoother).
+    mode: str = "frame"
+
+
+DEINTERLACE = Deinterlacing()
+
+
+def processed_fps(info: MediaInfo) -> float:
+    """Frame rate of re-encoded output once the source is normalised."""
+    rate = info.output_fps
+    return rate * 2 if info.interlaced and DEINTERLACE.mode == "field" else rate
+
+
 def tone_device_args(mapper: str | None = None) -> list[str]:
     """Global options that create the filter device; they precede the inputs."""
     match mapper or TONE.mapper:
@@ -104,9 +119,12 @@ async def detect_tone_mapper(ffmpeg: str, filters: set[str], vaapi_device: str) 
 
 
 def deinterlace_filter(info: MediaInfo) -> str:
-    # One frame per frame keeps the probed rate that timing code relies on; only
-    # frames flagged as interlaced are processed, so mixed content stays intact.
-    return "bwdif=mode=send_frame:parity=auto:deint=interlaced" if info.interlaced else ""
+    # Only frames flagged as interlaced are processed, so mixed content stays intact.
+    # Rate-dependent plans use processed_fps, which doubles for send_field.
+    if not info.interlaced:
+        return ""
+    mode = "send_field" if DEINTERLACE.mode == "field" else "send_frame"
+    return f"bwdif=mode={mode}:parity=auto:deint=interlaced"
 
 
 def source_filter(info: MediaInfo) -> str:

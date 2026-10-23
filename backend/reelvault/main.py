@@ -64,7 +64,7 @@ from .jobs.manager import JobManager
 from .library import abs_path
 from .maintenance import maintain
 from .media.capabilities import detect_capabilities
-from .media.color import detect_tone_mapper
+from .media.color import DEINTERLACE, detect_tone_mapper
 from .media.encoding import detect_encoders
 from .media.ffmpeg import ffmpeg_version
 from .migrate import upgrade
@@ -242,6 +242,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)
             manager = JobManager(settings, app.state.sessionmaker, HANDLERS)
             manager.encoding.compiled = await detect_encoders(settings.ffmpeg)
+            DEINTERLACE.mode = settings.deinterlace_mode
             manager.capabilities = await detect_capabilities(settings.ffmpeg)
             if manager.capabilities:
                 manager.capabilities.tone_mapper = await detect_tone_mapper(

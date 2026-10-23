@@ -271,6 +271,7 @@ Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https
 | `REELVAULT_WORKERS` | `2` | 任务并发数，1–32；网页保存的设置优先 |
 | `REELVAULT_JOB_NICE` | `10` | 任务子进程（ffmpeg、转写、下载）的 CPU 优先级降级值，0–19，`0` 关闭；Windows 原生运行时使用「低于正常」优先级 |
 | `REELVAULT_INTEGRITY_CHECK` | `true` | 入库后以最低优先级完整解码一次（`-v error -f null -`）并记录解码错误；`false` 关闭，仍可在详情页手动检查 |
+| `REELVAULT_DEINTERLACE_MODE` | `frame` | 隔行源重编码时的去隔行方式：`frame` 每帧输出一帧（保持帧率）；`field` 每场输出一帧（`bwdif=send_field`，帧率翻倍，动作更流畅，文件更大），合并、转场、片段效果、HLS 与最高帧率限制随之使用翻倍后的帧率 |
 | `REELVAULT_FFMPEG_THREADS` | `0` | FFmpeg 编解码与滤镜线程预算，0–256；`0` 由 FFmpeg 自动选择，不是进程 CPU 硬上限 |
 | `REELVAULT_FFMPEG_HARDWARE_WORKERS` | `2` | 硬件编码并发上限，1–32，同时受总任务并发限制 |
 | `REELVAULT_FFMPEG_STALL_TIMEOUT` | `600` | FFmpeg 连续无进展超时秒数，0–86400；暂停不计时，单帧扫描步骤除外，`0` 关闭 |

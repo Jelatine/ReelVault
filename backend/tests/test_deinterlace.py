@@ -95,3 +95,44 @@ def test_reencoded_edits_are_progressive_and_copies_keep_fields(
     with client.app.state.sessionmaker() as db:
         out = settings.data_dir / db.get(Video, job["result_video_id"]).file_path
     assert field_order(out) == "tt"
+
+
+def test_field_rate_deinterlacing_doubles_every_rate(
+    client: TestClient,
+    settings: Settings,
+    interlaced: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from reelvault.media import color, ops
+    from reelvault.media.effects import plan_effect
+    from reelvault.media.hls import output_fps
+
+    monkeypatch.setattr(color.DEINTERLACE, "mode", "field")
+    info = MediaInfo(duration=3, fps=25, nominal_fps=25, field_order="tt", width=320, height=240)
+    assert source_filter(info) == BWDIF.replace("send_frame", "send_field")
+    assert color.processed_fps(info) == 50 and output_fps(info) == 50
+    assert color.processed_fps(MediaInfo(fps=25, nominal_fps=25, field_order="progressive")) == 25
+    _, actual = plan_effect(
+        ops.EffectParams(mode="freeze", start=1, duration=1),
+        (tmp_path / "in", info),
+        tmp_path / "o.mp4",
+        tmp_path,
+    )
+    assert actual["fps"] == 50
+    capped = ops.plan_compress(
+        ops.CompressParams(max_fps=30), (tmp_path / "in", info), tmp_path / "o.mp4", tmp_path
+    )
+    assert "fps=30" in capped.commands[0][capped.commands[0].index("-vf") + 1]
+
+    source = upload_ready(client, interlaced)
+    r = client.post(
+        f"/api/videos/{source['id']}/edit", json={"edit": {"op": "rotate", "mode": "reencode"}}
+    )
+    job = wait_job(client, r.json()["id"])
+    assert job["status"] == "succeeded", job["error"]
+    result = wait_ready(client, job["result_video_id"])
+    assert result["fps"] == 50 and 2.9 < result["duration"] < 3.1
+    with client.app.state.sessionmaker() as db:
+        out = settings.data_dir / db.get(Video, job["result_video_id"]).file_path
+    assert field_order(out) == "progressive"

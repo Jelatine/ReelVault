@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from .color import processed_fps
 from .derive import even
 from .probe import MP4_AUDIO_CODECS, MediaInfo
 
@@ -833,7 +834,7 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
     first = sources[0][1]
     w = even(p.width or first.width)
     h = even(p.height or first.height)
-    fps = p.fps or (min(first.output_fps, 60) if first.output_fps else 30)
+    fps = p.fps or (min(processed_fps(first), 60) if first.output_fps else 30)
     any_audio = any(i.has_audio for _, i in sources)
     target = video_target(*(info for _, info in sources))
 
@@ -914,7 +915,7 @@ def plan_compress(
     filters = list(video_filters or [])
     if (w, h) != (even(info.width), even(info.height)) or info.width % 2 or info.height % 2:
         filters.append(f"scale={w}:{h}")
-    if p.max_fps and info.fps > p.max_fps:
+    if p.max_fps and processed_fps(info) > p.max_fps:
         filters.append(f"fps={p.max_fps}")
     # H.265/AV1 keep a 10-bit SDR source at 10 bits; H.264 stays 8-bit for browsers.
     ten_bit = p.codec != "h264" and info.high_bit_depth and not info.is_hdr

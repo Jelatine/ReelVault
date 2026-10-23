@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from .color import SDR_TAGS, needs_tone_mapping, source_filter, tone_device_args
+from .color import SDR_TAGS, needs_tone_mapping, processed_fps, source_filter, tone_device_args
 from .encoding import EncoderRuntime
 from .ffmpeg import ProcessHandle, ProgressCallback, ffmpeg_args, run_command
 from .probe import MediaInfo, probe
@@ -30,7 +30,7 @@ LEVELS = (
 
 
 def output_fps(info: MediaInfo) -> float:
-    return min(MAX_FPS, max(1, info.fps or 25))
+    return min(MAX_FPS, max(1, processed_fps(info) or 25))
 
 
 def long_side(short: int) -> int:
