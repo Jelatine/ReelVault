@@ -19,7 +19,7 @@ from reelvault.media.capabilities import (
 )
 from reelvault.media.ffmpeg import FFmpegError
 
-from .conftest import upload_ready
+from .conftest import upload_ready, wait_job
 
 edit = TypeAdapter(ops.EditParams).validate_python
 
@@ -125,6 +125,18 @@ def test_submission_rejects_missing_components(
     # Edits without optional components are unaffected.
     rotate = client.post(f"/api/videos/{video['id']}/edit", json={"edit": {"op": "rotate"}})
     assert rotate.status_code == 200
+    # Without -display_rotation a pure rotation is re-encoded instead of rejected.
+    job = wait_job(client, rotate.json()["id"])
+    assert job["status"] == "succeeded", job["error"]
+    assert job["params"]["encoding"]["encoder"] == "libx264"
     info = client.get("/api/system/info").json()
     assert info["ffmpeg_features"]["loudness"] is False
     assert info["ffmpeg_features"]["deinterlace"] is False
+    assert info["ffmpeg_features"]["lossless_rotate"] is False
+
+
+def test_detect_capabilities_reads_command_line_options() -> None:
+    capabilities = asyncio.run(detect_capabilities("ffmpeg"))
+    assert capabilities is not None
+    assert {"-filter_complex", "-map"} <= capabilities.options
+    assert Capabilities(options={"-display_rotation"}).status()["lossless_rotate"] is True

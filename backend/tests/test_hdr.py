@@ -54,7 +54,8 @@ def test_hdr_edit_and_copy_preserve_original(client, hdr):
     original = upload_ready(client, hdr)
     assert original["media"]["color_transfer"] in {"smpte2084", "arib-std-b67"}
     result = client.post(
-        f"/api/videos/{original['id']}/edit", json={"edit": {"op": "rotate", "angle": 90}}
+        f"/api/videos/{original['id']}/edit",
+        json={"edit": {"op": "rotate", "angle": 90, "mode": "reencode"}},
     )
     job = wait_job(client, result.json()["id"])
     assert job["status"] == "succeeded", job["error"]

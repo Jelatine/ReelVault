@@ -258,7 +258,14 @@ async def edit(ctx: JobContext, job: Job) -> None:
         out = tmp / "output.mp4"
         match params:
             case ops.RotateParams():
-                plan = ops.plan_rotate(params, sources[0], out)
+                caps = ctx.manager.capabilities
+                supported = caps is not None and not caps.missing("lossless_rotate")
+                blocker = ops.lossless_rotation_blocker(params, sources[0][1], supported)
+                if blocker is None:
+                    ctx.log("仅修改显示方向，无损复制原始流", "info")
+                elif params.mode == "auto":
+                    ctx.log(f"无法无损旋转，重新编码：{blocker}", "info")
+                plan = ops.plan_rotate(params, sources[0], out, display_rotation=supported)
             case ops.TrimParams():
                 if params.mode == "fast" and len(params.segments) == 1:
                     index = await timing_index(

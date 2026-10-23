@@ -1771,5 +1771,16 @@
   " · 降噪 {{v0}} dB": " · denoise {{v0}} dB",
   "AV1 两遍编码": "AV1 two-pass encoding",
   "AV1 按目标大小压缩需要支持两遍编码的 FFmpeg；旧版请改用画质模式、H.264 或 H.265。": "AV1 target size compression requires FFmpeg with two-pass support; on older versions, use quality mode, H.264 or H.265.",
-  "当前 FFmpeg 不支持 AV1 两遍编码，请升级 FFmpeg，或改用画质模式、H.264 或 H.265": "This FFmpeg build does not support AV1 two-pass encoding. Upgrade FFmpeg or use quality mode, H.264 or H.265."
+  "当前 FFmpeg 不支持 AV1 两遍编码，请升级 FFmpeg，或改用画质模式、H.264 或 H.265": "This FFmpeg build does not support AV1 two-pass encoding. Upgrade FFmpeg or use quality mode, H.264 or H.265.",
+  "无损旋转（只改显示方向，不重新编码）": "Lossless rotation (change display orientation only, no re-encoding)",
+  "翻转需要重新编码。": "Flipping requires re-encoding.",
+  "MP4／MOV 且 FFmpeg 6.1 以上时直接复制原始流，几乎瞬间完成；否则自动按下方画质重新编码。": "MP4/MOV with FFmpeg 6.1 or later copies the original streams almost instantly; otherwise it re-encodes with the quality below.",
+  "重新编码画面，适合不识别旋转标记的播放器。": "Re-encodes the picture, for players that ignore rotation metadata.",
+  "无损旋转": "Lossless rotation",
+  "无法无损旋转，重新编码：{{reason}}": "Cannot rotate losslessly, re-encoding: {{reason}}",
+  "仅修改显示方向，无损复制原始流": "Changing the display orientation only; copying the original streams losslessly",
+  "已选择重新编码": "Re-encoding was selected",
+  "翻转需要重新编码": "Flipping requires re-encoding",
+  "仅 MP4／MOV 支持无损旋转": "Lossless rotation is only supported for MP4/MOV",
+  "当前 FFmpeg 不支持 -display_rotation（需要 6.1 或更高版本）": "This FFmpeg does not support -display_rotation (requires 6.1 or later)"
 }

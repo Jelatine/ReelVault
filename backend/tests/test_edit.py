@@ -40,6 +40,54 @@ def test_rotate(client: TestClient, clip: dict[str, Any], angle: int, dims: tupl
     v = result_video(client, job)
     assert (v["width"], v["height"]) == dims
     assert v["title"] == "clip_a (旋转)"
+    # A pure rotation of an MP4 only rewrites the display matrix.
+    assert job["params"]["encoding"]["encoder"] == "copy/other"
+    assert v["video_codec"] == clip["video_codec"] and v["size"] == pytest.approx(
+        clip["size"], rel=0.02
+    )
+
+
+def test_rotate_reencodes_flips_matroska_and_explicit_requests(
+    client: TestClient, clip: dict[str, Any], samples: dict[str, Path]
+) -> None:
+    flipped = run_edit(client, clip["id"], {"op": "rotate", "angle": 90, "flip": "vertical"})
+    assert flipped["params"]["encoding"]["encoder"] == "libx264"
+    assert (result_video(client, flipped)["width"], result_video(client, flipped)["height"]) == (
+        240,
+        320,
+    )
+    forced = run_edit(client, clip["id"], {"op": "rotate", "angle": 90, "mode": "reencode"})
+    assert forced["params"]["encoding"]["encoder"] == "libx264"
+    mkv = upload_ready(client, samples["mkv"])
+    job = run_edit(client, mkv["id"], {"op": "rotate", "angle": 270})
+    assert job["params"]["encoding"]["encoder"] != "copy/other"
+    assert (result_video(client, job)["width"], result_video(client, job)["height"]) == (
+        mkv["height"],
+        mkv["width"],
+    )
+
+
+def test_lossless_rotation_plan_composes_with_source_rotation(tmp_path: Path) -> None:
+    info = MediaInfo(width=240, height=320, duration=4, video_codec="h264", container="mov")
+    info.rotation = 270  # displayed 90 degrees clockwise
+    params = ops.RotateParams(angle=90)
+    plan = ops.plan_rotate(
+        params, (tmp_path / "in.mov", info), tmp_path / "o.mp4", display_rotation=True
+    )
+    (command,) = plan.commands
+    assert command[:2] == ["-display_rotation:0", "180"] and plan.ext == "mov"
+    assert command[command.index("-c") + 1] == "copy" and command[-1].endswith("o.mov")
+    info.rotation = 0
+    plan = ops.plan_rotate(
+        ops.RotateParams(angle=270),
+        (tmp_path / "in.mov", info),
+        tmp_path / "o.mp4",
+        display_rotation=True,
+    )
+    assert plan.commands[0][1] == "90"  # 270 clockwise is 90 counter-clockwise
+    unsupported = ops.plan_rotate(params, (tmp_path / "in.mov", info), tmp_path / "o.mp4")
+    assert "-display_rotation:0" not in unsupported.commands[0] and unsupported.ext == "mp4"
+    assert "FFmpeg" in (ops.lossless_rotation_blocker(params, info, False) or "")
 
 
 @pytest.mark.parametrize("mode", ["fast", "precise"])

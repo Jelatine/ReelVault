@@ -48,6 +48,9 @@ class RotateParams(BaseModel):
     angle: Literal[0, 90, 180, 270] = 90
     flip: Literal["none", "horizontal", "vertical"] = "none"
     crf: int = Field(20, ge=0, le=51)
+    # auto: a pure rotation of an MP4/MOV only rewrites the display matrix (stream copy)
+    # when FFmpeg supports -display_rotation; otherwise, and for reencode, re-encode.
+    mode: Literal["auto", "reencode"] = "auto"
 
     @model_validator(mode="after")
     def _noop(self) -> RotateParams:
@@ -500,8 +503,34 @@ def scaled_dims(info: MediaInfo, short_side: int | None) -> tuple[int, int]:
 # ---------------------------------------------------------------- builders
 
 
-def plan_rotate(p: RotateParams, src: Source, out: Path) -> OpPlan:
+# Matroska muxers before FFmpeg 7 drop the display matrix on stream copy.
+DISPLAY_MATRIX_CONTAINERS = {"mp4", "mov", "m4v"}
+
+
+def lossless_rotation_blocker(p: RotateParams, info: MediaInfo, supported: bool) -> str | None:
+    """Why a rotation must be re-encoded, or None when the display matrix suffices."""
+    if p.mode == "reencode":
+        return "已选择重新编码"
+    if p.flip != "none":
+        return "翻转需要重新编码"
+    if info.container not in DISPLAY_MATRIX_CONTAINERS:
+        return "仅 MP4／MOV 支持无损旋转"
+    if not supported:
+        return "当前 FFmpeg 不支持 -display_rotation（需要 6.1 或更高版本）"
+    return None
+
+
+def plan_rotate(
+    p: RotateParams, src: Source, out: Path, *, display_rotation: bool = False
+) -> OpPlan:
     path, info = src
+    if lossless_rotation_blocker(p, info, display_rotation) is None:
+        # The display matrix is counter-clockwise and replaces the source's rotation.
+        rotation = (info.rotation - p.angle) % 360
+        args = [f"-display_rotation:{info.video_index}", str(rotation), "-i", str(path)]
+        args += [*maps(info, subtitles=True, container=info.container), "-c", "copy"]
+        out = out.with_suffix("." + info.container)
+        return OpPlan([[*args, *MP4_FLAGS, str(out)]], info.duration, ext=info.container)
     filters = {90: ["transpose=clock"], 180: ["hflip", "vflip"], 270: ["transpose=cclock"]}.get(
         p.angle, []
     )

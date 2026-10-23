@@ -23,6 +23,7 @@ it('localizes FFmpeg events and preserves processing details', async () => {
   expect(serverText('FFmpeg 完成（耗时 1.2 秒）')).toBe('FFmpeg completed (1.2 s)')
   expect(serverText('FFmpeg 执行失败（退出码 1）：codec failed\nerror')).toBe('FFmpeg failed (exit code 1): codec failed\nerror')
   expect(serverText('FFmpeg 执行步骤 1/2')).toBe('FFmpeg step 1/2')
+  expect(serverText('无法无损旋转，重新编码：翻转需要重新编码')).toBe('Cannot rotate losslessly, re-encoding: Flipping requires re-encoding')
   expect(serverText('硬件处理失败（h264_nvenc），正在尝试其他解码或编码方式')).toBe('Hardware processing failed (h264_nvenc); trying another decoder or encoder')
   expect(serverText('使用软件编码：codec failed')).toBe('Using software encoding: codec failed')
 })

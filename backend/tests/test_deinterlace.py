@@ -77,7 +77,9 @@ def test_reencoded_edits_are_progressive_and_copies_keep_fields(
     source = upload_ready(client, interlaced)
     with client.app.state.sessionmaker() as db:
         assert db.get(Video, source["id"]).meta["field_order"] == "tt"
-    r = client.post(f"/api/videos/{source['id']}/edit", json={"edit": {"op": "rotate"}})
+    r = client.post(
+        f"/api/videos/{source['id']}/edit", json={"edit": {"op": "rotate", "mode": "reencode"}}
+    )
     job = wait_job(client, r.json()["id"])
     assert job["status"] == "succeeded", job["error"]
     wait_ready(client, job["result_video_id"])
