@@ -179,7 +179,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: vision/uv.lock
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/clip-models
           key: clip-b32-327ab672-multilingual-58edf8ca-yunet-sface-v2
