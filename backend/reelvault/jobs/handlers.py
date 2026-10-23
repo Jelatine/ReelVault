@@ -55,6 +55,30 @@ from .vision import index_vision
 edit_params: TypeAdapter[ops.EditParams] = TypeAdapter(ops.EditParams)
 
 
+async def _waveform(ctx: JobContext, video_id: str, source: Path, info: MediaInfo) -> None:
+    """Audio peaks for the trim timeline; a failure only loses the waveform."""
+    target = derived_dir(ctx.settings, video_id) / derive.WAVEFORM
+    try:
+        made = await derive.make_waveform(ctx.settings.ffmpeg, source, info, target, ctx.handle)
+    except FFmpegOperationalError:
+        raise
+    except (FFmpegError, OSError) as error:
+        ctx.log(f"音频波形生成失败：{str(error)[-300:]}", "warning")
+        made = False
+    with ctx.db() as db:
+        current = db.get(Video, video_id)
+        if current is None:
+            return
+        meta = dict(current.meta or {})
+        if made:
+            meta["waveform_version"] = int(meta.get("waveform_version", 0)) + 1
+        else:
+            meta.pop("waveform_version", None)
+            target.unlink(missing_ok=True)
+        current.meta = meta
+        db.commit()
+
+
 async def ingest(ctx: JobContext, job: Job) -> None:
     """Probe a library video and generate poster, preview, sprite and playable copy."""
     s = ctx.settings
@@ -149,6 +173,7 @@ async def ingest(ctx: JobContext, job: Job) -> None:
         sprite_url = f"/api/videos/{video_id}/{derive.SPRITE}?v={version}"
         vtt.write_text(vtt.read_text().replace(derive.SPRITE, sprite_url), newline="\n")
         _update(ctx, video_id, has_sprite=True)
+        await _waveform(ctx, video_id, src, info)
 
         playable: str | None = None
         if eager:
@@ -1022,6 +1047,7 @@ async def sprite(ctx: JobContext, job: Job) -> None:
             current.meta = {**meta, "sprite_version": sprite_version}
             current.has_sprite = True
             db.commit()
+        await _waveform(ctx, video.id, source, info)
         ctx.set_progress(1, "缩略图已更新")
     finally:
         await asyncio.to_thread(shutil.rmtree, temp, ignore_errors=True)

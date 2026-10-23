@@ -44,6 +44,7 @@ export interface Video {
   poster_url: string | null
   preview_url: string | null
   thumbnails_url: string | null
+  waveform_url?: string | null
 }
 
 export interface VideoMedia {

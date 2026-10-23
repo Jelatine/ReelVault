@@ -1844,5 +1844,6 @@
   "VMAF 画质评估": "VMAF quality scoring",
   "画质评估：{{metric}} {{score}}": "Quality score: {{metric}} {{score}}",
   "画质评估失败：{{detail}}": "Quality scoring failed: {{detail}}",
-  "评估画质": "Scoring quality"
+  "评估画质": "Scoring quality",
+  "音频波形生成失败：{{detail}}": "Audio waveform generation failed: {{detail}}"
 }

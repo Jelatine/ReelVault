@@ -94,6 +94,19 @@ body,
   height: 100%;
 }
 
+.timeline-waveform {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 18px;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.timeline-waveform path {
+  fill: rgba(140, 210, 255, 0.9);
+}
+
 .timeline-segment {
   position: absolute;
   top: 0;

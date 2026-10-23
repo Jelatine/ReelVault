@@ -922,6 +922,7 @@ DERIVED_FILES = {
     "preview.mp4": ("video/mp4", derive.PREVIEW),
     "sprite.jpg": ("image/jpeg", derive.SPRITE),
     "thumbnails.vtt": ("text/vtt", derive.VTT),
+    "waveform.json": ("application/json", derive.WAVEFORM),
 }
 
 

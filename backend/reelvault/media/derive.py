@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import math
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -27,6 +29,8 @@ POSTER = "poster.jpg"
 PREVIEW = "preview.mp4"
 SPRITE = "sprite.jpg"
 VTT = "thumbnails.vtt"
+WAVEFORM = "waveform.json"
+WAVEFORM_BINS = 1000
 PLAYABLE = "playable.mp4"
 
 # mjpeg needs full-range YUV; newer ffmpeg refuses to encode limited range.
@@ -41,6 +45,52 @@ def scaled_height(info: MediaInfo, width: int) -> int:
     if not info.width or not info.height:
         return even(width * 9 / 16)
     return even(width * info.height / info.width)
+
+
+def parse_peaks(text: str) -> list[float]:
+    """Linear 0-1 peak per window from astats Peak_level (dBFS) metadata."""
+    peaks = []
+    for raw in re.findall(r"Peak_level=(\S+)", text):
+        try:
+            level = float(raw)
+        except ValueError:
+            continue
+        peaks.append(round(min(1.0, 10 ** (level / 20)), 3) if math.isfinite(level) else 0.0)
+    return peaks
+
+
+async def make_waveform(
+    ffmpeg: str,
+    src: Path,
+    info: MediaInfo,
+    out: Path,
+    handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> bool:
+    """Peak envelope of the primary audio track for the trim timeline; False without audio."""
+    if info.audio_index is None or info.duration <= 0:
+        return False
+    rate = 48000
+    window = max(1, math.ceil(info.duration * rate / WAVEFORM_BINS))
+    with tempfile.TemporaryDirectory(prefix="reelvault-waveform-") as directory:
+        stats = Path(directory) / "peaks.txt"
+        af = (
+            f"aresample={rate},asetnsamples=n={window}:p=0,"
+            "astats=metadata=1:reset=1:measure_perchannel=none:measure_overall=Peak_level,"
+            f"ametadata=mode=print:key=lavfi.astats.Overall.Peak_level:file={stats.name}"
+        )
+        args = ["-i", str(src), "-map", f"0:{info.audio_index}", "-vn", "-sn", "-dn"]
+        args += ["-af", af, "-f", "null", "-"]
+        await run_command(
+            ffmpeg_args(ffmpeg, args),
+            duration=info.duration,
+            handle=handle,
+            on_progress=on_progress,
+            cwd=Path(directory),
+        )
+        peaks = parse_peaks(stats.read_text())
+    out.write_text(json.dumps({"duration": info.duration, "peaks": peaks}, separators=(",", ":")))
+    return True
 
 
 def default_cover_time(info: MediaInfo) -> float:

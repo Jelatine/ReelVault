@@ -204,4 +204,9 @@ def video_to_dict(v: Video) -> dict[str, Any]:
         "poster_url": f"{base}/poster.jpg?v={ver}" if v.has_poster else None,
         "preview_url": f"{base}/preview.mp4?v={ver}" if v.has_preview else None,
         "thumbnails_url": f"{base}/thumbnails.vtt?v={ver}{sprite_suffix}" if v.has_sprite else None,
+        "waveform_url": (
+            f"{base}/waveform.json?v={ver}&w={(v.meta or {})['waveform_version']}"
+            if (v.meta or {}).get("waveform_version")
+            else None
+        ),
     }
