@@ -165,7 +165,7 @@ function InfoPanel({ video }: { video: Video }) {
   const rows: [string, string][] = [
     [tr("时长"), formatDuration(video.duration, true)],
     [tr("分辨率"), video.width ? `${video.width}×${video.height}${video.rotation ? tr("（旋转 {{v0}}°）", { v0: video.rotation }) : ''}` : '-'],
-    [tr("帧率"), video.fps ? `${video.fps} fps` : '-'],
+    [tr("帧率"), video.fps ? `${video.fps} fps${media.variable_frame_rate ? tr("（可变帧率，标称 {{v0}} fps）", { v0: media.nominal_fps }) : ''}` : '-'],
     [tr("大小"), formatBytes(video.size)],
     [tr("码率"), formatBitrate(video.bitrate) || '-'],
     [tr("容器"), video.container ? video.container.toUpperCase() : '-'],

@@ -1799,5 +1799,6 @@
   "无法获取帧率": "Cannot read the frame rate",
   "读取帧索引": "Reading frame index",
   "文件内含 {{count}} 个章节，已显示在章节菜单中。": "The file contains {{count}} chapters; they are shown in the chapter menu.",
-  "导入为可编辑章节": "Import as editable chapters"
+  "导入为可编辑章节": "Import as editable chapters",
+  "（可变帧率，标称 {{v0}} fps）": " (variable frame rate, nominal {{v0}} fps)"
 }

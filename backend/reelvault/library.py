@@ -148,6 +148,8 @@ def media_details(meta: dict[str, Any]) -> dict[str, Any]:
         "channels",
         "channel_layout",
         "audio_bitrate",
+        "variable_frame_rate",
+        "nominal_fps",
     )
     details = {key: meta[key] for key in keys if meta.get(key)}
     details["subtitle_count"] = len(meta.get("subtitle_streams") or [])

@@ -51,6 +51,8 @@ export interface VideoMedia {
   video_level?: number
   video_bitrate?: number
   color_transfer?: string
+  variable_frame_rate?: boolean
+  nominal_fps?: number
   coded_width?: number
   coded_height?: number
   sample_rate?: number

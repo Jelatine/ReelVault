@@ -823,7 +823,7 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
     first = sources[0][1]
     w = even(p.width or first.width)
     h = even(p.height or first.height)
-    fps = p.fps or (min(first.fps, 60) if first.fps else 30)
+    fps = p.fps or (min(first.output_fps, 60) if first.output_fps else 30)
     any_audio = any(i.has_audio for _, i in sources)
     target = video_target(*(info for _, info in sources))
 
@@ -842,17 +842,27 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
 
     chains, labels = [], []
     for idx, (_, info) in enumerate(sources):
+        # Every source contributes exactly its duration to both tracks. A video track
+        # shorter than its audio (common with variable frame rate) would otherwise shift
+        # every later source against its sound.
+        length = info.duration
         chains.append(
-            f"[{idx}:{info.video_index}]scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},format={target.pix_fmt}[v{idx}]"
+            f"[{idx}:{info.video_index}]setpts=PTS-STARTPTS,"
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},format={target.pix_fmt},"
+            f"tpad=start_mode=clone:start_duration={max(0, info.video_delay):.6f}:"
+            f"stop_mode=clone:stop_duration={length:.6f},trim=duration={length:.6f},"
+            f"setpts=PTS-STARTPTS[v{idx}]"
         )
         labels.append(f"[v{idx}]")
         if any_audio:
             a_in = (
                 f"{silent_inputs[idx]}:0" if idx in silent_inputs else f"{idx}:{info.audio_index}"
             )
+            delay = max(0, round(info.audio_delay * 48000)) if idx not in silent_inputs else 0
             chains.append(
-                f"[{a_in}]aformat=sample_rates=48000:channel_layouts=stereo,"
+                f"[{a_in}]aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,"
+                f"asetpts=PTS-STARTPTS,adelay={delay}S:all=1,apad,atrim=duration={length:.6f},"
                 f"asetpts=PTS-STARTPTS[a{idx}]"
             )
             labels.append(f"[a{idx}]")
@@ -862,7 +872,7 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
     args += ["-filter_complex", graph, "-map", "[v]"]
     if any_audio:
         args += ["-map", "[a]", *aac()]
-    args += [*target.args(p.crf), *MP4_FLAGS, str(out)]
+    args += [*target.args(p.crf), "-fps_mode", "cfr", *MP4_FLAGS, str(out)]
     return OpPlan([args], total)
 
 

@@ -12,6 +12,9 @@ BROWSER_AUDIO_CODECS = {"aac", "mp3", "opus", "vorbis"}
 MP4_AUDIO_CODECS = {"aac", "mp3", "opus", "alac", "ac3"}
 
 
+STANDARD_RATES = (23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 50.0, 59.94, 60.0, 120.0)
+
+
 @dataclass
 class MediaInfo:
     duration: float = 0
@@ -26,6 +29,8 @@ class MediaInfo:
     height: int = 0
     rotation: int = 0
     fps: float = 0
+    # Nominal (r_frame_rate) rate; differs from the average rate for variable frame rate.
+    nominal_fps: float = 0
     video_codec: str = ""
     video_index: int = 0
     pix_fmt: str = ""
@@ -57,6 +62,24 @@ class MediaInfo:
     @property
     def is_hdr(self) -> bool:
         return self.color_transfer in {"smpte2084", "arib-std-b67"}
+
+    @property
+    def variable_frame_rate(self) -> bool:
+        return (
+            self.fps > 0
+            and self.nominal_fps > 0
+            and abs(self.nominal_fps - self.fps) > 0.01 * self.fps
+        )
+
+    @property
+    def output_fps(self) -> float:
+        """Constant rate for re-timed outputs: VFR sources use their nominal rate."""
+        if not self.variable_frame_rate:
+            return self.fps
+        if self.nominal_fps <= 120:
+            return self.nominal_fps
+        # Some VFR files report the timebase (e.g. 90000) as their nominal rate.
+        return min(STANDARD_RATES, key=lambda rate: abs(rate - self.fps))
 
     @property
     def interlaced(self) -> bool:
@@ -92,6 +115,8 @@ class MediaInfo:
             "audio_index": self.audio_index,
             "pix_fmt": self.pix_fmt,
             "field_order": self.field_order,
+            "nominal_fps": self.nominal_fps,
+            "variable_frame_rate": self.variable_frame_rate,
             "video_profile": self.video_profile,
             "video_level": self.video_level,
             "video_bitrate": self.video_bitrate,
@@ -200,6 +225,7 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     info.fps = round(
         _parse_rate(video.get("avg_frame_rate")) or _parse_rate(video.get("r_frame_rate")), 3
     )
+    info.nominal_fps = round(_parse_rate(video.get("r_frame_rate")), 3)
     if not info.duration:
         info.duration = float(video.get("duration") or 0)
 
