@@ -47,6 +47,79 @@ def default_cover_time(info: MediaInfo) -> float:
     return round(min(info.duration * 0.1, 10.0), 3) if info.duration > 1 else 0.0
 
 
+# Automatic covers sample a few seconds from the default time (then later points) and
+# keep the most detailed frame that is neither black nor flat.
+COVER_WINDOW = 3.0
+COVER_SAMPLE_FPS = 4
+COVER_MIN_LUMA = 40  # 8-bit average; limited-range black is 16
+COVER_MIN_SPREAD = 24  # YHIGH - YLOW: fades, titles on flat colour and black stay below
+
+
+def parse_cover_stats(text: str, offset: float) -> list[tuple[float, float, float]]:
+    """(time, average luma, luma spread) per sampled frame of signalstats metadata."""
+    samples: list[tuple[float, float, float]] = []
+    current: dict[str, float] = {}
+
+    def flush() -> None:
+        if {"time", "YAVG", "YLOW", "YHIGH"} <= current.keys():
+            samples.append(
+                (current["time"] + offset, current["YAVG"], current["YHIGH"] - current["YLOW"])
+            )
+
+    for line in text.splitlines():
+        if line.startswith("frame:"):
+            flush()
+            current = {}
+            for field in line.split():
+                if field.startswith("pts_time:"):
+                    with contextlib.suppress(ValueError):
+                        current["time"] = float(field.split(":", 1)[1])
+        elif line.startswith("lavfi.signalstats."):
+            key, _, value = line.removeprefix("lavfi.signalstats.").partition("=")
+            with contextlib.suppress(ValueError):
+                current[key] = float(value)
+    flush()
+    return samples
+
+
+def pick_cover(samples: list[tuple[float, float, float]]) -> float | None:
+    usable = [s for s in samples if s[1] >= COVER_MIN_LUMA and s[2] >= COVER_MIN_SPREAD]
+    if not usable:
+        return None
+    # Most detail wins; the earliest of equally detailed frames.
+    return max(usable, key=lambda s: (s[2], -s[0]))[0]
+
+
+async def choose_cover_time(
+    ffmpeg: str, src: Path, info: MediaInfo, handle: ProcessHandle | None = None
+) -> float:
+    """Automatic cover time that avoids black and flat frames near the default time."""
+    start = default_cover_time(info)
+    if info.duration <= 0:
+        return start
+    windows = [start, info.duration * 0.25, info.duration * 0.5]
+    with tempfile.TemporaryDirectory(prefix="reelvault-cover-") as directory:
+        stats = Path(directory) / "cover-stats.txt"
+        for window in dict.fromkeys(round(w, 3) for w in windows if w < info.duration):
+            vf = (
+                f"fps={COVER_SAMPLE_FPS},scale=160:-2,format=yuv420p,signalstats,"
+                f"metadata=mode=print:file={stats.name}"
+            )
+            args = ["-ss", f"{window:.3f}", "-i", str(src), "-t", str(COVER_WINDOW)]
+            args += ["-map", f"0:{info.video_index}", "-vf", vf, "-f", "null", "-"]
+            args = sdr_commands([args], [(src, info)])[0]
+            try:
+                await run_command(
+                    ffmpeg_args(ffmpeg, args, progress=False), handle=handle, cwd=Path(directory)
+                )
+                chosen = pick_cover(parse_cover_stats(stats.read_text(), window))
+            except (FFmpegError, OSError):
+                return start
+            if chosen is not None:
+                return round(min(chosen, max(info.duration - 0.05, 0.0)), 3)
+    return start
+
+
 async def extract_frame(
     ffmpeg: str,
     src: Path,

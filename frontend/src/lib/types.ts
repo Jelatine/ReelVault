@@ -52,6 +52,8 @@ export interface VideoMedia {
   video_bitrate?: number
   color_transfer?: string
   variable_frame_rate?: boolean
+  auto_cover_time?: number
+  custom_cover?: boolean
   nominal_fps?: number
   coded_width?: number
   coded_height?: number

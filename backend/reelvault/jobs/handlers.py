@@ -104,7 +104,15 @@ async def ingest(ctx: JobContext, job: Job) -> None:
 
         ctx.stage(1, steps, "生成封面")
         if not custom_cover:
-            t = cover_time if cover_time is not None else derive.default_cover_time(info)
+            if cover_time is None:
+                t = await derive.choose_cover_time(s.ffmpeg, src, info, ctx.handle)
+                with ctx.db() as db:
+                    current = db.get(Video, video_id)
+                    if current is not None:
+                        current.meta = {**(current.meta or {}), "auto_cover_time": t}
+                        db.commit()
+            else:
+                t = cover_time
             await derive.extract_frame(
                 s.ffmpeg, src, info, out / derive.POSTER, t, handle=ctx.handle
             )
