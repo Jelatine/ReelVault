@@ -544,7 +544,36 @@ def plan_rotate(
     return OpPlan([args], info.duration)
 
 
-def plan_trim(p: TrimParams, src: Source, out: Path) -> OpPlan:
+def _fast_cut(path: Path, info: MediaInfo, start: float, end: float, out: Path) -> list[str]:
+    """Stream-copy one segment; cuts land on keyframes the caller already snapped to."""
+    seek = start
+    if info.container in {"mkv", "webm"} and info.video_has_b_frames:
+        # FFmpeg backs a seek off by 3/23 s for demuxers that seek by DTS when
+        # B-frames delay output; Matroska would then land on the previous keyframe.
+        seek = start + MATROSKA_SEEK_BACKOFF + 0.001
+        if end - seek <= 0.01:
+            seek = start
+    # -t counts from the requested seek point, not from the copied keyframe.
+    args = ["-ss", f"{seek:.6f}", "-i", str(path), "-t", f"{end - seek:.6f}"]
+    # Copied subtitle packets keep cues from before the cut and overrun the end.
+    args += maps(info)
+    args += ["-c", "copy", "-avoid_negative_ts", "make_zero"]
+    if out.suffix in {".mp4", ".mov", ".m4v"}:
+        args += MP4_FLAGS
+    return [*args, str(out)]
+
+
+def concat_listing(paths: list[Path], outpoints: list[float] | None = None) -> str:
+    """Concat demuxer script; an outpoint stops each file at its intended length."""
+    lines = []
+    for i, path in enumerate(paths):
+        lines.append("file '" + str(path).replace("'", "'\\''") + "'\n")
+        if outpoints:
+            lines.append(f"outpoint {outpoints[i]:.6f}\n")
+    return "".join(lines)
+
+
+def plan_trim(p: TrimParams, src: Source, out: Path, tmp: Path | None = None) -> OpPlan:
     path, info = src
     segs: list[tuple[float, float]] = []
     for seg in p.segments:
@@ -555,26 +584,30 @@ def plan_trim(p: TrimParams, src: Source, out: Path) -> OpPlan:
         raise OpError("剪辑区间超出视频时长")
     total = sum(e - s for s, e in segs)
 
+    if p.mode == "fast":
+        ext = copy_ext(info)
+        out = out.with_suffix("." + ext)
+        if len(segs) == 1:
+            return OpPlan([_fast_cut(path, info, *segs[0], out)], total, ext=ext)
+        if tmp is None:
+            raise OpError("多段快速剪辑需要临时目录")
+        # Cut each segment by stream copy, then join them with the concat demuxer.
+        parts = [tmp / f"part{i}.{ext}" for i in range(len(segs))]
+        commands = [
+            _fast_cut(path, info, s, e, part) for (s, e), part in zip(segs, parts, strict=True)
+        ]
+        listing = tmp / "trim-concat.txt"
+        # Copied parts overrun by up to a frame and an AAC packet; without outpoints the
+        # demuxer offsets each following part by that overrun.
+        listing.write_text(concat_listing(parts, [e - s for s, e in segs]))
+        args = ["-f", "concat", "-safe", "0", "-i", str(listing), "-map", "0", "-c", "copy"]
+        if ext in {"mp4", "mov", "m4v"}:
+            args += MP4_FLAGS
+        commands.append([*args, str(out)])
+        return OpPlan(commands, total, ext=ext, files=[listing, *parts])
+
     if len(segs) == 1:
         start, end = segs[0]
-        if p.mode == "fast":
-            seek = start
-            if info.container in {"mkv", "webm"} and info.video_has_b_frames:
-                # FFmpeg backs a seek off by 3/23 s for demuxers that seek by DTS when
-                # B-frames delay output; Matroska would then land on the previous keyframe.
-                seek = start + MATROSKA_SEEK_BACKOFF + 0.001
-                if end - seek <= 0.01:
-                    seek = start
-            # -t counts from the requested seek point, not from the copied keyframe.
-            args = ["-ss", f"{seek:.6f}", "-i", str(path), "-t", f"{end - seek:.6f}"]
-            ext = copy_ext(info)
-            # Copied subtitle packets keep cues from before the cut and overrun the end.
-            args += maps(info)
-            args += ["-c", "copy", "-avoid_negative_ts", "make_zero"]
-            if ext in {"mp4", "mov", "m4v"}:
-                args += MP4_FLAGS
-            out = out.with_suffix("." + ext)
-            return OpPlan([args + [str(out)]], total, ext=ext)
         args = ["-ss", f"{start:.3f}", "-i", str(path), "-t", f"{end - start:.3f}"]
         args += [*maps(info, subtitles=True), *video_target(info).args(p.crf), *aac()]
         args += [*subtitle_codec(info), *MP4_FLAGS, str(out)]
@@ -638,9 +671,7 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
     if lossless:
         first = sources[0][1]
         listing = tmp / "concat.txt"
-        listing.write_text(
-            "".join("file '" + str(path).replace("'", "'\\''") + "'\n" for path, _ in sources)
-        )
+        listing.write_text(concat_listing([path for path, _ in sources]))
         # Only the primary tracks: later files need not carry the same extra tracks.
         primary = ["-map", f"0:{first.video_index}"]
         if first.audio_index is not None:

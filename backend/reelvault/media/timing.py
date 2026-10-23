@@ -89,3 +89,14 @@ def snap_cut(
     actual_start = keyframes[before] if before >= 0 else 0.0
     actual_end = keyframes[after] if after < len(keyframes) else duration
     return actual_start, min(actual_end, duration)
+
+
+def merge_spans(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Join consecutive spans that keyframe snapping made overlap or touch; keep order."""
+    merged: list[tuple[float, float]] = []
+    for start, end in spans:
+        if merged and merged[-1][0] <= start <= merged[-1][1] + 1e-6:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged

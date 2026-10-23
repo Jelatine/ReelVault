@@ -28,7 +28,7 @@ from ..media.loudness import measure_loudness, measure_noise_floor
 from ..media.probe import MediaInfo, probe
 from ..media.scenes import SceneParams, detect_scenes, source_signature
 from ..media.subtitles import plan_subtitle
-from ..media.timing import snap_cut, timing_index
+from ..media.timing import merge_spans, snap_cut, timing_index
 from ..media.transfer import move_output
 from ..media.validation import validate_output
 from ..media.watermark import plan_watermark
@@ -267,7 +267,7 @@ async def edit(ctx: JobContext, job: Job) -> None:
                     ctx.log(f"无法无损旋转，重新编码：{blocker}", "info")
                 plan = ops.plan_rotate(params, sources[0], out, display_rotation=supported)
             case ops.TrimParams():
-                if params.mode == "fast" and len(params.segments) == 1:
+                if params.mode == "fast":
                     index = await timing_index(
                         s,
                         first_video.id,
@@ -276,15 +276,20 @@ async def edit(ctx: JobContext, job: Job) -> None:
                         keyframes_only=True,
                         handle=ctx.handle,
                     )
-                    segment = params.segments[0]
-                    if segment.start >= sources[0][1].duration:
-                        raise ops.OpError("剪辑区间超出视频时长")
-                    start, end = snap_cut(
-                        segment.start, segment.end, index["keyframes"], sources[0][1].duration
-                    )
-                    if end <= start:
-                        raise ops.OpError("剪辑区间超出视频时长")
-                    params.segments = [ops.Segment(start=start, end=end)]
+                    duration = sources[0][1].duration
+                    snapped: list[tuple[float, float]] = []
+                    for segment in params.segments:
+                        if segment.start >= duration:
+                            raise ops.OpError("剪辑区间超出视频时长")
+                        start, end = snap_cut(
+                            segment.start, segment.end, index["keyframes"], duration
+                        )
+                        if end <= start:
+                            raise ops.OpError("剪辑区间超出视频时长")
+                        snapped.append((start, end))
+                    params.segments = [
+                        ops.Segment(start=start, end=end) for start, end in merge_spans(snapped)
+                    ]
                     _set_job(
                         ctx,
                         job.id,
@@ -294,7 +299,7 @@ async def edit(ctx: JobContext, job: Job) -> None:
                             "edit": params.model_dump(),
                         },
                     )
-                plan = ops.plan_trim(params, sources[0], out)
+                plan = ops.plan_trim(params, sources[0], out, tmp)
             case ops.MergeParams():
                 plan = ops.plan_merge(params, sources, out, tmp)
             case ops.CompositeParams():

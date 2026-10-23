@@ -35,7 +35,7 @@ AV1 兼容性收尾验证：后端完整回归 710 项通过、20 项跳过，�
 
 编辑与无损处理
 - [x] 无损旋转：只改显示方向时用 `-c copy -display_rotation`（FFmpeg ≥ 6.1，需检测支持），作为旋转的默认快速模式。`RotateParams.mode` 默认 `auto`：纯旋转且源为 MP4／MOV／M4V、启动时 `-h long` 检测到 `-display_rotation` 时，与源已有旋转合成新的显示矩阵并流复制（保留全部音轨与字幕、HDR、隔行场序）；翻转、MKV／WebM（FFmpeg 6.1 的 Matroska 复用器流复制时丢弃显示矩阵）、旧版 FFmpeg 或 `reencode` 时按 CRF 重新编码，任务日志说明原因。旋转面板新增「无损旋转」开关（翻转时禁用），设置页列出该可选功能。混合编辑始终重新编码，不受影响。
-- [ ] 多段快速剪辑：每段 `-c copy` 切出（复用 MKV 定位补偿）再用 concat demuxer 拼接；字幕仍不保留。
+- [x] 多段快速剪辑：每段 `-c copy` 切出（复用 MKV 定位补偿）再用 concat demuxer 拼接；字幕仍不保留。各段按关键帧吸附后合并相邻／重叠片段（保持用户顺序），任务记录请求与实际切点；清单为每段写 `outpoint`，否则流复制多出的一帧与 AAC 包会让后续片段逐段后移（实测两段多出约 0.35 秒）。剪辑面板快速模式不再限制单段，逐段显示实际切点。
 - [ ] 智能剪切：仅重编码切点附近的半个 GOP，中间流复制；需编码参数与源一致（profile／level／SPS），难度高。
 - [ ] 章节读写：probe 加 `-show_chapters` 导入为书签；编辑时用 ffmetadata 写入书签／场景章节，剪辑与变速时换算时间。
 - [ ] VFR 检测（`r_frame_rate` 与 `avg_frame_rate` 差异）并在合并／转场／效果前统一 `-fps_mode cfr`，避免音画漂移。

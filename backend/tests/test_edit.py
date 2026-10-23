@@ -133,6 +133,53 @@ def test_trim_multi_segment(client: TestClient, clip: dict[str, Any]) -> None:
     assert v["audio_codec"] == "aac"
 
 
+def test_fast_trim_multi_segment_copies_and_concats(
+    client: TestClient, samples: dict[str, Path]
+) -> None:
+    source = upload_ready(client, samples["long"])
+    segments = [{"start": 1.2, "end": 2.5}, {"start": 5.0, "end": 6.2}, {"start": 6.3, "end": 8}]
+    job = run_edit(client, source["id"], {"op": "trim", "mode": "fast", "segments": segments})
+    # Keyframes every second: [1,3] [5,7] [6,8]; the last two overlap and are merged.
+    assert job["params"]["edit"]["segments"] == [
+        {"start": 1.0, "end": 3.0},
+        {"start": 5.0, "end": 8.0},
+    ]
+    assert job["params"]["requested_edit"]["segments"] == segments
+    assert job["params"]["encoding"]["encoder"] == "copy/other"
+    v = result_video(client, job)
+    assert v["container"] == "mp4" and v["video_codec"] == "h264"
+    assert 4.9 < v["duration"] < 5.2
+    mkv = upload_ready(client, samples["mkv"])
+    edit = {
+        "op": "trim",
+        "mode": "fast",
+        "segments": [{"start": 0, "end": 0.9}, {"start": 2.1, "end": 3}],
+    }
+    v = result_video(client, run_edit(client, mkv["id"], edit))
+    assert v["container"] == "mkv" and 1.7 < v["duration"] < 2.4
+
+
+def test_fast_trim_multi_segment_plan(tmp_path: Path) -> None:
+    info = MediaInfo(duration=10, container="mov", audio_codec="aac", audio_index=1)
+    params = ops.TrimParams(
+        mode="fast", segments=[ops.Segment(start=0, end=2), ops.Segment(start=4, end=6)]
+    )
+    plan = ops.plan_trim(params, (tmp_path / "in", info), tmp_path / "out.mp4", tmp_path)
+    assert plan.ext == "mov" and len(plan.commands) == 3 and plan.duration == 4
+    assert [c[-1] for c in plan.commands] == [
+        str(tmp_path / "part0.mov"),
+        str(tmp_path / "part1.mov"),
+        str(tmp_path / "out.mov"),
+    ]
+    listing = (tmp_path / "trim-concat.txt").read_text()
+    assert listing == (
+        f"file '{tmp_path / 'part0.mov'}'\noutpoint 2.000000\n"
+        f"file '{tmp_path / 'part1.mov'}'\noutpoint 2.000000\n"
+    )
+    with pytest.raises(ops.OpError):
+        ops.plan_trim(params, (tmp_path / "in", info), tmp_path / "out.mp4")
+
+
 def test_merge_lossless_and_reencode(client: TestClient, samples: dict[str, Path]) -> None:
     a = upload_ready(client, samples["a"])
     b = upload_ready(client, samples["b"])

@@ -47,7 +47,6 @@
   "，预计压缩后约 ": ", estimated compressed size ",
   "。可在下方改用原始播放。": ". Switch to the original stream below.",
   "。自动模式按带宽切换，可在播放器设置中固定清晰度。": ". Auto mode switches with available bandwidth. Choose a fixed quality in player settings.",
-  "。音视频流时间基可能使文件时长略有差异。": ". Audio/video time bases may cause small differences in file duration.",
   "（主视频）": " (main video)",
   "（估算）": " (estimated)",
   "（叠加视频）": " (overlay video)",
@@ -1782,5 +1781,9 @@
   "已选择重新编码": "Re-encoding was selected",
   "翻转需要重新编码": "Flipping requires re-encoding",
   "仅 MP4／MOV 支持无损旋转": "Lossless rotation is only supported for MP4/MOV",
-  "当前 FFmpeg 不支持 -display_rotation（需要 6.1 或更高版本）": "This FFmpeg does not support -display_rotation (requires 6.1 or later)"
+  "当前 FFmpeg 不支持 -display_rotation（需要 6.1 或更高版本）": "This FFmpeg does not support -display_rotation (requires 6.1 or later)",
+  "片段 {{v0}}：": "Segment {{v0}}: ",
+  "吸附后相邻或重叠的片段已合并。": "Segments that touch or overlap after snapping are merged.",
+  "音视频流时间基可能使文件时长略有差异。": "Audio/video time bases may cause small differences in file duration.",
+  "多段先逐段复制再无损拼接，片段衔接处音频可能有极短的间隙。": " Multiple segments are copied one by one and joined losslessly; audio may have a very short gap at each join."
 }
