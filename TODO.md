@@ -27,7 +27,7 @@
 
 前端验证：完整单元测试 138 项通过，覆盖 AV1 压缩／混合编辑、画质／目标大小提交与嵌套预设恢复；lint、翻译审计、TypeScript 与生产构建通过。Chromium 相关回归 5 项通过、1 项 S3 条件跳过；新增 AV1 实测通过，压缩与混合编辑均由 `libsvtav1` 生成 AV1，编辑链摘要正确，结果通过原视频流接口直接解码播放。
 
-后端完整回归（沙箱外）：702 项通过、20 项跳过、2 项失败。失败为降噪效果断言（`test_real_denoise_reduces_background_noise`，单独复测通过）及此前已记录的 WebDAV 本地 HTTP 启动超时（`test_real_webdav_client_download_and_ffprobe_over_http`）。AV1 用例通过；前端改动与验证记录一并提交。
+后端完整回归（沙箱外）：702 项通过、20 项跳过、2 项失败。失败为降噪效果断言（`test_real_denoise_reduces_background_noise`，单独复测通过；原因已查明并修复：参考值用单声道下混测得，不同 FFmpeg 版本的立体声→单声道下混增益相差约 3 dB，现改为直接读取立体声输出）及此前已记录的 WebDAV 本地 HTTP 启动超时（`test_real_webdav_client_download_and_ffprobe_over_http`）。AV1 用例通过；前端改动与验证记录一并提交。
 
 AV1 兼容性收尾验证：后端完整回归 710 项通过、20 项跳过，仅上述 WebDAV 启动超时失败；新增统计缺失／为空／可读、第二遍失败、普通与混合编辑的单视频／批处理提交检查，以及执行时中止测试通过。补充的第二遍失败测试另经专项验证（25 项通过、4 项硬件条件跳过）。前端完整 138 项、翻译审计、lint、TypeScript、生产构建、后端 Ruff／格式／mypy 与 Chromium AV1 生成／摘要／原流播放通过；修正浏览器用例等待派生视频入库完成后再断言编码信息，避免异步入库竞态。
 
