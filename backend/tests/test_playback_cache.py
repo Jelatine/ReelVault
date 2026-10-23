@@ -254,12 +254,12 @@ def test_cache_survives_backup_restore_restart_and_orphan_cleanup(
         assert restored.get(video["stream_url"]).status_code == 200
 
 
-def hevc_video(path, *extra):
+def hevc_video(path, *extra, x265=""):
     return make_video(
         path,
         duration=1,
         codec="libx265",
-        extra=["-preset", "ultrafast", "-x265-params", "log-level=error:pools=1", *extra],
+        extra=["-preset", "ultrafast", "-x265-params", f"log-level=error:pools=1{x265}", *extra],
     )
 
 
@@ -301,10 +301,11 @@ def test_hevc_clients_get_the_original_or_a_remux(client, settings, tmp_path):
 
 
 def test_hdr_hevc_is_never_served_as_hevc(client, tmp_path):
+    # FFmpeg 8 negotiates colours from the frames, so write the VUI through x265 itself.
     hdr = hevc_video(
         tmp_path / "hdr.mp4",
-        "-tag:v", "hvc1", "-color_trc", "smpte2084", "-color_primaries", "bt2020",
-        "-colorspace", "bt2020nc",
+        "-tag:v", "hvc1",
+        x265=":colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
     )  # fmt: skip
     video = upload_ready(client, hdr)
     status = client.get(f"/api/videos/{video['id']}/playback-cache", params={"hevc": True}).json()
