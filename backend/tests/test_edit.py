@@ -202,6 +202,14 @@ def test_compress_av1_crf_and_target_size(client: TestClient, samples: dict[str,
     edit = {"op": "compress", "codec": "av1", "preset": "ultrafast", "resolution": 360}
     v = result_video(client, run_edit(client, long["id"], edit))
     assert v["video_codec"] == "av1" and v["height"] == 360
+    if client.get("/api/system/info").json()["ffmpeg_features"].get("av1_two_pass") is False:
+        response = client.post(
+            f"/api/videos/{long['id']}/edit",
+            json={"edit": {**edit, "target_size_mb": 0.4, "audio_bitrate": 64}},
+        )
+        assert response.status_code == 400
+        assert response.json()["code"] == "av1_two_pass_unsupported"
+        return
     job = run_edit(client, long["id"], {**edit, "target_size_mb": 0.4, "audio_bitrate": 64})
     assert job["params"]["encoding"]["encoder"] == "libsvtav1"
     v = result_video(client, job)

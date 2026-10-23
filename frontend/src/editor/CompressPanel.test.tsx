@@ -67,6 +67,7 @@ test.each([false, true])('select AV1 and submit quality or target size compressi
   expect(mixed ? qualityEdit.compress : qualityEdit).toEqual(expect.objectContaining({ codec: 'av1', quality: 'medium', target_size_mb: null }))
   expect(describeEdit(qualityEdit)).toContain('压缩 · AV1 · 原分辨率 · 中画质')
   fireEvent.click(screen.getByRole('switch', { name: '按目标文件大小压缩（两遍编码）' }))
+  expect(screen.getByText('AV1 按目标大小压缩需要支持两遍编码的 FFmpeg；旧版请改用画质模式、H.264 或 H.265。')).toBeDefined()
   fireEvent.change(screen.getByRole('textbox', { name: '目标大小 (MB)' }), { target: { value: '5' } })
   fireEvent.click(button)
   const targetEdit = submit.mock.lastCall![0]

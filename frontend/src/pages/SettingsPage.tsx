@@ -243,6 +243,7 @@ function FfmpegFeatures({ features }: { features?: Record<string, boolean> | nul
     webp: tr("WebP 动图导出"),
     h265: tr("H.265 编码"),
     av1: tr("AV1 编码"),
+    av1_two_pass: tr('AV1 两遍编码'),
     webm: tr("WebM 转换"),
     mp3: tr("MP3 导出"),
   }

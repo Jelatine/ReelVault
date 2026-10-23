@@ -21,6 +21,7 @@ from ..library import abs_path
 from ..media import ops
 from ..media.assets import AssetError, audio_asset, image_asset, lut_asset, subtitle_asset
 from ..media.capabilities import missing_components
+from ..media.ffmpeg import AV1_TWO_PASS_UNSUPPORTED
 from ..models import EditPreset, Job, JobLog, Video
 from ..storage import budget_transaction, check_budget, job_bytes, job_requirements
 from .deps import get_jobs, get_settings
@@ -161,6 +162,8 @@ class BatchEditBody(BaseModel):
 def require_components(jobs: JobManager, edit: ops.EditParams) -> None:
     """Fail at submission instead of after queueing when FFmpeg lacks a component."""
     missing = missing_components(jobs.capabilities, edit)
+    if "libsvtav1 (two-pass)" in missing and "libsvtav1" not in missing:
+        raise APIError(400, AV1_TWO_PASS_UNSUPPORTED, code="av1_two_pass_unsupported")
     if missing:
         components = ", ".join(missing)
         raise APIError(

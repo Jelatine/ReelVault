@@ -640,6 +640,8 @@ test('AV1 压缩与混合编辑生成、摘要及直接播放', async ({ page })
     await expect.poll(async () => (await (await page.request.get(`/api/jobs/${job.id}`)).json()).status,
       { timeout: 60_000 }).toBe('succeeded')
     const result = await (await page.request.get(`/api/jobs/${job.id}`)).json()
+    await expect.poll(async () => (await (await page.request.get(`/api/videos/${result.result_video_id}`)).json()).status,
+      { timeout: 60_000 }).toBe('ready')
     const video = await (await page.request.get(`/api/videos/${result.result_video_id}`)).json()
     expect(video.video_codec).toBe('av1')
     expect(result.params.encoding.encoder).toBe('libsvtav1')

@@ -19,6 +19,10 @@ from .windows_process import BELOW_NORMAL_PRIORITY_CLASS, CREATE_SUSPENDED, Wind
 
 ProgressCallback = Callable[[float], None]
 
+AV1_TWO_PASS_UNSUPPORTED = (
+    "当前 FFmpeg 不支持 AV1 两遍编码，请升级 FFmpeg，或改用画质模式、H.264 或 H.265"
+)
+
 
 class FFmpegError(RuntimeError):
     pass

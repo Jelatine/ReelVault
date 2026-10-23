@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-23",
+  "ubuntu_24_04": {
+    "architecture": "arm64",
+    "image_digest": "sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac",
+    "ffmpeg": "6.1.1-3ubuntu5",
+    "svt_av1": "1.7.0",
+    "first_pass_exit_code": 0,
+    "first_pass_stats_bytes": 0,
+    "input": "testsrc2=size=160x120:rate=10:duration=2",
+    "encoding_args": [
+      "-c:v",
+      "libsvtav1",
+      "-preset",
+      "10",
+      "-svtav1-params",
+      "lp=1",
+      "-b:v",
+      "100k",
+      "-pass",
+      "1",
+      "-passlogfile",
+      "/tmp/av1-pass",
+      "-an",
+      "-f",
+      "null",
+      "-"
+    ],
+    "conclusion": "Generic -pass is silently ignored; target-size AV1 must be rejected, while quality-mode AV1 remains available."
+  },
+  "macos": {
+    "ffmpeg": "ffmpeg version 9.0.2 Copyright (c) 2000-2026 the FFmpeg developers",
+    "actual_stats_write_and_read_probe": true,
+    "av1_compression_and_mixed_direct_chromium_playback": "passed"
+  },
+  "upstream_sources": [
+    "https://github.com/FFmpeg/FFmpeg/blob/n6.1.1/libavcodec/libsvtav1.c",
+    "https://github.com/FFmpeg/FFmpeg/blob/n7.0/libavcodec/libsvtav1.c",
+    "https://github.com/FFmpeg/FFmpeg/blob/n8.0/libavcodec/libsvtav1.c",
+    "https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/libsvtav1.c"
+  ]
+}

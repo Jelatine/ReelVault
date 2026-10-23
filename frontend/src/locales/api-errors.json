@@ -758,5 +758,9 @@
   "too_many_segments": {
     "en": "More than {{max}} segments would be kept. Increase the minimum silence length or lower the silence threshold.",
     "zh": "保留片段超过 {{max}} 个，请增大最短静音时长或降低静音阈值"
+  },
+  "av1_two_pass_unsupported": {
+    "zh": "当前 FFmpeg 不支持 AV1 两遍编码，请升级 FFmpeg，或改用画质模式、H.264 或 H.265",
+    "en": "This FFmpeg build does not support AV1 two-pass encoding. Upgrade FFmpeg or use quality mode, H.264 or H.265."
   }
 }

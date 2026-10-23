@@ -26,6 +26,29 @@ from reelvault.media.probe import probe
 from .conftest import HEADERS, login
 
 
+@pytest.mark.parametrize("stats", [None, b"", b"first-pass statistics"])
+def test_av1_runtime_stops_before_second_pass_without_stats(monkeypatch, tmp_path, stats):
+    calls = []
+
+    async def run(args, **kwargs):
+        calls.append(args)
+        if args[args.index("-pass") + 1] == "1" and stats is not None:
+            (tmp_path / "stats-0.log").write_bytes(stats)
+
+    monkeypatch.setattr(encoding, "run_command", run)
+    commands = [["-c:v", "libsvtav1", "-pass", str(n), "-passlogfile", "stats"] for n in (1, 2)]
+    runtime = EncoderRuntime("ffmpeg")
+    task = runtime.run(commands, "auto", cwd=tmp_path)
+    if stats:
+        result = asyncio.run(task)
+        assert result["encoder"] == "libsvtav1"
+        assert len(calls) == 2
+    else:
+        with pytest.raises(FFmpegOperationalError, match="AV1"):
+            asyncio.run(task)
+        assert len(calls) == 1
+
+
 @pytest.mark.parametrize("failure", [FFmpegTimeout("stalled"), FFmpegOperationalError("disk full")])
 def test_operational_errors_do_not_retry_other_encoders(monkeypatch, failure):
     calls = []

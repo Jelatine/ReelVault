@@ -103,6 +103,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
       </Group>
       {codec === 'av1' && <Text size="xs" c="dimmed">{tr('AV1 使用软件编码，编码较慢；支持 AV1 的浏览器可直接播放。')}</Text>}
       <Switch label={tr("按目标文件大小压缩（两遍编码）")} checked={useTarget} onChange={(e) => setUseTarget(e.currentTarget.checked)} />
+      {codec === 'av1' && useTarget && <Text size="xs" c="dimmed">{tr('AV1 按目标大小压缩需要支持两遍编码的 FFmpeg；旧版请改用画质模式、H.264 或 H.265。')}</Text>}
       {useTarget ? (
         <NumberInput label={tr("目标大小 (MB)")} min={1} value={targetMb} onChange={(v) => setTargetMb(Number(v) || 1)} />
       ) : (

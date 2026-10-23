@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .ffmpeg import (
+    AV1_TWO_PASS_UNSUPPORTED,
     FFmpegError,
     FFmpegOperationalError,
     ProcessHandle,
@@ -294,6 +295,17 @@ class EncoderRuntime:
                     handle=handle,
                     cwd=cwd,
                 )
+                if (
+                    "-c:v" in args
+                    and args[args.index("-c:v") + 1] == "libsvtav1"
+                    and "-pass" in args
+                    and args[args.index("-pass") + 1] == "1"
+                ):
+                    log = Path(args[args.index("-passlogfile") + 1] + "-0.log")
+                    if not log.is_absolute() and cwd:
+                        log = cwd / log
+                    if not log.is_file() or log.stat().st_size == 0:
+                        raise FFmpegOperationalError(AV1_TWO_PASS_UNSUPPORTED)
                 completed += durations[i]
                 if on_progress:
                     on_progress(completed / total)
