@@ -33,6 +33,7 @@ export interface Video {
   audio_codec: string | null
   rotation: number
   media?: VideoMedia
+  integrity?: { errors: number; aborted: boolean; sample: string[]; checked_at: string } | null
   cover_time: number | null
   tags: string[]
   created_at: string
@@ -94,7 +95,7 @@ export type JobStatus = 'queued' | 'running' | 'paused' | 'succeeded' | 'failed'
 
 export interface Job {
   id: string
-  kind: 'ingest' | 'edit' | 'scenes' | 'analysis' | 'hls' | 'duplicates' | 'link_import' | 'playable' | 'sprite' | 'probe' | 'original_cache' | 'transcribe' | 'vision_index' | 'ai_analyze'
+  kind: 'ingest' | 'edit' | 'scenes' | 'analysis' | 'integrity' | 'hls' | 'duplicates' | 'link_import' | 'playable' | 'sprite' | 'probe' | 'original_cache' | 'transcribe' | 'vision_index' | 'ai_analyze'
   status: JobStatus
   priority?: number
   eta_seconds?: number | null

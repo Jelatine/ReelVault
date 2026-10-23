@@ -334,8 +334,15 @@ class MixedParams(BaseModel):
         return self
 
 
+class RepairParams(BaseModel):
+    """Remux while discarding corrupt packets; nothing is re-encoded."""
+
+    op: Literal["repair"] = "repair"
+
+
 EditParams = Annotated[
-    RotateParams
+    RepairParams
+    | RotateParams
     | TrimParams
     | MergeParams
     | CompressParams
@@ -357,6 +364,7 @@ EditParams = Annotated[
 ]
 
 OP_LABELS = {
+    "repair": "修复（重新封装）",
     "mixed": "混合编辑",
     "rotate": "旋转",
     "trim": "剪辑",
@@ -1015,6 +1023,18 @@ def plan_speed(p: SpeedParams, src: Source, out: Path) -> OpPlan:
         args += ["-filter:a", atempo_chain(p.factor), *aac()]
     args += [*video_target(info).args(p.crf), *MP4_FLAGS, str(out)]
     return OpPlan([args], info.duration / p.factor)
+
+
+def plan_repair(src: Source, out: Path) -> OpPlan:
+    path, info = src
+    ext = copy_ext(info)
+    out = out.with_suffix("." + ext)
+    args = ["-err_detect", "ignore_err", "-fflags", "+genpts+discardcorrupt", "-i", str(path)]
+    args += [*maps(info, subtitles=True, container=ext), "-c", "copy"]
+    args += ["-avoid_negative_ts", "make_zero"]
+    if ext in {"mp4", "mov", "m4v"}:
+        args += MP4_FLAGS
+    return OpPlan([[*args, str(out)]], info.duration, ext=ext)
 
 
 def plan_mute(src: Source, out: Path) -> OpPlan:

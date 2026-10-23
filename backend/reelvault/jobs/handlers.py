@@ -23,7 +23,13 @@ from ..media.animation import plan_animation
 from ..media.assets import audio_asset, image_asset, lut_asset, subtitle_asset
 from ..media.color import needs_tone_mapping, reencodes_video, sdr_commands
 from ..media.composite import plan_composite
-from ..media.detect import MAX_SEGMENTS, detect_crop, detect_silence, keep_segments
+from ..media.detect import (
+    MAX_SEGMENTS,
+    check_integrity,
+    detect_crop,
+    detect_silence,
+    keep_segments,
+)
 from ..media.effects import plan_effect
 from ..media.loudness import measure_loudness, measure_noise_floor
 from ..media.probe import MediaInfo, probe
@@ -191,6 +197,13 @@ async def ingest(ctx: JobContext, job: Job) -> None:
             db.commit()
         if old_playable and old_playable != (out / derive.PLAYABLE if playable else None):
             remove_copy(s, video_id, old_playable)
+        if s.integrity_check:
+            # Low priority: a full decode should not delay edits or other imports.
+            try:
+                with ctx.db() as db:
+                    ctx.manager.submit(db, "integrity", {}, [video_id], priority=0)
+            except Exception as error:
+                ctx.log(f"未能安排完整解码检查：{error}", "warning")
     except Exception as e:
         _update(ctx, video_id, status="error", error=str(e)[:2000])
         raise
@@ -360,6 +373,8 @@ async def edit(ctx: JobContext, job: Job) -> None:
                 plan = ops.plan_speed(params, sources[0], out)
             case ops.MuteParams():
                 plan = ops.plan_mute(sources[0], out)
+            case ops.RepairParams():
+                plan = ops.plan_repair(sources[0], out)
             case ops.ConvertParams():
                 plan = ops.plan_convert(params, sources[0], out)
             case ops.ExtractAudioParams():
@@ -1018,6 +1033,32 @@ async def original_cache(ctx: JobContext, job: Job) -> None:
     ctx.set_progress(1, "原视频已保存到本地")
 
 
+async def integrity(ctx: JobContext, job: Job) -> None:
+    """Full decode of a video; the report is kept in its metadata for this file version."""
+    source, info, video = (await _load_sources(ctx, job.video_ids))[0]
+    sig = source_signature(source)
+    report = await check_integrity(
+        ctx.settings.ffmpeg, source, info, ctx.handle, ctx.stage(0, 1, "完整解码检查")
+    )
+    ctx.check_canceled()
+    with ctx.db() as db:
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        current = db.get(Video, video.id)
+        if (
+            current is None
+            or current.file_path != video.file_path
+            or source_signature(source) != sig
+        ):
+            raise RuntimeError("源视频已变化，检查结果未保存")
+        current.meta = {
+            **(current.meta or {}),
+            "integrity": {**report, "signature": sig, "checked_at": utcnow().isoformat()},
+        }
+        db.commit()
+    errors = report["errors"]
+    ctx.set_progress(1, f"发现 {errors} 处解码错误" if errors else "未发现解码错误")
+
+
 async def analyse_media(ctx: JobContext, job: Job) -> None:
     """Black bar or silence detection; the result is stored in the job parameters."""
     source, info, video = (await _load_sources(ctx, job.video_ids))[0]
@@ -1056,6 +1097,7 @@ async def analyse_media(ctx: JobContext, job: Job) -> None:
 
 HANDLERS: dict[str, Handler] = {
     "analysis": analyse_media,
+    "integrity": integrity,
     "original_cache": original_cache,
     "link_import": link_import,
     "ingest": ingest,

@@ -21,6 +21,7 @@ KINDS = (
     "hls",
     "scenes",
     "analysis",
+    "integrity",
     "duplicates",
     "link_import",
     "playable",

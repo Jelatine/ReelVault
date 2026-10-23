@@ -22,6 +22,7 @@ export function describeEdit(edit: Record<string, unknown>): string {
     case 'speed': return tr("变速 · {{v0}}×", { v0: edit.factor })
     case 'crop': return tr("裁切 · {{v0}}×{{v1}} · 起点 ({{v2}}, {{v3}})", { v0: edit.width, v1: edit.height, v2: edit.x, v3: edit.y })
     case 'mute': return tr("静音 · 保留画面，移除音轨")
+    case 'repair': return tr("修复 · 丢弃损坏数据包并无损重新封装")
     case 'convert': return tr("转换格式 · {{v0}}", { v0: String(edit.format).toUpperCase() })
     case 'extract_audio': return tr("提取音频 · {{v0}}", { v0: String(edit.format).toUpperCase() })
     case 'embed_cover': return tr("把当前封面写入视频文件")

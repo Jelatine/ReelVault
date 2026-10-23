@@ -11,6 +11,8 @@ const operationLabels = (): Record<string, string> => ({
   link_import: tr('链接导入'),
   scenes: tr("场景检测"),
   analysis: tr("黑边与静音检测"),
+  integrity: tr("完整解码检查"),
+  repair: tr("修复（重新封装）"),
   duplicates: tr("重复视频检测"),
   playable: tr('生成兼容播放缓存'),
   sprite: tr('重新生成缩略图'),

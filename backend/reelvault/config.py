@@ -214,6 +214,8 @@ class Settings(BaseSettings):
     encoder: Literal["software", "auto", "videotoolbox", "qsv", "vaapi", "nvenc"] = "auto"
     hls_enabled: bool = False
     playable_eager_max_mb: int = Field(256, ge=0, le=102400)
+    # Fully decode new videos in a low-priority job to find corrupt files.
+    integrity_check: bool = True
     hls_min_size_mb: int = Field(256, ge=0, le=102400)
     hls_max_cache_gb: int = Field(20, ge=1, le=1024)
     storage_warning_mb: int = Field(1024, ge=0, le=1048576)

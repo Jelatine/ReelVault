@@ -62,6 +62,8 @@ def settings(tmp_path: Path) -> Settings:
         update_check=False,
         # Keep regression outputs independent of the host GPU.
         encoder="software",
+        # Tests that need the import-time decode check enable it themselves.
+        integrity_check=False,
     )
 
 

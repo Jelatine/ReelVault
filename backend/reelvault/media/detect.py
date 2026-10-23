@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
-from .ffmpeg import ProcessHandle, ProgressCallback, run_command
+from .ffmpeg import (
+    FFmpegError,
+    FFmpegOperationalError,
+    ProcessHandle,
+    ProgressCallback,
+    run_command,
+)
 from .probe import MediaInfo
 
 CROP_SAMPLES = 8
@@ -132,3 +139,39 @@ def keep_segments(
     if duration - position > 0.05:
         segments.append({"start": round(position, 3), "end": round(duration, 3)})
     return segments
+
+
+INTEGRITY_SAMPLE = 20
+
+
+async def check_integrity(
+    ffmpeg: str,
+    source: Path,
+    info: MediaInfo,
+    handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> dict[str, Any]:
+    """Decode the video and audio tracks completely and collect the decoder errors."""
+    streams = ["-map", f"0:{info.video_index}"]
+    if info.audio_index is not None:
+        streams += ["-map", f"0:{info.audio_index}"]
+    args = [
+        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
+        "-progress", "pipe:1", "-nostats", "-i", str(source), *streams, "-f", "null", "-",
+    ]  # fmt: skip
+    try:
+        result = await run_command(
+            args, handle=handle, duration=info.duration, on_progress=on_progress
+        )
+        output, failed = result.stderr, False
+    except FFmpegOperationalError:
+        raise
+    except FFmpegError as error:
+        # Decoding stopped early: the remaining file could not be read at all.
+        output, failed = str(error), True
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    return {
+        "errors": len(lines) + (1 if failed and not lines else 0),
+        "aborted": failed,
+        "sample": [line[:300] for line in lines[:INTEGRITY_SAMPLE]],
+    }

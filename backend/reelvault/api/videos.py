@@ -742,6 +742,22 @@ def crop_detect(
     return _submit_analysis(db, jobs, video, {"analysis": "crop"})
 
 
+@router.post("/videos/{video_id}/integrity")
+def integrity_check(
+    video_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+) -> dict[str, Any]:
+    """Fully decode the video; the result appears as ``integrity`` on the video."""
+    video = get_video(db, video_id)
+    if video.status != "ready":
+        raise APIError(409, "请等待视频处理完成后再检查", code="video_not_ready")
+    for active in db.scalars(
+        select(Job).where(Job.kind == "integrity", Job.status.in_(["queued", "running", "paused"]))
+    ):
+        if video_id in active.video_ids:
+            return jobs.describe(db, active)
+    return jobs.describe(db, jobs.submit(db, "integrity", {}, [video_id]))
+
+
 @router.post("/videos/{video_id}/silence")
 def silence_detect(
     video_id: str,
