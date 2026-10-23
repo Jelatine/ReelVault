@@ -84,3 +84,15 @@ test('switching authenticated user does not display another user’s cached book
   expect(screen.getByText('正在载入书签…')).toBeDefined()
   client.clear()
 })
+
+test('file chapters can be imported as editable chapters', async () => {
+  vi.mocked(api.get).mockResolvedValue({ bookmarks: [], chapters: [{ start: 0, end: 4, title: 'Intro' }], embedded_chapters: [{ start: 0, end: 4, title: 'Intro' }], chapters_stale: false })
+  vi.mocked(api.post).mockResolvedValue({ created: 1 })
+  const client = new QueryClient({ defaultOptions:{ queries:{retry:false} } })
+  render(<MantineProvider env="test"><QueryClientProvider client={client}>
+    <BookmarkPanel video={{ id:'one',duration:4,status:'ready' } as Video} currentTime={0} seek={vi.fn()}/>
+  </QueryClientProvider></MantineProvider>)
+  expect(await screen.findByText('文件内含 1 个章节，已显示在章节菜单中。')).toBeDefined()
+  fireEvent.click(screen.getByRole('button',{name:'导入为可编辑章节'}))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/videos/one/bookmarks/import-chapters', {}))
+})

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends
@@ -11,7 +12,11 @@ from ..auth import CurrentAuth, require_auth
 from ..config import Settings
 from ..db import get_db
 from ..errors import APIError
+from ..media.chapters import Chapter, combine
+from ..media.ffmpeg import FFmpegError, ffprobe_json
+from ..media.probe import embedded_chapters
 from ..models import Bookmark, SceneAnalysis, Video
+from ..original_response import local_original
 from .deps import FiniteNumber, get_settings
 from .scenes import ready_video, signature
 
@@ -46,8 +51,66 @@ def rows(db: Session, video_id: str, user_id: int) -> list[Bookmark]:
     )
 
 
+async def file_chapters(db: Session, settings: Settings, video: Video) -> list[Chapter]:
+    """Chapters stored in the file; probed once for videos ingested before they were read."""
+    if "chapters" not in (video.meta or {}):
+        source, version = video.file_path, video.asset_version
+        try:
+            data = await asyncio.wait_for(
+                ffprobe_json(settings.ffprobe, str(local_original(settings, source))), 30
+            )
+        except (APIError, FFmpegError, OSError, TimeoutError):
+            return []
+        db.refresh(video)
+        if video.file_path != source or video.asset_version != version:
+            return []
+        video.meta = {**(video.meta or {}), "chapters": embedded_chapters(data)}
+        db.commit()
+    return list(video.meta["chapters"])
+
+
+def timeline_marks(
+    db: Session, video: Video, user_id: int, current: list[Any]
+) -> tuple[list[tuple[float, str]], list[tuple[float, str]], bool]:
+    """Scene and manually named chapter starts that apply to the current file."""
+    analysis = db.get(SceneAnalysis, video.id)
+    scenes_valid = bool(
+        analysis and analysis.signature == current and analysis.asset_version == video.asset_version
+    )
+    scenes: list[tuple[float, str]] = []
+    if scenes_valid and analysis:
+        scenes = [(0.0, "场景 1")]
+        scenes += [(cut["time"], f"场景 {i + 2}") for i, cut in enumerate(analysis.cuts)]
+    manual = [
+        (row.position, row.title)
+        for row in rows(db, video.id, user_id)
+        if row.kind == "chapter" and row.signature == current and row.position < video.duration
+    ]
+    return scenes, manual, bool(analysis and not scenes_valid)
+
+
+def chapter_snapshot(
+    db: Session, settings: Settings, video_ids: list[str], user_id: int
+) -> dict[str, dict[str, Any]]:
+    """Scene and manual chapters at submission; edits map them with the file's own chapters."""
+    snapshot: dict[str, dict[str, Any]] = {}
+    for video_id in video_ids:
+        video = db.get(Video, video_id)
+        if video is None:
+            continue
+        try:
+            current = signature(settings, video)
+        except APIError:
+            current = None
+        scenes, manual, _ = (
+            timeline_marks(db, video, user_id, current) if current else ([], [], False)
+        )
+        snapshot[video_id] = {"scenes": scenes, "manual": manual}
+    return snapshot
+
+
 @router.get("/{video_id}/bookmarks")
-def list_bookmarks(
+async def list_bookmarks(
     video_id: str,
     auth: CurrentAuth = Depends(require_auth),
     db: Session = Depends(get_db),
@@ -55,36 +118,50 @@ def list_bookmarks(
 ) -> dict[str, Any]:
     video = ready_video(db, video_id)
     current = signature(settings, video)
-    marks = rows(db, video_id, auth.user_id)
-    analysis = db.get(SceneAnalysis, video_id)
-    scenes_valid = bool(
-        analysis and analysis.signature == current and analysis.asset_version == video.asset_version
-    )
-    starts: dict[float, str] = {}
-    if scenes_valid and analysis:
-        starts = {
-            0: "场景 1",
-            **{cut["time"]: f"场景 {i + 2}" for i, cut in enumerate(analysis.cuts)},
-        }
-    for row in marks:
-        if row.kind == "chapter" and row.signature == current and row.position < video.duration:
-            starts[row.position] = row.title
-    if starts and 0 not in starts:
-        starts[0] = "开头"
-    times = sorted(starts)
-    chapters = [
-        {
-            "start": t,
-            "end": times[i + 1] if i + 1 < len(times) else video.duration,
-            "title": starts[t],
-        }
-        for i, t in enumerate(times)
-    ]
+    embedded = await file_chapters(db, settings, video)
+    scenes, manual, stale = timeline_marks(db, video, auth.user_id, current)
     return {
-        "bookmarks": [as_dict(row, current) for row in marks],
-        "chapters": chapters,
-        "chapters_stale": bool(analysis and not scenes_valid),
+        "bookmarks": [as_dict(row, current) for row in rows(db, video_id, auth.user_id)],
+        "chapters": combine(video.duration, embedded, scenes, manual),
+        "embedded_chapters": embedded,
+        "chapters_stale": stale,
     }
+
+
+@router.post("/{video_id}/bookmarks/import-chapters")
+async def import_chapters(
+    video_id: str,
+    auth: CurrentAuth = Depends(require_auth),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, int]:
+    """Copy the file's chapters into editable chapters, skipping starts already named."""
+    video = ready_video(db, video_id)
+    current = signature(settings, video)
+    existing = rows(db, video_id, auth.user_id)
+    taken = {round(row.position, 3) for row in existing if row.kind == "chapter"}
+    created = 0
+    for chapter in await file_chapters(db, settings, video):
+        start = float(chapter["start"])
+        if round(start, 3) in taken or start >= video.duration:
+            continue
+        if len(existing) + created >= 1000:
+            raise APIError(409, "每个视频最多保存 1000 个书签与手动章节", code="bookmark_limit")
+        db.add(
+            Bookmark(
+                video_id=video_id,
+                user_id=auth.user_id,
+                position=start,
+                title=str(chapter["title"])[:128] or "章节",
+                note="",
+                kind="chapter",
+                signature=current,
+            )
+        )
+        taken.add(round(start, 3))
+        created += 1
+    db.commit()
+    return {"created": created}
 
 
 def save(

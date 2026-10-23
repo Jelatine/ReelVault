@@ -486,7 +486,17 @@ async def ffprobe_json(
     ffprobe: str, path: str, handle: ProcessHandle | None = None
 ) -> dict[str, Any]:
     result = await run_command(
-        [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            "-show_chapters",
+            path,
+        ],  # fmt: skip
         handle=handle,
         timeout=60,
     )

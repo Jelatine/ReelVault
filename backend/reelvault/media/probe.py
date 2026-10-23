@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -171,6 +172,7 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     info.video_duration = float(video.get("duration") or 0)
     info.extra = {**(fmt.get("tags") or {}), **(video.get("tags") or {})}
     info.extra["subtitle_streams"] = subtitle_streams(data)
+    info.extra["chapters"] = embedded_chapters(data)
     info.extra["audio_streams"] = [
         {"index": int(s["index"]), "codec": s.get("codec_name") or "unknown"}
         for s in data.get("streams") or []
@@ -214,6 +216,31 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
 
 async def probe(ffprobe: str, path: str, handle: ProcessHandle | None = None) -> MediaInfo:
     return parse_probe(await ffprobe_json(ffprobe, path, handle), path)
+
+
+def embedded_chapters(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Container chapters on the same timeline as frame timestamps (format start = 0)."""
+    offset = float((data.get("format") or {}).get("start_time") or 0)
+    result: list[dict[str, Any]] = []
+    for chapter in data.get("chapters") or []:
+        try:
+            start, end = float(chapter["start_time"]) - offset, float(chapter["end_time"]) - offset
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(start) and math.isfinite(end)):
+            continue
+        start, end = max(0.0, start), max(0.0, end)
+        if end <= start:
+            continue
+        title = str((chapter.get("tags") or {}).get("title") or "").strip()[:128]
+        result.append(
+            {
+                "start": round(start, 6),
+                "end": round(end, 6),
+                "title": title or f"章节 {len(result) + 1}",
+            }
+        )
+    return sorted(result, key=lambda chapter: chapter["start"])
 
 
 def subtitle_streams(data: dict[str, Any]) -> list[dict[str, Any]]:

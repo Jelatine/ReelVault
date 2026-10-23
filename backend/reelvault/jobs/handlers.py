@@ -17,7 +17,7 @@ from ..library import (
     stem_of,
 )
 from ..locations import library_root, location_of
-from ..media import derive, ops
+from ..media import chapters, derive, ops
 from ..media.adjust import plan_adjust
 from ..media.animation import plan_animation
 from ..media.assets import audio_asset, image_asset, lut_asset, subtitle_asset
@@ -413,6 +413,29 @@ async def edit(ctx: JobContext, job: Job) -> None:
             case ops.AnimationParams():
                 plan = plan_animation(params, sources[0], out, tmp)
         result = out.with_suffix("." + plan.ext)
+        if "chapters" in job.params and plan.ext in chapters.CONTAINERS:
+            snapshot = job.params["chapters"] or {}
+            per_source = [
+                chapters.combine(
+                    info.duration,
+                    info.extra.get("chapters") or [],
+                    [tuple(mark) for mark in (snapshot.get(video.id) or {}).get("scenes", [])],
+                    [tuple(mark) for mark in (snapshot.get(video.id) or {}).get("manual", [])],
+                )
+                for _, info, video in loaded
+            ]
+            mapped = chapters.map_chapters(
+                params,
+                per_source,
+                [info.duration for _, info in sources],
+                [video.title for _, _, video in loaded],
+            )
+            if mapped is not None:
+                metadata = None
+                if mapped:
+                    metadata = tmp / "chapters.txt"
+                    metadata.write_text(chapters.ffmetadata(mapped), encoding="utf-8")
+                plan.commands[-1] = chapters.with_chapters(plan.commands[-1], metadata)
         commands = sdr_commands(plan.commands, sources)
         if commands != plan.commands:
             if any(info.is_hdr for _, info in sources):

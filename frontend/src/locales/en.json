@@ -1797,5 +1797,7 @@
   "隔行扫描或 HDR 视频无法智能剪切": "Interlaced or HDR video cannot be smart cut",
   "带旋转标记的视频无法智能剪切": "Videos with rotation metadata cannot be smart cut",
   "无法获取帧率": "Cannot read the frame rate",
-  "读取帧索引": "Reading frame index"
+  "读取帧索引": "Reading frame index",
+  "文件内含 {{count}} 个章节，已显示在章节菜单中。": "The file contains {{count}} chapters; they are shown in the chapter menu.",
+  "导入为可编辑章节": "Import as editable chapters"
 }
