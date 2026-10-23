@@ -1,6 +1,7 @@
 import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { api } from '../lib/api'
 import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import type { Video } from '../lib/types'
 import MorePanel from './MorePanel'
@@ -27,4 +28,19 @@ test('applies speed to the player and clears it when leaving speed or closing th
   mounted.unmount()
   client.clear()
   expect(overlay).toHaveBeenLastCalledWith({})
+})
+
+test('detected black bars fill the crop overlay', async () => {
+  const overlay = vi.fn()
+  let crop: unknown = { x: 0, y: 30, width: 320, height: 180 }
+  vi.mocked(api.get).mockImplementation(async (url: string) => url.endsWith('/crop-detect') ? { crop, width: 320, height: 240 } : [])
+  render(<MantineProvider><QueryClientProvider client={new QueryClient()}><MorePanel video={{ id: 'a', width: 320, height: 240 } as Video}
+    currentTime={0} seek={vi.fn()} play={vi.fn()} pause={vi.fn()} setOverlay={overlay} /></QueryClientProvider></MantineProvider>)
+  fireEvent.click(screen.getByRole('button', { name: '自动检测黑边' }))
+  await screen.findByText('已按检测到的画面区域填入裁切范围')
+  expect(api.get).toHaveBeenCalledWith('/api/videos/a/crop-detect')
+  expect(overlay).toHaveBeenLastCalledWith({ crop: { x: 0, y: 30, width: 320, height: 180 } })
+  crop = null
+  fireEvent.click(screen.getByRole('button', { name: '自动检测黑边' }))
+  await screen.findByText('未检测到黑边')
 })

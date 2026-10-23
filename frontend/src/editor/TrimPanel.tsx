@@ -12,6 +12,7 @@ import { useTiming } from './timing'
 import TimeInput from './TimeInput'
 import SequencePreview from './SequencePreview'
 import ScenePanel from './ScenePanel'
+import SilencePanel from './SilencePanel'
 
 interface Seg {
   start: number
@@ -62,6 +63,9 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
         setSegments([{ start: scene.start, end: scene.end }]); setActive(0); setMode('precise')
       }} onCut={(time, side) => update(active, { [side]: time })} onAll={(scenes) => {
         setSegments(scenes.map(({ start, end }) => ({ start, end }))); setActive(0); setMode('precise')
+      }} />
+      <SilencePanel video={video} onSegments={(kept) => {
+        setSegments(kept); setActive(0); setMode('precise')
       }} />
       <PresetControls edit={{ op: 'trim', mode, segments, crf }} onApply={(params) => {
         setCrf(Number(params.crf ?? 20))

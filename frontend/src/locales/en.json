@@ -1750,5 +1750,16 @@
   "MP3 导出": "MP3 export",
   "当前 FFmpeg 不支持：": "Not supported by this FFmpeg: ",
   "、": ", ",
-  "FFmpeg 可选功能均可用": "All optional FFmpeg features are available"
+  "FFmpeg 可选功能均可用": "All optional FFmpeg features are available",
+  "自动检测黑边": "Detect black bars",
+  "已按检测到的画面区域填入裁切范围": "Filled in the crop from the detected picture area",
+  "未检测到黑边": "No black bars detected",
+  "未检测到静音片段": "No silent stretches detected",
+  "整段视频均为静音": "The whole video is silent",
+  "已保留 {{count}} 个有声片段，剪除约 {{seconds}} 秒静音": "Kept {{count}} segments with sound; about {{seconds}} s of silence will be removed",
+  "剪除静音": "Remove silence",
+  "检测低于阈值且持续足够长的静音，将其余部分填入下方的剪辑片段，可再手动调整。": "Detects stretches below the threshold that last long enough and fills the rest into the segments below, which you can still adjust.",
+  "静音阈值（dB）": "Silence threshold (dB)",
+  "最短静音（秒）": "Minimum silence (s)",
+  "检测静音": "Detect silence"
 }

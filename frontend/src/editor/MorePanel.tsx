@@ -3,6 +3,7 @@ import { tr } from '../lib/i18n'
 import { Button, Divider, Group, NativeSelect, NumberInput, Select, SegmentedControl, Stack, Text, Title } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
 import { useEffect, useState } from 'react'
+import { api, errorText } from '../lib/api'
 import { defaultOutput, useSubmitEdit, type EditorContext } from './edit'
 import PresetControls from './PresetControls'
 import { OutputFields } from './OutputFields'
@@ -46,6 +47,8 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
   const [speed, setSpeed] = useState('2')
   const [format, setFormat] = useState('mp4')
   const [audioFormat, setAudioFormat] = useState('mp3')
+  const [detecting, setDetecting] = useState(false)
+  const [cropNote, setCropNote] = useState<{ text: string; error: boolean } | null>(null)
 
   useEffect(() => {
     setOverlay(tool === 'crop' ? { crop } : tool === 'speed' ? { playbackRate: Number(speed) } : {})
@@ -55,6 +58,17 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
   const setCropField = (k: keyof typeof crop, v: number) => {
     setRatio('free')
     setCrop((c) => ({ ...c, [k]: Math.max(0, Math.round(v)) }))
+  }
+  const detectBars = async () => {
+    setDetecting(true); setCropNote(null)
+    try {
+      const result = await api.get<{ crop: typeof crop | null }>(`/api/videos/${video.id}/crop-detect`)
+      if (result.crop) {
+        setRatio('free'); setCrop(result.crop)
+        setCropNote({ text: tr("已按检测到的画面区域填入裁切范围"), error: false })
+      } else setCropNote({ text: tr("未检测到黑边"), error: false })
+    } catch (e) { setCropNote({ text: errorText(e instanceof Error ? e : String(e)), error: true }) }
+    finally { setDetecting(false) }
   }
   const cropValid =
     crop.width >= 16 && crop.height >= 16 && crop.x + crop.width <= video.width && crop.y + crop.height <= video.height
@@ -85,6 +99,10 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
             }}
             data={Object.keys(RATIOS).map((k) => ({ value: k, label: k === 'free' ? tr("自由") : k }))}
           />
+          <Group gap="xs">
+            <Button size="xs" variant="light" loading={detecting} onClick={detectBars}>{tr("自动检测黑边")}</Button>
+            {cropNote && <Text size="xs" c={cropNote.error ? 'red' : 'dimmed'}>{cropNote.text}</Text>}
+          </Group>
           <Group grow>
             <NumberInput size="xs" label="X" value={crop.x} min={0} max={video.width} onChange={(v) => setCropField('x', Number(v))} />
             <NumberInput size="xs" label="Y" value={crop.y} min={0} max={video.height} onChange={(v) => setCropField('y', Number(v))} />

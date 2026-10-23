@@ -746,5 +746,17 @@
   "ffmpeg_component_missing": {
     "en": "FFmpeg is missing components this operation needs: {{components}}. Install a full FFmpeg build.",
     "zh": "当前 FFmpeg 缺少此操作所需的组件：{{components}}，请安装完整版本"
+  },
+  "analysis_failed": {
+    "en": "Media analysis failed.",
+    "zh": "媒体分析失败"
+  },
+  "no_audio_track": {
+    "en": "This video has no audio track.",
+    "zh": "该视频没有音轨"
+  },
+  "too_many_segments": {
+    "en": "More than {{max}} segments would be kept. Increase the minimum silence length or lower the silence threshold.",
+    "zh": "保留片段超过 {{max}} 个，请增大最短静音时长或降低静音阈值"
   }
 }

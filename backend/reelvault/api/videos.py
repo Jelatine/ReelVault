@@ -31,6 +31,7 @@ from ..library import (
 )
 from ..locations import library_root
 from ..media import derive
+from ..media.detect import MAX_SEGMENTS, detect_crop, detect_silence, keep_segments
 from ..media.ffmpeg import FFmpegError, ffmpeg_args, run_command
 from ..media.probe import probe
 from ..media.timing import timing_index
@@ -688,6 +689,75 @@ async def video_timing(
         )
     except (OSError, FFmpegError, RuntimeError, ValueError) as exc:
         raise APIError(500, f"无法读取帧索引: {exc}", code="frame_index_failed") from exc
+
+
+def _analysis_source(
+    db: Session, settings: Settings, jobs: JobManager, video_id: str, feature: str
+) -> tuple[Video, Path]:
+    video = get_video(db, video_id)
+    if video.status != "ready":
+        raise APIError(409, "请等待视频处理完成后再分析", code="video_not_ready")
+    missing = jobs.capabilities.missing(feature) if jobs.capabilities else []
+    if missing:
+        components = ", ".join(missing)
+        raise APIError(
+            400,
+            f"当前 FFmpeg 缺少此操作所需的组件：{components}，请安装完整版本",
+            code="ffmpeg_component_missing",
+            params={"components": components},
+        )
+    return video, local_original(settings, video.file_path)
+
+
+@router.get("/videos/{video_id}/crop-detect")
+async def crop_detect(
+    video_id: str,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    jobs: JobManager = Depends(get_jobs),
+) -> dict[str, Any]:
+    _, source = _analysis_source(db, settings, jobs, video_id, "crop_detect")
+    try:
+        info = await probe(settings.ffprobe, str(source))
+        crop = await detect_crop(settings.ffmpeg, source, info)
+    except (OSError, FFmpegError) as exc:
+        raise APIError(500, f"黑边检测失败: {exc}", code="analysis_failed") from exc
+    return {"crop": crop, "width": info.width, "height": info.height}
+
+
+@router.get("/videos/{video_id}/silence")
+async def silence_detect(
+    video_id: str,
+    noise_db: float = Query(-40, ge=-90, le=-10),
+    min_duration: float = Query(0.8, ge=0.1, le=60),
+    padding: float = Query(0.15, ge=0, le=2),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    jobs: JobManager = Depends(get_jobs),
+) -> dict[str, Any]:
+    _, source = _analysis_source(db, settings, jobs, video_id, "silence_detect")
+    try:
+        info = await probe(settings.ffprobe, str(source))
+        if info.audio_index is None:
+            raise APIError(400, "该视频没有音轨", code="no_audio_track")
+        silences = await detect_silence(
+            settings.ffmpeg, source, info, noise_db=noise_db, min_duration=min_duration
+        )
+    except (OSError, FFmpegError) as exc:
+        raise APIError(500, f"静音检测失败: {exc}", code="analysis_failed") from exc
+    segments = keep_segments(silences, info.duration, padding)
+    if len(segments) > MAX_SEGMENTS:
+        raise APIError(
+            400,
+            f"保留片段超过 {MAX_SEGMENTS} 个，请增大最短静音时长或降低静音阈值",
+            code="too_many_segments",
+            params={"max": MAX_SEGMENTS},
+        )
+    return {
+        "silences": [{"start": round(s, 3), "end": round(e, 3)} for s, e in silences],
+        "segments": segments,
+        "duration": info.duration,
+    }
 
 
 def _cache_headers() -> dict[str, str]:
