@@ -97,7 +97,7 @@ class MergeParams(BaseModel):
 
 class CompressParams(BaseModel):
     op: Literal["compress"] = "compress"
-    codec: Literal["h264", "h265"] = "h264"
+    codec: Literal["h264", "h265", "av1"] = "h264"
     quality: Literal["high", "medium", "low"] = "medium"
     # Shorter side in pixels; None keeps the original resolution.
     resolution: Literal[2160, 1440, 1080, 720, 480, 360] | None = None
@@ -669,7 +669,13 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
 CRF_TABLE = {
     "h264": {"high": 23, "medium": 27, "low": 31},
     "h265": {"high": 26, "medium": 29, "low": 33},
+    # SVT-AV1 uses a 0-63 scale.
+    "av1": {"high": 30, "medium": 36, "low": 42},
 }
+ENCODERS = {"h264": "libx264", "h265": "libx265", "av1": "libsvtav1"}
+# SVT-AV1 presets (0 slowest .. 13 fastest) for the x264-style preset names; 11+ is
+# documented as unsuitable for viewing.
+SVT_PRESETS = {"ultrafast": 10, "veryfast": 9, "faster": 8, "fast": 7, "medium": 6, "slow": 4}
 
 
 def plan_compress(
@@ -690,12 +696,13 @@ def plan_compress(
         filters.append(f"scale={w}:{h}")
     if p.max_fps and info.fps > p.max_fps:
         filters.append(f"fps={p.max_fps}")
-    # H.265 keeps a 10-bit SDR source at 10 bits; H.264 stays 8-bit for browsers.
-    ten_bit = p.codec == "h265" and info.high_bit_depth and not info.is_hdr
+    # H.265/AV1 keep a 10-bit SDR source at 10 bits; H.264 stays 8-bit for browsers.
+    ten_bit = p.codec != "h264" and info.high_bit_depth and not info.is_hdr
     pix_fmt = "yuv420p10le" if ten_bit else "yuv420p"
     filters.append(f"format={pix_fmt}")
     vf = ["-vf", ",".join(filters), "-pix_fmt", pix_fmt]
-    encoder = "libx264" if p.codec == "h264" else "libx265"
+    encoder = ENCODERS[p.codec]
+    preset = str(SVT_PRESETS[p.preset]) if p.codec == "av1" else p.preset
     tag = ["-tag:v", "hvc1"] if p.codec == "h265" else []
     audio = aac(p.audio_bitrate) if info.has_audio else []
     if info.has_audio and audio_filters:
@@ -706,7 +713,7 @@ def plan_compress(
         audio += subtitle_codec(info)
 
     if p.target_size_mb is None:
-        args = [*input_args, *stream_maps, *vf, "-c:v", encoder, "-preset", p.preset]
+        args = [*input_args, *stream_maps, *vf, "-c:v", encoder, "-preset", preset]
         args += ["-crf", str(CRF_TABLE[p.codec][p.quality]), *tag, *audio, *MP4_FLAGS, str(out)]
         return OpPlan([args], info.duration)
 
@@ -720,13 +727,15 @@ def plan_compress(
     log = tmp / "2pass"
 
     def pass_args(n: int) -> list[str]:
-        if p.codec == "h264":
-            return ["-pass", str(n), "-passlogfile", str(log)]
-        return ["-x265-params", f"pass={n}:stats={log}.log"]
+        if p.codec == "h265":
+            return ["-x265-params", f"pass={n}:stats={log}.log"]
+        return ["-pass", str(n), "-passlogfile", str(log)]
 
-    rate = ["-b:v", f"{video_kbps}k", "-maxrate", f"{int(video_kbps * 1.5)}k"]
-    rate += ["-bufsize", f"{video_kbps * 2}k"]
-    common = [*input_args, *vf, "-c:v", encoder, "-preset", p.preset, *rate]
+    rate = ["-b:v", f"{video_kbps}k"]
+    if p.codec != "av1":
+        # SVT-AV1 only accepts a maximum bitrate in capped-CRF mode.
+        rate += ["-maxrate", f"{int(video_kbps * 1.5)}k", "-bufsize", f"{video_kbps * 2}k"]
+    common = [*input_args, *vf, "-c:v", encoder, "-preset", preset, *rate]
     pass1 = [*common, *pass_args(1), "-map", f"0:{info.video_index}", "-an", "-f", "null", "-"]
     pass2 = [*common, *pass_args(2), *stream_maps, *tag, *audio, *MP4_FLAGS, str(out)]
     return OpPlan([pass1, pass2], info.duration)

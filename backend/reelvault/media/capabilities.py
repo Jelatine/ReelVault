@@ -81,9 +81,9 @@ def required_features(edit: ops.EditParams) -> list[str]:
         case ops.AnimationParams():
             return [edit.format]
         case ops.CompressParams():
-            return ["h265"] if edit.codec == "h265" else []
+            return [] if edit.codec == "h264" else [edit.codec]
         case ops.MixedParams():
-            return ["h265"] if edit.compress.codec == "h265" else []
+            return [] if edit.compress.codec == "h264" else [edit.compress.codec]
         case ops.ConvertParams():
             return ["webm"] if edit.format == "webm" else []
         case ops.ExtractAudioParams():

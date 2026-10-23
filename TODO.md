@@ -14,6 +14,44 @@
 - [x] 转为 MP4 时按轨道复制：视频可复制即复制，仅不兼容的音轨重编码为 AAC。
 - [x] 带 B 帧的 MKV／WebM 快速剪辑：FFmpeg 对按 DTS 定位的封装会把输入定位回退 3/23 秒，导致从前一个关键帧开始复制、时长校验失败；现按回退量补偿定位点，`-t` 从请求定位点起算。MP4／MOV／TS 不受影响。
 
+### 暂停中的工作：AV1 压缩（2026-10-23，未提交，在工作区）
+
+后端已完成并通过相关测试（`test_edit.py -k "av1 or compress"`、`test_encoding.py`、`test_stream_preservation.py`、`test_capabilities.py`），尚未跑完整回归，未提交。
+
+- 已改：`CompressParams.codec` 增加 `av1`（`libsvtav1`）；`CRF_TABLE["av1"]` 为 30／36／42（0–63 刻度）；`SVT_PRESETS` 将 ultrafast…slow 映射为 10／9／8／7／6／4（≥11 官方不建议观看用途）；10-bit SDR 源保持 10-bit；按目标大小走 `-pass 1/2`（实测 SVT-AV1 v4.2 两遍误差约 1%，单遍 VBR 超出约 31%），AV1 不加 `-maxrate/-bufsize`（SVT 仅在 capped CRF 下接受）；组件检测映射 `av1`；`EncoderRuntime.run` 对无硬件对应的软件编码器如实记录编码器名，不再显示 `copy/other`。
+- 待做：
+  - [ ] 前端 `CompressPanel`／`MixedFields` 编码下拉增加 AV1（提示编码较慢、浏览器可直接播放），`describeEdit` 与翻译。
+  - [ ] 完整前后端回归后提交。
+  - [ ] 确认旧版 FFmpeg（如 Debian／Ubuntu 24.04 的 6.x）中 `libsvtav1` 是否支持 `-pass`；不支持时 `-pass` 会被忽略、退化为单遍 VBR，目标大小偏差变大，可考虑按版本改用单遍并放宽提示。
+  - [ ] 可选：硬件 AV1（`av1_nvenc`／`av1_qsv`／`av1_vaapi`）加入 `encoding.FAMILIES`，复用现有回退；VideoToolbox 无 AV1 编码。
+
+### 后续计划（未开始）
+
+编辑与无损处理
+- [ ] 无损旋转：只改显示方向时用 `-c copy -display_rotation`（FFmpeg ≥ 6.1，需检测支持），作为旋转的默认快速模式。
+- [ ] 多段快速剪辑：每段 `-c copy` 切出（复用 MKV 定位补偿）再用 concat demuxer 拼接；字幕仍不保留。
+- [ ] 智能剪切：仅重编码切点附近的半个 GOP，中间流复制；需编码参数与源一致（profile／level／SPS），难度高。
+- [ ] 章节读写：probe 加 `-show_chapters` 导入为书签；编辑时用 ffmetadata 写入书签／场景章节，剪辑与变速时换算时间。
+- [ ] VFR 检测（`r_frame_rate` 与 `avg_frame_rate` 差异）并在合并／转场／效果前统一 `-fps_mode cfr`，避免音画漂移。
+
+派生媒体与播放
+- [ ] 兼容播放副本：HEVC 源优先 remux 为 `hvc1` MP4，前端按 `MediaSource.isTypeSupported` 决定是否需要 H.264 转码，省 CPU 与磁盘。
+- [ ] HLS：H.264 源最高档直接流复制切片（需对齐关键帧）；fMP4 分片以支持 HEVC／AV1 档位；Vidstack 清晰度菜单对竖屏仍按高度显示，需自定义标签。
+- [ ] 封面避开黑场：`blackdetect` 或 `thumbnail` 滤镜在默认时间点附近选代表帧。
+- [ ] HDR 色调映射提速：检测 `libplacebo`／`tonemap_vaapi`／`tonemap_opencl` 后优先使用；识别 Dolby Vision（Profile 5 无 transfer 标签）并提示。
+
+分析与质量
+- [ ] 静音检测与黑边检测目前是同步 HTTP 请求（静音超时 600 秒、客户端断开不取消）；长视频应改为可取消、带进度的任务，可参照场景检测。
+- [ ] 导入时完整解码检查（`-v error -f null -`）标记损坏文件，提供 `-err_detect ignore_err` 重新封装修复。
+- [ ] 画质评估：`libvmaf`／`ssim` 报告压缩质量，或实现目标质量压缩。
+- [ ] 剪辑时间轴音频波形（`showwavespic`）。
+- [ ] 去隔行可选 `send_field`（双倍帧率，更流畅），需同步调整依赖 `info.fps` 的时间计算。
+
+工程
+- [ ] `run_command` 以 `-hide_banner`+`-nostdin` 判断是否为 FFmpeg，较脆弱；改由 `ffmpeg_args` 显式标记。
+- [ ] 目标大小压缩支持硬件编码（NVENC／QSV 的 VBR 或多遍）。
+- [ ] QSV、VAAPI 实机验证（见第 7 节）；本轮新增的 HEVC Main10、HLS Level 4.2–5.2 也只做了参数测试，未在硬件上运行。
+
 ## FFmpeg 可靠性改进（2026-10-22）
 
 - [x] 编辑输出在保存／替换前校验：轨道、尺寸、时长与首尾解码采样；WebP 动画进行结构与时长校验，失败不替换源文件。

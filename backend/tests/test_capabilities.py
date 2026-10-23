@@ -39,6 +39,8 @@ def test_required_features_follow_edit_options() -> None:
     assert required_features(edit({"op": "watermark", "text": "hi"})) == ["text_watermark"]
     assert required_features(edit({"op": "animation", "format": "webp", "end": 1})) == ["webp"]
     assert required_features(edit({"op": "compress", "codec": "h265"})) == ["h265"]
+    assert required_features(edit({"op": "compress", "codec": "av1"})) == ["av1"]
+    assert required_features(edit({"op": "compress"})) == []
     assert required_features(edit({"op": "convert", "format": "webm"})) == ["webm"]
     assert all(feature in FEATURES for feature in ("stabilize", "loudness", "webp"))
 

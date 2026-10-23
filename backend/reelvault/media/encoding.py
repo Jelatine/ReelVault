@@ -336,9 +336,13 @@ class EncoderRuntime:
         if fallback and handle and handle.on_log:
             handle.on_log(f"使用软件编码：{fallback}", "warning")
         await execute(commands)
+        # Encoders without hardware counterparts (e.g. libsvtav1) are reported as run.
+        named = next(
+            (a[i + 1] for a in commands for i in range(len(a) - 1) if a[i] == "-c:v"), None
+        )
         return {
             "requested": requested,
-            "encoder": software or "copy/other",
+            "encoder": software or (named if named and named != "copy" else "copy/other"),
             "decoder": None,
             "fallback": fallback,
         }

@@ -197,6 +197,36 @@ def test_compress_h265(client: TestClient, clip: dict[str, Any]) -> None:
     assert v["video_codec"] == "hevc"
 
 
+def test_compress_av1_crf_and_target_size(client: TestClient, samples: dict[str, Path]) -> None:
+    long = upload_ready(client, samples["long"])
+    edit = {"op": "compress", "codec": "av1", "preset": "ultrafast", "resolution": 360}
+    v = result_video(client, run_edit(client, long["id"], edit))
+    assert v["video_codec"] == "av1" and v["height"] == 360
+    job = run_edit(client, long["id"], {**edit, "target_size_mb": 0.4, "audio_bitrate": 64})
+    assert job["params"]["encoding"]["encoder"] == "libsvtav1"
+    v = result_video(client, job)
+    assert v["video_codec"] == "av1"
+    assert v["size"] < 0.4 * 1.2 * 1024 * 1024
+
+
+def test_av1_plan_maps_presets_without_maxrate(tmp_path: Path) -> None:
+    info = MediaInfo(width=1280, height=720, duration=10, fps=30, video_codec="hevc")
+    info.pix_fmt = "yuv420p10le"
+    params = ops.CompressParams(codec="av1", preset="medium", target_size_mb=5)
+    pass1, pass2 = ops.plan_compress(
+        params, (tmp_path / "in", info), tmp_path / "o.mp4", tmp_path
+    ).commands
+    for command in (pass1, pass2):
+        assert command[command.index("-c:v") + 1] == "libsvtav1"
+        assert command[command.index("-preset") + 1] == str(ops.SVT_PRESETS["medium"])
+        assert "-maxrate" not in command and "-pass" in command
+        assert command[command.index("-pix_fmt") + 1] == "yuv420p10le"
+    crf = ops.plan_compress(
+        ops.CompressParams(codec="av1"), (tmp_path / "in", info), tmp_path / "o.mp4", tmp_path
+    ).commands[0]
+    assert crf[crf.index("-crf") + 1] == str(ops.CRF_TABLE["av1"]["medium"])
+
+
 def test_mixed_rotate_compress(client: TestClient, samples: dict[str, Path]) -> None:
     source = upload_ready(client, samples["long"])
     edit = {
