@@ -631,7 +631,7 @@ test('AV1 压缩与混合编辑生成、摘要及直接播放', async ({ page })
     await page.goto(`/videos/${source.id}?tool=${tool}`)
     await page.getByRole('combobox', { name: '编码', exact: true }).click()
     await page.getByRole('option', { name: 'AV1（编码较慢）' }).click()
-    await expect(page.getByText('AV1 使用软件编码，编码较慢；支持 AV1 的浏览器可直接播放。')).toBeVisible()
+    await expect(page.getByText('AV1 优先使用支持 AV1 的硬件编码器，否则使用较慢的软件编码；支持 AV1 的浏览器可直接播放。')).toBeVisible()
     const submitted = page.waitForResponse(r => r.url().endsWith('/edit') && r.request().method() === 'POST')
     await page.getByRole('button', { name: tool === 'mixed' ? '开始混合编辑' : '开始压缩', exact: true }).click()
     const response = await submitted
