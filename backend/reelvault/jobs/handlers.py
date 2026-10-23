@@ -789,6 +789,9 @@ async def hls(ctx: JobContext, job: Job) -> None:
     committed = False
     old_generation = None
     try:
+        index = await timing_index(
+            settings, video.id, source, info.video_index, keyframes_only=True, handle=ctx.handle
+        )
         renditions = await generate(
             settings.ffmpeg,
             settings.ffprobe,
@@ -799,6 +802,7 @@ async def hls(ctx: JobContext, job: Job) -> None:
             on_progress=ctx.stage(0, 1, "生成 HLS 清晰度"),
             encoding=ctx.manager.encoding,
             encoder=settings.encoder,
+            keyframes=index["keyframes"],
         )
         ctx.check_canceled()
         size = sum(p.stat().st_size for p in (temp / "hls").rglob("*") if p.is_file())

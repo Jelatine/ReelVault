@@ -17,6 +17,7 @@ import { streamUrl } from '../lib/hevc'
 import PlayerMarkers from './PlayerMarkers'
 import { chapterVtt } from '../lib/bookmarks'
 import './player-markers.css'
+import QualityMenuItems from './QualityMenuItems'
 import type { Bookmark, Chapter } from '../lib/bookmarks'
 import { usePlaybackPreferences, validLoop, type LoopRange } from '../lib/playback'
 import { useSubtitles } from '../lib/subtitles'
@@ -219,7 +220,7 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
         noGestures={touch}
         noScrubGesture={touch}
         icons={defaultLayoutIcons}
-        slots={{ afterTimeSlider: <PlayerMarkers bookmarks={bookmarks} chapters={chapters} duration={video.duration}
+        slots={{ qualityMenuItemsStart: <QualityMenuItems />, afterTimeSlider: <PlayerMarkers bookmarks={bookmarks} chapters={chapters} duration={video.duration}
           seek={(time) => { if (player.current) player.current.currentTime = time }} /> }}
         thumbnails={video.thumbnails_url ?? undefined}
         playbackRates={[0.5, 0.75, 1, 1.25, 1.5, 2, 3]}

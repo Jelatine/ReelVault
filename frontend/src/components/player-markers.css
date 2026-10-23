@@ -5,3 +5,4 @@
 .rv-player-marker:focus-visible { outline: 3px solid #ffd43b; outline-offset: 2px; }
 
 .vds-video-layout[data-sm] .rv-player-markers { top: 19.5px; left: calc(6px + var(--media-slider-thumb-size, 15px) / 2); right: calc(6px + var(--media-slider-thumb-size, 15px) / 2); }
+.vds-quality-menu .vds-quality-radio-group:not(.rv-quality-radio-group) { display: none; }

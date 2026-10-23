@@ -390,3 +390,125 @@ def test_real_portrait_60fps_keeps_rate_size_and_declares_codecs(tmp_path):
         check=True,
     ).stdout.split()[0]
     assert level == "42,60/1"
+
+
+def segment_starts(folder):
+    """Segment start times from the playlist; each segment must start with a keyframe."""
+    durations = [
+        float(line.split(":")[1].rstrip(","))
+        for line in (folder / "index.m3u8").read_text().splitlines()
+        if line.startswith("#EXTINF")
+    ]
+    init = folder / "init.mp4"
+    for segment in sorted(folder.glob("seg_*")):
+        # fMP4 segments are only decodable after their initialization section.
+        data = (init.read_bytes() if init.exists() else b"") + segment.read_bytes()
+        p = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries"]
+            + ["frame=key_frame", "-of", "csv=p=0", "-"],
+            input=data,
+            capture_output=True,
+            check=True,
+        )
+        assert p.stdout.decode().split()[0].startswith("1")
+    return [round(sum(durations[:i]), 2) for i in range(len(durations))]
+
+
+def keyframes_of(path):
+    out = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-skip_frame", "nokey"]
+        + ["-show_entries", "frame=best_effort_timestamp_time", "-of", "csv=p=0", str(path)]
+    )
+    return [float(line.strip(",")) for line in out.decode().split()]
+
+
+def test_h264_top_rung_is_copied_and_segments_align_to_source_keyframes(tmp_path):
+    src = make_video(
+        tmp_path / "hd.mp4",
+        duration=12,
+        size="1280x720",
+        rate=25,
+        extra=["-g", "1000", "-sc_threshold", "0", "-force_key_frames", "0,2.5,5.1,9,11"],
+    )
+    info = asyncio.run(probe("ffprobe", str(src)))
+    out = tmp_path / "hls"
+    renditions = asyncio.run(
+        generate(
+            "ffmpeg", "ffprobe", src, info, out,
+            handle=ProcessHandle(), on_progress=lambda _: None, keyframes=keyframes_of(src),
+        )
+    )  # fmt: skip
+    assert [(r["height"], r.get("copy", False)) for r in renditions] == [(360, False), (720, True)]
+    assert renditions[1]["codecs"] == f"avc1.6400{info.video_level:02X},mp4a.40.2"
+    # Every rendition cuts at the first source keyframe after each 4 s boundary.
+    assert segment_starts(out / "v0") == segment_starts(out / "v1") == [0, 5.12, 9.0]
+    copied = asyncio.run(probe("ffprobe", str(out / "v1" / "index.m3u8")))
+    assert copied.video_profile == "High" and copied.audio_codec == "aac"
+    master = (out / "master.m3u8").read_text()
+    assert "#EXT-X-VERSION:3" in master and master.count("#EXT-X-STREAM-INF") == 2
+
+
+def test_hevc_source_adds_an_fmp4_copy_tier_above_the_h264_ladder(tmp_path):
+    src = make_video(
+        tmp_path / "hevc.mp4",
+        duration=6,
+        size="640x360",
+        codec="libx265",
+        extra=["-preset", "ultrafast", "-x265-params", "log-level=error:pools=1:keyint=50"],
+    )
+    info = asyncio.run(probe("ffprobe", str(src)))
+    out = tmp_path / "hls"
+    renditions = asyncio.run(
+        generate(
+            "ffmpeg", "ffprobe", src, info, out,
+            handle=ProcessHandle(), on_progress=lambda _: None, keyframes=keyframes_of(src),
+        )
+    )  # fmt: skip
+    assert [r["codecs"].split(".")[0] for r in renditions] == ["avc1", "hvc1"]
+    assert renditions[1]["codecs"].startswith(f"hvc1.1.6.L{info.video_level}.B0")
+    assert (out / "v1" / "init.mp4").exists() and list((out / "v1").glob("seg_*.m4s"))
+    assert segment_starts(out / "v0") == segment_starts(out / "v1")
+    assert "#EXT-X-VERSION:7" in (out / "master.m3u8").read_text()
+    assert '#EXT-X-MAP:URI="init.mp4"' in (out / "v1" / "index.m3u8").read_text()
+    copied = asyncio.run(probe("ffprobe", str(out / "v1" / "index.m3u8")))
+    assert copied.video_codec == "hevc" and copied.video_tag == "hvc1"
+
+
+def test_copy_needs_short_gops_and_a_plain_timeline():
+    from reelvault.media.hls import copy_codecs
+
+    info = MediaInfo(
+        duration=30, width=1920, height=1080, fps=25, nominal_fps=25, video_codec="h264",
+        video_profile="Main", video_level=40, pix_fmt="yuv420p",
+    )  # fmt: skip
+    assert copy_codecs(info, [0, 8, 16, 24]) == "avc1.4D4028"
+    assert copy_codecs(info, [0, 12, 24]) is None  # 12 s GOPs
+    assert copy_codecs(info, None) is None
+    changes = [{"rotation": 90}, {"field_order": "tt"}, {"nominal_fps": 60}, {"video_delay": 0.04}]
+    changes += [{"pix_fmt": "yuv422p"}, {"color_transfer": "smpte2084"}]
+    for change in changes:
+        assert copy_codecs(MediaInfo(**{**info.__dict__, **change}), [0, 8, 16, 24]) is None
+
+
+def test_hls_serves_fmp4_and_high_renditions(client, settings, tmp_path):
+    src = make_video(
+        tmp_path / "hevc.mp4",
+        duration=3,
+        size="640x360",
+        codec="libx265",
+        extra=["-preset", "ultrafast", "-x265-params", "log-level=error:pools=1:keyint=25"],
+    )
+    video = upload_ready(client, src)
+    url = f"/api/videos/{video['id']}/hls"
+    enable(client)
+    job = client.post(url, json={}).json()
+    assert wait_job(client, job["id"])["status"] == "succeeded"
+    package = client.get(url).json()["package"]
+    assert [r.get("copy", False) for r in package["renditions"]] == [False, True]
+    base = package["url"].removesuffix("master.m3u8")
+    assert client.get(base + "v1/init.mp4").headers["content-type"] == "video/mp4"
+    segment = client.get(base + "v1/seg_000000.m4s")
+    assert segment.status_code == 200 and segment.headers["content-type"] == "video/iso.segment"
+    # Ladders reach v4 (2160p); the route no longer stops at v2.
+    assert client.get(base + "v4/index.m3u8").json()["code"] == "hls_resource_not_found"
+    assert client.get(base + "v10/index.m3u8").status_code == 404

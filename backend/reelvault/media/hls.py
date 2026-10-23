@@ -14,6 +14,11 @@ from .probe import MediaInfo, probe
 # Short side of each rung and its video bitrate at up to 30 fps.
 RUNGS = ((360, 800_000), (720, 2_500_000), (1080, 5_000_000), (1440, 9_000_000), (2160, 16_000_000))
 MAX_FPS = 60
+# Longest source keyframe interval a copied rendition accepts: segments start at the
+# first keyframe after each 4 s boundary, so longer GOPs make overlong segments.
+COPY_MAX_GOP = 10.0
+H264_PROFILES = {"Constrained Baseline": "42E0", "Baseline": "4200", "Main": "4D40", "High": "6400"}
+HEVC_PROFILES = {"Main": "1.6", "Main 10": "2.4"}
 # H.264 Table A-1: (level, max macroblocks per frame, max macroblocks per second).
 LEVELS = (
     ("4.0", 8192, 245760),
@@ -46,6 +51,34 @@ def h264_level(short: int, fps: float) -> str:
     )
 
 
+def copy_codecs(info: MediaInfo, keyframes: list[float] | None) -> str | None:
+    """RFC 6381 codecs of a rendition that segments the source video without re-encoding.
+
+    None when the source cannot be copied: its timeline, rate or format would not line
+    up with the encoded renditions, its GOPs are too long, or browsers cannot play it.
+    """
+    if not keyframes:
+        return None
+    gaps = [b - a for a, b in zip([0.0, *keyframes], [*keyframes, info.duration], strict=True)]
+    return source_codecs(info) if max(gaps) <= COPY_MAX_GOP else None
+
+
+def source_codecs(info: MediaInfo) -> str | None:
+    if info.is_hdr or info.interlaced or info.variable_frame_rate or not info.video_level:
+        return None
+    if info.rotation or abs(info.video_delay) > 0.002 or not 0 < info.fps <= MAX_FPS:
+        return None
+    level = info.video_level
+    if info.video_codec == "h264" and info.pix_fmt in {"yuv420p", "yuvj420p"}:
+        profile = H264_PROFILES.get(info.video_profile)
+        return f"avc1.{profile}{level:02X}" if profile else None
+    if info.video_codec == "hevc" and info.video_profile in HEVC_PROFILES:
+        return f"hvc1.{HEVC_PROFILES[info.video_profile]}.L{level}.B0"
+    if info.video_codec == "av1" and info.video_profile == "Main":
+        return f"av01.0.{level:02d}M.{10 if info.high_bit_depth else 8:02d}"
+    return None
+
+
 def ladder(info: MediaInfo) -> list[tuple[int, int]]:
     """(short side, video bitrate) per rendition; portrait videos rank by width."""
     if info.duration <= 0 or info.height < 2 or info.width < 2:
@@ -66,8 +99,10 @@ def ladder(info: MediaInfo) -> list[tuple[int, int]]:
 
 
 def estimated_bytes(info: MediaInfo) -> int:
+    # A copied source rendition may be added; keyframe spacing is only known later.
+    copied = (info.video_bitrate or info.bitrate) if source_codecs(info) else 0
     return math.ceil(
-        sum(rate + (128_000 if info.has_audio else 0) for _, rate in ladder(info))
+        (sum(rate + (128_000 if info.has_audio else 0) for _, rate in ladder(info)) + copied)
         * info.duration
         / 8
         * 1.3
@@ -85,10 +120,22 @@ async def generate(
     on_progress: ProgressCallback,
     encoding: EncoderRuntime | None = None,
     encoder: str = "software",
+    keyframes: list[float] | None = None,
 ) -> list[dict[str, Any]]:
+    """Encode the ladder; with ``keyframes``, also copy the source video when possible.
+
+    A copied rendition cuts segments at source keyframes, so the encoded renditions then
+    place their keyframes at the source keyframes too and every rendition switches at
+    the same times. H.264 copies replace the encoded rung of the same size; HEVC and AV1
+    copies (in fMP4) are an extra tier for browsers that decode them.
+    """
     out.mkdir(parents=True, exist_ok=True)
     variants = ladder(info)
     fps = output_fps(info)
+    copied = copy_codecs(info, keyframes)
+    short_side = min(info.width, info.height)
+    if copied and info.video_codec == "h264":
+        variants = [variant for variant in variants if variant[0] != short_side]
     count = len(variants)
     tone = source_filter(info)
     # Decode and normalise timing once, then split into every rendition in one process.
@@ -108,14 +155,23 @@ async def generate(
             f"h='max(2,trunc(if(gte(dar,1),min({short},{long}/dar),min({long},{short}/dar))/2)*2)',"
             f"setsar=1,format=yuv420p[v{index}]"
         )
+    audio_chain = (
+        f"asetpts=PTS-STARTPTS,aresample=48000,"
+        f"adelay=delays={max(0, info.audio_delay) * 1000:.6f}:all=1,apad,"
+        f"atrim=duration={info.duration:.9f}"
+    )
     if info.has_audio:
-        graph += (
-            f";[0:{info.audio_index}]asetpts=PTS-STARTPTS,aresample=48000,"
-            f"adelay=delays={max(0, info.audio_delay) * 1000:.6f}:all=1,apad,"
-            f"atrim=duration={info.duration:.9f},asplit={count}"
-            + "".join(f"[a{i}]" for i in range(count))
+        graph += f";[0:{info.audio_index}]{audio_chain},asplit={count}" + "".join(
+            f"[a{i}]" for i in range(count)
         )
     args = ["-i", str(source.resolve()), "-filter_complex", graph]
+    if copied:
+        # Source keyframes are at most COPY_MAX_GOP apart: no keyframes in between.
+        gop = str(math.ceil(fps * (COPY_MAX_GOP + 1)))
+        keys = ["-g", gop, "-keyint_min", "1", "-force_key_frames", "source"]
+    else:
+        gop = str(math.ceil(fps * 4))
+        keys = ["-g", gop, "-keyint_min", gop, "-force_key_frames", "expr:gte(t,n_forced*4)"]
     for index, (short, bitrate) in enumerate(variants):
         (out / f"v{index}").mkdir()
         # Map video before audio so hardware adaptation finds each output's video label.
@@ -139,16 +195,12 @@ async def generate(
             str(bitrate),
             "-bufsize",
             str(bitrate * 2),
-            "-g",
-            str(math.ceil(fps * 4)),
-            "-keyint_min",
-            str(math.ceil(fps * 4)),
+            *keys[:4],
             "-sc_threshold",
             "0",
             "-flags",
             "+cgop",
-            "-force_key_frames",
-            "expr:gte(t,n_forced*4)",
+            *keys[4:],
         ]
         if info.has_audio:
             args += ["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]
@@ -172,9 +224,30 @@ async def generate(
             f"v{index}/index.m3u8",
         ]
 
+    commands = [args] if variants else []
+    if copied:
+        name = f"v{count}"
+        (out / name).mkdir()
+        fmp4 = info.video_codec != "h264"
+        copy = ["-i", str(source.resolve()), "-map", f"0:{info.video_index}"]
+        if info.has_audio:
+            copy += ["-map", f"0:{info.audio_index}", "-af", audio_chain]
+            copy += ["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]
+        else:
+            copy += ["-an"]
+        copy += ["-c:v", "copy", "-sn", "-dn"]
+        if info.video_codec == "hevc":
+            copy += ["-tag:v", "hvc1"]
+        copy += ["-f", "hls", "-hls_time", "4", "-hls_playlist_type", "vod"]
+        copy += ["-hls_flags", "independent_segments+temp_file"]
+        if fmp4:
+            copy += ["-hls_segment_type", "fmp4", "-hls_fmp4_init_filename", "init.mp4"]
+        segment = "seg_%06d.m4s" if fmp4 else "seg_%06d.ts"
+        copy += ["-hls_segment_filename", f"{name}/{segment}", f"{name}/index.m3u8"]
+        commands.append(copy)
     if encoding:
         await encoding.run(
-            [args],
+            commands,
             encoder,
             duration=info.duration,
             handle=handle,
@@ -182,18 +255,23 @@ async def generate(
             cwd=out,
         )
     else:
-        await run_command(
-            ffmpeg_args(ffmpeg, args),
-            cwd=out,
-            duration=info.duration,
-            handle=handle,
-            on_progress=on_progress,
-        )
+        for index, command in enumerate(commands):
+
+            def progress(value: float, index: int = index) -> None:
+                on_progress((index + value) / len(commands))
+
+            await run_command(
+                ffmpeg_args(ffmpeg, command),
+                cwd=out,
+                duration=info.duration,
+                handle=handle,
+                on_progress=progress,
+            )
     renditions = []
     for index, (short, bitrate) in enumerate(variants):
         folder = out / f"v{index}"
         encoded = await probe(ffprobe, str(folder / "index.m3u8"), handle)
-        if not list(folder.glob("*.ts")):
+        if not list(folder.glob("seg_*")):
             raise RuntimeError("HLS 没有生成分片")
         # Main profile (x264 sets constraint_set1) at the rendition's level.
         level = h264_level(short, fps)
@@ -210,12 +288,31 @@ async def generate(
                 "codecs": codecs,
             }
         )
-    lines = ["#EXTM3U", "#EXT-X-VERSION:3", "#EXT-X-INDEPENDENT-SEGMENTS"]
+    if copied:
+        folder = out / f"v{count}"
+        if not list(folder.glob("seg_*")):
+            raise RuntimeError("HLS 没有生成分片")
+        copy_info = await probe(ffprobe, str(folder / "index.m3u8"), handle)
+        rate = info.video_bitrate or info.bitrate or (variants[-1][1] if variants else 300_000)
+        renditions.append(
+            {
+                "name": f"v{count}",
+                "height": copy_info.height,
+                "width": copy_info.width,
+                "bitrate": rate + (128_000 if info.has_audio else 0),
+                "fps": fps,
+                "codecs": copied + (",mp4a.40.2" if info.has_audio else ""),
+                "copy": True,
+            }
+        )
+    # Version 7 is needed for fMP4 (EXT-X-MAP) renditions.
+    version = 7 if copied and info.video_codec != "h264" else 3
+    lines = ["#EXTM3U", f"#EXT-X-VERSION:{version}", "#EXT-X-INDEPENDENT-SEGMENTS"]
     for rendition in renditions:
         lines += [
             f"#EXT-X-STREAM-INF:BANDWIDTH={rendition['bitrate']},"
             f"RESOLUTION={rendition['width']}x{rendition['height']},"
-            f'FRAME-RATE={fps:.3f},CODECS="{rendition["codecs"]}"',
+            f'FRAME-RATE={rendition["fps"]:.3f},CODECS="{rendition["codecs"]}"',
             f"{rendition['name']}/index.m3u8",
         ]
     (out / "master.m3u8").write_text("\n".join(lines) + "\n")

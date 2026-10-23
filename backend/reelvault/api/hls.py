@@ -255,7 +255,7 @@ def serve_hls(
         raise APIError(404, "HLS 缓存不存在", code="hls_cache_not_found")
     if package.signature != signature(settings, video):
         raise APIError(409, "源文件已变化，请重新生成 HLS", code="hls_source_changed")
-    if not re.fullmatch(r"master\.m3u8|v[0-2]/(?:index\.m3u8|seg_\d{6}\.ts)", asset):
+    if not re.fullmatch(r"master\.m3u8|v\d/(?:index\.m3u8|init\.mp4|seg_\d{6}\.(?:ts|m4s))", asset):
         raise APIError(404, "HLS 资源不存在", code="hls_resource_not_found")
     root = (settings.derived_dir / video_id / "hls" / generation).resolve()
     path = (root / asset).resolve()
@@ -265,8 +265,8 @@ def serve_hls(
         or not path.is_file()
     ):
         raise APIError(404, "HLS 资源不存在", code="hls_resource_not_found")
-    return FileResponse(
-        path,
-        media_type="application/vnd.apple.mpegurl" if path.suffix == ".m3u8" else "video/mp2t",
-        headers={"Cache-Control": "private, no-cache"},
+    media_types = {".m3u8": "application/vnd.apple.mpegurl", ".m4s": "video/iso.segment"}
+    media_type = media_types.get(
+        path.suffix, "video/mp4" if path.suffix == ".mp4" else "video/mp2t"
     )
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, no-cache"})

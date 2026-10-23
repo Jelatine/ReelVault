@@ -42,7 +42,7 @@ AV1 兼容性收尾验证：后端完整回归 710 项通过、20 项跳过，�
 
 派生媒体与播放
 - [x] 兼容播放副本：HEVC 源优先 remux 为 `hvc1` MP4，前端按 `MediaSource.isTypeSupported` 决定是否需要 H.264 转码，省 CPU 与磁盘。客户端以 `?codec=hevc`／`?hevc=true` 声明支持：`hvc1` 标记的 MP4/MOV 原文件直接播放，其他 SDR HEVC 生成 `hevc-<任务>.mp4` 重新封装副本（记录在 `meta.hevc_playable_path`，启动清理识别）；不支持 HEVC 的浏览器沿用 H.264 副本；SDR HEVC 入库不再预生成 H.264 副本。HDR HEVC 仍走 H.264。未在支持 HEVC 的真实浏览器中验证播放（本机 Chromium 无 HEVC／H.264 解码）。
-- [ ] HLS：H.264 源最高档直接流复制切片（需对齐关键帧）；fMP4 分片以支持 HEVC／AV1 档位；Vidstack 清晰度菜单对竖屏仍按高度显示，需自定义标签。
+- [x] HLS：H.264 源最高档直接流复制切片（需对齐关键帧）；fMP4 分片以支持 HEVC／AV1 档位；Vidstack 清晰度菜单对竖屏仍按高度显示，需自定义标签。可复制的源（SDR、逐行、恒定帧率 ≤60、无旋转、视频起点与容器一致、关键帧间隔 ≤10 秒）增加复制档：H.264 用 TS 替代同尺寸编码档，HEVC／AV1 用 fMP4（`hvc1`／`av01`，主播放列表升为 VERSION 7）作额外档；编码档改用 `-force_key_frames source`，实测与复制档分片边界一致（不规则关键帧 0/2.5/5.1/9/11 秒时三档均为 0/5.12/9.0）。清晰度菜单在 `qualityMenuItemsStart` 插槽中替换默认列表，按短边并在同尺寸多编码时注明编码。同时修正分片路由只允许 v0–v2 导致 1440p／2160p 档 404 的问题。未在支持 HEVC／AV1 的真实浏览器中验证播放。
 - [ ] 封面避开黑场：`blackdetect` 或 `thumbnail` 滤镜在默认时间点附近选代表帧。
 - [ ] HDR 色调映射提速：检测 `libplacebo`／`tonemap_vaapi`／`tonemap_opencl` 后优先使用；识别 Dolby Vision（Profile 5 无 transfer 标签）并提示。
 
