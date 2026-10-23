@@ -87,6 +87,8 @@
   "GIF 调色板颜色数": "GIF palette colors",
   "H.264（兼容性最好）": "H.264 (best compatibility)",
   "H.265（体积更小）": "H.265 (smaller files)",
+  "AV1（编码较慢）": "AV1 (slower encoding)",
+  "AV1 使用软件编码，编码较慢；支持 AV1 的浏览器可直接播放。": "AV1 uses software encoding and is slower; browsers with AV1 support can play it directly.",
   "HLS 已关闭，请先在设置中开启": "HLS is disabled. Enable it in settings.",
   "HLS 状态载入失败：": "Could not load HLS status: ",
   "HLS 生成失败：": "HLS generation failed: ",

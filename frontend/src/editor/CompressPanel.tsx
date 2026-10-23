@@ -90,6 +90,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
           data={[
             { value: 'h264', label: tr("H.264（兼容性最好）") },
             { value: 'h265', label: tr("H.265（体积更小）") },
+            { value: 'av1', label: tr('AV1（编码较慢）') },
           ]}
         />
         <Select
@@ -100,6 +101,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
           data={[{ value: 'original', label: tr("原始（{{v0}}×{{v1}}）", { v0: outputWidth, v1: outputHeight }) }, ...resOptions.map((r) => ({ value: String(r), label: tr("{{v0}}p 上限", { v0: r }) }))]}
         />
       </Group>
+      {codec === 'av1' && <Text size="xs" c="dimmed">{tr('AV1 使用软件编码，编码较慢；支持 AV1 的浏览器可直接播放。')}</Text>}
       <Switch label={tr("按目标文件大小压缩（两遍编码）")} checked={useTarget} onChange={(e) => setUseTarget(e.currentTarget.checked)} />
       {useTarget ? (
         <NumberInput label={tr("目标大小 (MB)")} min={1} value={targetMb} onChange={(v) => setTargetMb(Number(v) || 1)} />

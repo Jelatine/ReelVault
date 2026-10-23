@@ -44,15 +44,34 @@ test('submit rotation and compression together; reject empty combinations and cl
   client.clear()
 })
 
-test('apply a complete mixed preset and preserve nested compression settings', async () => {
-  const edit = { op: 'mixed', trim: { start: 1, end: 10 }, crop: { op: 'crop', x: 0, y: 0, width: 320, height: 240 }, speed: { op: 'speed', factor: 0.5 }, rotate: null, mute: true, compress: { op: 'compress', codec: 'h265', quality: 'low', resolution: 360, target_size_mb: 2, audio_bitrate: 64, max_fps: 24, preset: 'fast' } }
+test.each(['h265', 'av1'])('apply a complete mixed %s preset and preserve nested compression settings', async codec => {
+  const edit = { op: 'mixed', trim: { start: 1, end: 10 }, crop: { op: 'crop', x: 0, y: 0, width: 320, height: 240 }, speed: { op: 'speed', factor: 0.5 }, rotate: null, mute: true, compress: { op: 'compress', codec, quality: 'low', resolution: 360, target_size_mb: 2, audio_bitrate: 64, max_fps: 24, preset: 'fast' } }
   const { client } = setup([{ id: 1, name: '组合预设', edit }])
   fireEvent.click(screen.getByRole('combobox', { name: '编辑预设' }))
   fireEvent.click(await screen.findByRole('option', { name: '组合预设' }))
   fireEvent.click(screen.getByRole('button', { name: '开始混合编辑' }))
   await waitFor(() => expect(submit).toHaveBeenCalledWith(edit, { mode: 'new', title: '' }))
   expect(describeEdit(edit)).toContain('混合编辑 → 剪辑')
-  expect(describeEdit(edit)).toContain('压缩 · H.265 · 360p 上限 · 目标 2 MB')
+  expect(describeEdit(edit)).toContain(`压缩 · ${codec === 'av1' ? 'AV1' : 'H.265'} · 360p 上限 · 目标 2 MB`)
+  client.clear()
+})
+
+test.each([false, true])('select AV1 and submit quality or target size compression (mixed=%s)', mixed => {
+  const { client } = setup([], mixed)
+  fireEvent.click(screen.getByRole('combobox', { name: '编码' }))
+  fireEvent.click(screen.getByRole('option', { name: 'AV1（编码较慢）' }))
+  expect(screen.getByText('AV1 使用软件编码，编码较慢；支持 AV1 的浏览器可直接播放。')).toBeDefined()
+  const button = screen.getByRole('button', { name: mixed ? '开始混合编辑' : '开始压缩' })
+  fireEvent.click(button)
+  const qualityEdit = submit.mock.lastCall![0]
+  expect(mixed ? qualityEdit.compress : qualityEdit).toEqual(expect.objectContaining({ codec: 'av1', quality: 'medium', target_size_mb: null }))
+  expect(describeEdit(qualityEdit)).toContain('压缩 · AV1 · 原分辨率 · 中画质')
+  fireEvent.click(screen.getByRole('switch', { name: '按目标文件大小压缩（两遍编码）' }))
+  fireEvent.change(screen.getByRole('textbox', { name: '目标大小 (MB)' }), { target: { value: '5' } })
+  fireEvent.click(button)
+  const targetEdit = submit.mock.lastCall![0]
+  expect(mixed ? targetEdit.compress : targetEdit).toEqual(expect.objectContaining({ codec: 'av1', target_size_mb: 5 }))
+  expect(describeEdit(targetEdit)).toContain('目标 5 MB')
   client.clear()
 })
 

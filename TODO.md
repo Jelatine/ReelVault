@@ -14,16 +14,20 @@
 - [x] 转为 MP4 时按轨道复制：视频可复制即复制，仅不兼容的音轨重编码为 AAC。
 - [x] 带 B 帧的 MKV／WebM 快速剪辑：FFmpeg 对按 DTS 定位的封装会把输入定位回退 3/23 秒，导致从前一个关键帧开始复制、时长校验失败；现按回退量补偿定位点，`-t` 从请求定位点起算。MP4／MOV／TS 不受影响。
 
-### 暂停中的工作：AV1 压缩（2026-10-23，未提交，在工作区）
+### AV1 压缩（2026-10-23，前端已完成）
 
-后端已完成并通过相关测试（`test_edit.py -k "av1 or compress"`、`test_encoding.py`、`test_stream_preservation.py`、`test_capabilities.py`），尚未跑完整回归，未提交。
+后端已在 `d909a85` 提交，并通过相关测试（`test_edit.py -k "av1 or compress"`、`test_encoding.py`、`test_stream_preservation.py`、`test_capabilities.py`）。前端已完成，验证记录见下方。
 
 - 已改：`CompressParams.codec` 增加 `av1`（`libsvtav1`）；`CRF_TABLE["av1"]` 为 30／36／42（0–63 刻度）；`SVT_PRESETS` 将 ultrafast…slow 映射为 10／9／8／7／6／4（≥11 官方不建议观看用途）；10-bit SDR 源保持 10-bit；按目标大小走 `-pass 1/2`（实测 SVT-AV1 v4.2 两遍误差约 1%，单遍 VBR 超出约 31%），AV1 不加 `-maxrate/-bufsize`（SVT 仅在 capped CRF 下接受）；组件检测映射 `av1`；`EncoderRuntime.run` 对无硬件对应的软件编码器如实记录编码器名，不再显示 `copy/other`。
 - 待做：
-  - [ ] 前端 `CompressPanel`／`MixedFields` 编码下拉增加 AV1（提示编码较慢、浏览器可直接播放），`describeEdit` 与翻译。
-  - [ ] 完整前后端回归后提交。
+  - [x] 前端 `CompressPanel` 编码下拉增加 AV1（混合编辑共用该面板，`MixedFields` 无独立编码下拉），提示软件编码较慢、支持 AV1 的浏览器可直接播放；`describeEdit` 正确显示 AV1，中英文翻译已补齐。
+  - [x] 完成前后端回归并提交；后端两项非 AV1 失败及复测结果见下方记录。
   - [ ] 确认旧版 FFmpeg（如 Debian／Ubuntu 24.04 的 6.x）中 `libsvtav1` 是否支持 `-pass`；不支持时 `-pass` 会被忽略、退化为单遍 VBR，目标大小偏差变大，可考虑按版本改用单遍并放宽提示。
   - [ ] 可选：硬件 AV1（`av1_nvenc`／`av1_qsv`／`av1_vaapi`）加入 `encoding.FAMILIES`，复用现有回退；VideoToolbox 无 AV1 编码。
+
+前端验证：完整单元测试 138 项通过，覆盖 AV1 压缩／混合编辑、画质／目标大小提交与嵌套预设恢复；lint、翻译审计、TypeScript 与生产构建通过。Chromium 相关回归 5 项通过、1 项 S3 条件跳过；新增 AV1 实测通过，压缩与混合编辑均由 `libsvtav1` 生成 AV1，编辑链摘要正确，结果通过原视频流接口直接解码播放。
+
+后端完整回归（沙箱外）：702 项通过、20 项跳过、2 项失败。失败为降噪效果断言（`test_real_denoise_reduces_background_noise`，单独复测通过）及此前已记录的 WebDAV 本地 HTTP 启动超时（`test_real_webdav_client_download_and_ffprobe_over_http`）。AV1 用例通过；前端改动与验证记录一并提交。
 
 ### 后续计划（未开始）
 

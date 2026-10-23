@@ -615,6 +615,44 @@ test('登录失败提示、登录后刷新保留会话', async ({ page }) => {
   expect(await download.failure()).toBeNull()
 })
 
+test('AV1 压缩与混合编辑生成、摘要及直接播放', async ({ page }) => {
+  await login(page)
+  const sample = execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i',
+    'testsrc2=size=160x120:rate=10:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-movflags', 'frag_keyframe+empty_moov', '-f', 'mp4', 'pipe:1'])
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'), page.getByRole('button', { name: '上传', exact: true }).click(),
+  ])
+  const completed = page.waitForResponse(r => r.url().endsWith('/complete') && r.request().method() === 'POST')
+  await selectUpload(page, chooser, { name: 'av1-browser.mp4', mimeType: 'video/mp4', buffer: sample })
+  const source = await (await completed).json()
+  await expect.poll(async () => (await (await page.request.get(`/api/videos/${source.id}`)).json()).status).toBe('ready')
+  for (const tool of ['compress', 'mixed']) {
+    await page.goto(`/videos/${source.id}?tool=${tool}`)
+    await page.getByRole('combobox', { name: '编码', exact: true }).click()
+    await page.getByRole('option', { name: 'AV1（编码较慢）' }).click()
+    await expect(page.getByText('AV1 使用软件编码，编码较慢；支持 AV1 的浏览器可直接播放。')).toBeVisible()
+    const submitted = page.waitForResponse(r => r.url().endsWith('/edit') && r.request().method() === 'POST')
+    await page.getByRole('button', { name: tool === 'mixed' ? '开始混合编辑' : '开始压缩', exact: true }).click()
+    const response = await submitted
+    expect(response.ok()).toBeTruthy()
+    const job = await response.json()
+    await expect.poll(async () => (await (await page.request.get(`/api/jobs/${job.id}`)).json()).status,
+      { timeout: 60_000 }).toBe('succeeded')
+    const result = await (await page.request.get(`/api/jobs/${job.id}`)).json()
+    const video = await (await page.request.get(`/api/videos/${result.result_video_id}`)).json()
+    expect(video.video_codec).toBe('av1')
+    expect(result.params.encoding.encoder).toBe('libsvtav1')
+    await page.goto(`/videos/${video.id}`)
+    await expect(page.getByText(/压缩 · AV1 ·/)).toBeVisible()
+    const player = page.locator('video')
+    await expect.poll(() => player.evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThanOrEqual(2)
+    await player.evaluate((v: HTMLVideoElement) => v.play())
+    await expect.poll(() => player.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(0.3)
+    expect(await player.evaluate((v: HTMLVideoElement) => new URL(v.currentSrc).pathname)).toBe(`/api/videos/${video.id}/stream`)
+  }
+})
+
 test('真实上传、解码播放、精确剪辑与结果播放', async ({ page }) => {
   await login(page)
   await page.request.put('/api/system/encoding', {
