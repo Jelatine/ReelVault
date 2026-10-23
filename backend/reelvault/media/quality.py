@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .color import needs_tone_mapping, source_filter, tone_device_args
-from .ffmpeg import ProcessHandle, ProgressCallback, run_command
+from .ffmpeg import ProcessHandle, ProgressCallback, ffmpeg_args, run_command
 from .probe import MediaInfo
 
 
@@ -61,12 +61,12 @@ async def measure_quality(
         log = Path(directory) / "vmaf.json"
         graph = quality_graph(reference[1], encoded[1], name, log.name)
         device = tone_device_args() if needs_tone_mapping(reference[1]) else []
-        args = [
-            ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "info",
-            "-progress", "pipe:1", "-nostats", *device,
-            "-i", str(encoded[0]), "-i", str(reference[0]),
-            "-lavfi", graph, "-an", "-f", "null", "-",
-        ]  # fmt: skip
+        args = ffmpeg_args(
+            ffmpeg,
+            [*device, "-i", str(encoded[0]), "-i", str(reference[0])]
+            + ["-lavfi", graph, "-an", "-f", "null", "-"],
+            loglevel="info",
+        )
         result = await run_command(
             args,
             handle=handle,

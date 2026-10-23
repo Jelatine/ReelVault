@@ -11,6 +11,7 @@ from .ffmpeg import (
     FFmpegOperationalError,
     ProcessHandle,
     ProgressCallback,
+    ffmpeg_args,
     run_command,
 )
 from .probe import MediaInfo
@@ -23,12 +24,9 @@ MAX_SEGMENTS = 50
 
 
 def _analysis(ffmpeg: str, args: list[str]) -> list[str]:
-    # Detection filters report at info level; -nostdin/-hide_banner keep the runner's
-    # stall detection, fed by -progress since detections can be minutes apart.
-    return [
-        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "info",
-        "-progress", "pipe:1", "-nostats", *args,
-    ]  # fmt: skip
+    # Detection filters report at info level; -progress feeds the runner's stall
+    # detection since detections can be minutes apart.
+    return ffmpeg_args(ffmpeg, args, loglevel="info")
 
 
 async def detect_crop(
@@ -155,10 +153,7 @@ async def check_integrity(
     streams = ["-map", f"0:{info.video_index}"]
     if info.audio_index is not None:
         streams += ["-map", f"0:{info.audio_index}"]
-    args = [
-        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
-        "-progress", "pipe:1", "-nostats", "-i", str(source), *streams, "-f", "null", "-",
-    ]  # fmt: skip
+    args = ffmpeg_args(ffmpeg, ["-i", str(source), *streams, "-f", "null", "-"])
     try:
         result = await run_command(
             args, handle=handle, duration=info.duration, on_progress=on_progress

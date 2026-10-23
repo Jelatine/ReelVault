@@ -54,7 +54,7 @@ AV1 兼容性收尾验证：后端完整回归 710 项通过、20 项跳过，�
 - [x] 去隔行可选 `send_field`（双倍帧率，更流畅），需同步调整依赖 `info.fps` 的时间计算。`REELVAULT_DEINTERLACE_MODE=field` 时 `bwdif` 改为 `send_field`；新增 `processed_fps(info)`（隔行且按场时为两倍），用于合并、转场与片段效果的默认帧率、HLS 输出帧率与码率档、压缩的最高帧率判断。实测 25i 源旋转重编码输出 50 fps、时长不变、逐行。默认仍为 `frame`。
 
 工程
-- [ ] `run_command` 以 `-hide_banner`+`-nostdin` 判断是否为 FFmpeg，较脆弱；改由 `ffmpeg_args` 显式标记。
+- [x] `run_command` 以 `-hide_banner`+`-nostdin` 判断是否为 FFmpeg，较脆弱；改由 `ffmpeg_args` 显式标记。`ffmpeg_args` 返回 `FFmpegCommand`（`list` 子类，可指定 `loglevel`），`run_command` 只对它注入线程限制、启用停滞检测并写任务日志；手写的响度、底噪、检测、画质与完整性命令改用 `ffmpeg_args`。ffprobe、能力探测与工作进程保持普通列表。
 - [ ] 目标大小压缩支持硬件编码（NVENC／QSV 的 VBR 或多遍）。
 - [ ] QSV、VAAPI 实机验证（见第 7 节）；本轮新增的 HEVC Main10、HLS Level 4.2–5.2 也只做了参数测试，未在硬件上运行。
 
