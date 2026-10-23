@@ -7,7 +7,7 @@ import { formatBytes } from '../lib/format'
 import { tr } from '../lib/i18n'
 import type { Video } from '../lib/types'
 import JobRow from './JobRow'
-import type { PlaybackCache } from '../lib/playback-cache'
+import { playbackCacheUrl, type PlaybackCache } from '../lib/playback-cache'
 
 
 export default function PlaybackCachePanel({ video, data, error, refetch }: {
@@ -21,9 +21,8 @@ export default function PlaybackCachePanel({ video, data, error, refetch }: {
   const act = async (clear: boolean) => {
     setBusy(true); setFailure('')
     try {
-      const url = `/api/videos/${video.id}/playback-cache`
-      if (clear) await api.del(url)
-      else await api.post(url)
+      if (clear) await api.del(`/api/videos/${video.id}/playback-cache`)
+      else await api.post(playbackCacheUrl(video))
       await qc.invalidateQueries({ queryKey: ['video', video.id] })
       await refetch()
     } catch (e) { setFailure(e instanceof Error ? e : String(e)) }
@@ -36,6 +35,7 @@ export default function PlaybackCachePanel({ video, data, error, refetch }: {
     <Text size="sm" c="dimmed">{tr('大文件按需生成浏览器兼容副本，原文件保留。可使用 HLS 播放，或生成兼容缓存。')}</Text>
     {(failure || error) && <Alert color="red">{errorText(failure || error!)}<Button variant="subtle" size="xs" onClick={() => void refetch()}>{tr('刷新')}</Button></Alert>}
     {data?.stale && <Alert color="orange">{tr('源文件已变化或缓存文件缺失，需要重新生成。')}</Alert>}
+    {data?.variant === 'hevc' && <Text size="xs" c="dimmed">{tr('此浏览器支持 HEVC：只需把原始视频流重新封装为 MP4，无需转码。')}</Text>}
     {data?.cached && <Text size="sm">{tr('兼容播放缓存已就绪')} · {formatBytes(data.size)}</Text>}
     {data?.job && !data.ready && data.job.status !== 'succeeded' && <JobRow job={data.job} compact />}
     <Group>

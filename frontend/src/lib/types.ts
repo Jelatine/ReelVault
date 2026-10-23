@@ -33,6 +33,7 @@ export interface Video {
   audio_codec: string | null
   rotation: number
   media?: VideoMedia
+  integrity?: { errors: number; aborted: boolean; sample: string[]; checked_at: string } | null
   cover_time: number | null
   tags: string[]
   created_at: string
@@ -43,6 +44,7 @@ export interface Video {
   poster_url: string | null
   preview_url: string | null
   thumbnails_url: string | null
+  waveform_url?: string | null
 }
 
 export interface VideoMedia {
@@ -51,6 +53,11 @@ export interface VideoMedia {
   video_level?: number
   video_bitrate?: number
   color_transfer?: string
+  variable_frame_rate?: boolean
+  auto_cover_time?: number
+  custom_cover?: boolean
+  dolby_vision_profile?: number
+  nominal_fps?: number
   coded_width?: number
   coded_height?: number
   sample_rate?: number
@@ -89,15 +96,16 @@ export type JobStatus = 'queued' | 'running' | 'paused' | 'succeeded' | 'failed'
 
 export interface Job {
   id: string
-  kind: 'ingest' | 'edit' | 'scenes' | 'hls' | 'duplicates' | 'link_import' | 'playable' | 'sprite' | 'probe' | 'original_cache' | 'transcribe' | 'vision_index' | 'ai_analyze'
+  kind: 'ingest' | 'edit' | 'scenes' | 'analysis' | 'integrity' | 'hls' | 'duplicates' | 'link_import' | 'playable' | 'sprite' | 'probe' | 'original_cache' | 'transcribe' | 'vision_index' | 'ai_analyze'
   status: JobStatus
   priority?: number
   eta_seconds?: number | null
   retry_of?: string | null
   conflicting_jobs?: string[]
   params: { edit?: { op: string; [k: string]: unknown }; output?: { mode: string }; name?: string
-    url?: string; title?: string; imported_title?: string; storage_id?: string
+    url?: string; title?: string; imported_title?: string; storage_id?: string; result?: unknown
     encoding?: { requested: string; encoder: string; decoder?: string | null; fallback: string | null }
+    quality?: { metric: 'vmaf' | 'ssim'; score: number }
     summary?: { total: number; scanned: number; cached: number; visual_failed: number; similar_pairs: number; errors: { video_id: string; error: string }[] } }
   video_ids: string[]
   result_video_id: string | null
@@ -134,6 +142,7 @@ export interface SystemInfo {
   ffmpeg_version: string
   /** Optional FFmpeg feature -> available; null when FFmpeg could not be queried. */
   ffmpeg_features?: Record<string, boolean> | null
+  hdr_tone_mapper?: string | null
   workers: number
   running_jobs: number
   queued_jobs: number

@@ -294,6 +294,63 @@ def test_startup_check_skips_absent_devices_in_auto(monkeypatch: pytest.MonkeyPa
     assert result["encoder"] == "h264_qsv" and "h264_qsv" not in runtime.unavailable
 
 
+def test_hardware_av1_from_compress_plan(tmp_path: Path) -> None:
+    info = ops.MediaInfo(width=1280, height=720, duration=10, fps=30, video_codec="hevc")
+    info.pix_fmt = "yuv420p10le"
+    params = ops.CompressParams(codec="av1", quality="high")
+    (args,) = ops.plan_compress(
+        params, (tmp_path / "in", info), tmp_path / "o.mp4", tmp_path
+    ).commands
+    expected = {"qsv": "av1_qsv", "nvenc": "av1_nvenc", "vaapi": "av1_vaapi"}
+    for family, codec in expected.items():
+        changed = hardware_command(args, family, "/dev/dri/renderD128")
+        assert changed[changed.index("-c:v") + 1] == codec
+        assert "libsvtav1" not in changed and "-crf" not in changed
+        assert "-profile:v" not in changed  # AV1 Main covers 10 bits
+    qsv = hardware_command(args, "qsv", "")
+    assert qsv[qsv.index("-global_quality") + 1] == "120"  # CRF 30 on the 0-255 scale
+    assert qsv[qsv.index("-pix_fmt") + 1] == "p010le"
+    nvenc = hardware_command(args, "nvenc", "")
+    assert nvenc[nvenc.index("-qp") + 1] == "120"
+    vaapi = hardware_command(args, "vaapi", "/dev/dri/renderD128")
+    assert vaapi[vaapi.index("-vf") + 1].endswith("format=p010,hwupload")
+    # VideoToolbox has no AV1 encoder: the command stays software.
+    assert hardware_command(args, "videotoolbox", "") == args
+
+
+def test_hardware_av1_choices_and_status() -> None:
+    runtime = EncoderRuntime("ffmpeg", {"h264_videotoolbox", "av1_nvenc", "av1_qsv"})
+    runtime.unavailable = {"av1_qsv"}
+    assert runtime.choices("auto", "libsvtav1") == ["nvenc"]
+    assert runtime.choices("videotoolbox", "libsvtav1") == []
+    assert runtime.choices("qsv", "libsvtav1") == ["qsv"]
+    families = {f["value"]: f for f in runtime.status("auto")["families"]}
+    assert [e["name"] for e in families["videotoolbox"]["encoders"]] == [
+        "h264_videotoolbox",
+        "hevc_videotoolbox",
+    ]
+    assert [e["name"] for e in families["nvenc"]["encoders"]][-1] == "av1_nvenc"
+
+
+def test_hardware_av1_run_and_two_pass_stays_software(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    async def run(args: list[str], **kwargs: Any) -> None:
+        calls.append(args)
+
+    monkeypatch.setattr(encoding, "run_command", run)
+    runtime = EncoderRuntime("ffmpeg", {"av1_nvenc"})
+    command = ["-i", "in.mp4", "-c:v", "libsvtav1", "-preset", "8", "-crf", "36", "out.mp4"]
+    result = asyncio.run(runtime.run([command], "auto"))
+    assert result["encoder"] == "av1_nvenc" and "av1_nvenc" in calls[-1]
+    two_pass = [[*command[:-1], "-b:v", "500k", "-pass", "1", "-f", "null", "-"]]
+    monkeypatch.setattr(encoding.Path, "is_file", lambda self: True)
+    monkeypatch.setattr(encoding.Path, "stat", lambda self: type("S", (), {"st_size": 1})())
+    two_pass[0][-3:-3] = ["-passlogfile", "log"]
+    result = asyncio.run(runtime.run(two_pass, "auto"))
+    assert result["encoder"] == "libsvtav1" and result["fallback"]
+
+
 def test_vaapi_unsupported_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(encoding.sys, "platform", "win32")
     runtime = EncoderRuntime("ffmpeg", {"h264_vaapi", "h264_nvenc"})
@@ -352,10 +409,12 @@ def test_real_software_fallback_output(
     not os.environ.get("REELVAULT_TEST_HARDWARE"),
     reason="requires actual GPU/driver; opt in explicitly",
 )
-@pytest.mark.parametrize("operation", ["h264", "h265", "rotate", "merge"])
+@pytest.mark.parametrize("operation", ["h264", "h265", "av1", "rotate", "merge"])
 def test_real_hardware_output(samples: dict[str, Path], tmp_path: Path, operation: str) -> None:
     family = os.environ["REELVAULT_TEST_HARDWARE"]
     assert family in encoding.FAMILIES, f"Unknown hardware family: {family}"
+    if operation == "av1" and not os.environ.get("REELVAULT_TEST_HARDWARE_AV1"):
+        pytest.skip("hardware AV1 encoding is opt-in: set REELVAULT_TEST_HARDWARE_AV1=1")
 
     asyncio.run(
         verify_operation(
@@ -366,3 +425,79 @@ def test_real_hardware_output(samples: dict[str, Path], tmp_path: Path, operatio
             device=os.environ.get("REELVAULT_TEST_VAAPI_DEVICE", "/dev/dri/renderD128"),
         )
     )
+
+
+def test_single_pass_and_bitrate_scaling() -> None:
+    two_pass = ["-i", "in", "-c:v", "libx265", "-b:v", "1000k", "-maxrate", "1500k"]
+    two_pass += ["-bufsize", "2000k", "-x265-params", "pass=2:stats=/t/2pass.log", "out.mp4"]
+    single = encoding.single_pass(two_pass)
+    assert "-x265-params" not in single and single[-1] == "out.mp4"
+    scaled = encoding.scale_bitrate(single, 0.5)
+    assert (
+        scaled[scaled.index("-b:v") + 1] == "500k"
+        and scaled[scaled.index("-bufsize") + 1] == "1000k"
+    )
+    x264 = ["-c:v", "libx264", "-b:v", "800k", "-pass", "2", "-passlogfile", "/t/2pass", "o.mp4"]
+    assert encoding.single_pass(x264) == ["-c:v", "libx264", "-b:v", "800k", "o.mp4"]
+
+
+def target_size_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, sizes: list[int]
+) -> tuple[dict[str, Any], list[list[str]]]:
+    info = ops.MediaInfo(width=640, height=360, duration=10, fps=25, video_codec="h264")
+    params = ops.CompressParams(target_size_mb=1)
+    plan = ops.plan_compress(params, (tmp_path / "in.mp4", info), tmp_path / "out.mp4", tmp_path)
+    calls: list[list[str]] = []
+    remaining = list(sizes)
+
+    async def run(args: list[str], **kwargs: Any) -> None:
+        calls.append(args)
+        out = Path(args[-1])
+        if out.suffix == ".mp4":
+            out.write_bytes(b"x" * (remaining.pop(0) if remaining and "-pass" not in args else 1))
+        elif "-passlogfile" in args:
+            Path(args[args.index("-passlogfile") + 1] + "-0.log").write_text("stats")
+
+    monkeypatch.setattr(encoding, "run_command", run)
+    runtime = EncoderRuntime("ffmpeg", {"h264_nvenc"})
+    result = asyncio.run(runtime.run(plan.commands, "nvenc", target_bytes=plan.target_bytes))
+    return result, calls
+
+
+def test_hardware_target_size_corrects_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mib = 1024 * 1024
+    result, calls = target_size_run(monkeypatch, tmp_path, [int(1.3 * mib), mib])
+    assert result["encoder"] == "h264_nvenc" and result["hardware_passes"] == 2
+    assert len(calls) == 2 and all("-pass" not in c and "h264_nvenc" in c for c in calls)
+    assert calls[0][calls[0].index("-multipass") + 1] == "fullres"
+    first = int(calls[0][calls[0].index("-b:v") + 1].rstrip("k"))
+    second = int(calls[1][calls[1].index("-b:v") + 1].rstrip("k"))
+    assert second == round(first * 0.97 / 1.3)
+
+
+def test_hardware_target_size_falls_back_to_software_two_pass(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    mib = 1024 * 1024
+    result, calls = target_size_run(monkeypatch, tmp_path, [2 * mib, 2 * mib])
+    assert result["encoder"] == "libx264" and "超出目标大小" in result["fallback"]
+    assert [c[c.index("-c:v") + 1] for c in calls] == [
+        "h264_nvenc",
+        "h264_nvenc",
+        "libx264",
+        "libx264",
+    ]
+    assert calls[-1][calls[-1].index("-pass") + 1] == "2"
+    # Without a target the plan stays on software two-pass as before.
+    runtime = EncoderRuntime("ffmpeg", {"h264_nvenc"})
+    calls.clear()
+    info = ops.MediaInfo(width=640, height=360, duration=10, fps=25, video_codec="h264")
+    plan = ops.plan_compress(
+        ops.CompressParams(target_size_mb=1),
+        (tmp_path / "in.mp4", info),
+        tmp_path / "o.mp4",
+        tmp_path,
+    )
+    assert asyncio.run(runtime.run(plan.commands, "nvenc"))["encoder"] == "libx264"

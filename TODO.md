@@ -23,39 +23,39 @@
   - [x] 前端 `CompressPanel` 编码下拉增加 AV1（混合编辑共用该面板，`MixedFields` 无独立编码下拉），提示软件编码较慢、支持 AV1 的浏览器可直接播放；`describeEdit` 正确显示 AV1，中英文翻译已补齐。
   - [x] 完成前后端回归并提交；后端两项非 AV1 失败及复测结果见下方记录。
   - [x] 验证旧版 FFmpeg 的 AV1 两遍编码兼容性：Ubuntu 24.04 arm64 的 FFmpeg 6.1.1 + SVT-AV1 1.7.0 实测第一遍成功退出但统计文件为空，确实忽略 `-pass`。启动时实际验证统计写入与第二遍读取（兼容发行版回移补丁），不支持时拒绝 AV1 目标大小压缩，提示升级或改用画质模式／H.264／H.265；任务执行时再次检查第一遍非空统计，防止静默退化。设置页与压缩面板补齐中英文提示。FFmpeg 6.1.1、7.0、8.0 的上游接口源码也未接入通用两遍统计；本机 9.0.2 实测支持。报告见 `validation/av1-two-pass-compatibility.json`。
-  - [ ] 可选：硬件 AV1（`av1_nvenc`／`av1_qsv`／`av1_vaapi`）加入 `encoding.FAMILIES`，复用现有回退；VideoToolbox 无 AV1 编码。
+  - [x] 可选：硬件 AV1（`av1_nvenc`／`av1_qsv`／`av1_vaapi`）加入 `encoding.FAMILIES`，复用现有回退；VideoToolbox 无 AV1 编码，命令保持软件。SVT-AV1 的 CRF（0–63）×4 映射到硬件 AV1 的 0–255 量化刻度，10-bit 使用 P010（AV1 Main 已覆盖 10-bit，不加 `main10`）；目标大小仍走软件两遍。启动检测与设置页列出各家 AV1 编码器；`hardware_check` 增加 AV1 项（许多 GPU 不支持 AV1 编码，失败只记录不计入总结果），实机测试需另设 `REELVAULT_TEST_HARDWARE_AV1=1`。未在硬件上运行。
 
 前端验证：完整单元测试 138 项通过，覆盖 AV1 压缩／混合编辑、画质／目标大小提交与嵌套预设恢复；lint、翻译审计、TypeScript 与生产构建通过。Chromium 相关回归 5 项通过、1 项 S3 条件跳过；新增 AV1 实测通过，压缩与混合编辑均由 `libsvtav1` 生成 AV1，编辑链摘要正确，结果通过原视频流接口直接解码播放。
 
-后端完整回归（沙箱外）：702 项通过、20 项跳过、2 项失败。失败为降噪效果断言（`test_real_denoise_reduces_background_noise`，单独复测通过）及此前已记录的 WebDAV 本地 HTTP 启动超时（`test_real_webdav_client_download_and_ffprobe_over_http`）。AV1 用例通过；前端改动与验证记录一并提交。
+后端完整回归（沙箱外）：702 项通过、20 项跳过、2 项失败。失败为降噪效果断言（`test_real_denoise_reduces_background_noise`，单独复测通过；原因已查明并修复：参考值用单声道下混测得，不同 FFmpeg 版本的立体声→单声道下混增益相差约 3 dB，现改为直接读取立体声输出）及此前已记录的 WebDAV 本地 HTTP 启动超时（`test_real_webdav_client_download_and_ffprobe_over_http`）。AV1 用例通过；前端改动与验证记录一并提交。
 
 AV1 兼容性收尾验证：后端完整回归 710 项通过、20 项跳过，仅上述 WebDAV 启动超时失败；新增统计缺失／为空／可读、第二遍失败、普通与混合编辑的单视频／批处理提交检查，以及执行时中止测试通过。补充的第二遍失败测试另经专项验证（25 项通过、4 项硬件条件跳过）。前端完整 138 项、翻译审计、lint、TypeScript、生产构建、后端 Ruff／格式／mypy 与 Chromium AV1 生成／摘要／原流播放通过；修正浏览器用例等待派生视频入库完成后再断言编码信息，避免异步入库竞态。
 
 ### 后续计划（未开始）
 
 编辑与无损处理
-- [ ] 无损旋转：只改显示方向时用 `-c copy -display_rotation`（FFmpeg ≥ 6.1，需检测支持），作为旋转的默认快速模式。
-- [ ] 多段快速剪辑：每段 `-c copy` 切出（复用 MKV 定位补偿）再用 concat demuxer 拼接；字幕仍不保留。
-- [ ] 智能剪切：仅重编码切点附近的半个 GOP，中间流复制；需编码参数与源一致（profile／level／SPS），难度高。
-- [ ] 章节读写：probe 加 `-show_chapters` 导入为书签；编辑时用 ffmetadata 写入书签／场景章节，剪辑与变速时换算时间。
-- [ ] VFR 检测（`r_frame_rate` 与 `avg_frame_rate` 差异）并在合并／转场／效果前统一 `-fps_mode cfr`，避免音画漂移。
+- [x] 无损旋转：只改显示方向时用 `-c copy -display_rotation`（FFmpeg ≥ 6.1，需检测支持），作为旋转的默认快速模式。`RotateParams.mode` 默认 `auto`：纯旋转且源为 MP4／MOV／M4V、启动时 `-h long` 检测到 `-display_rotation` 时，与源已有旋转合成新的显示矩阵并流复制（保留全部音轨与字幕、HDR、隔行场序）；翻转、MKV／WebM（FFmpeg 6.1 的 Matroska 复用器流复制时丢弃显示矩阵）、旧版 FFmpeg 或 `reencode` 时按 CRF 重新编码，任务日志说明原因。旋转面板新增「无损旋转」开关（翻转时禁用），设置页列出该可选功能。混合编辑始终重新编码，不受影响。
+- [x] 多段快速剪辑：每段 `-c copy` 切出（复用 MKV 定位补偿）再用 concat demuxer 拼接；字幕仍不保留。各段按关键帧吸附后合并相邻／重叠片段（保持用户顺序），任务记录请求与实际切点；清单为每段写 `outpoint`，否则流复制多出的一帧与 AAC 包会让后续片段逐段后移（实测两段多出约 0.35 秒）。剪辑面板快速模式不再限制单段，逐段显示实际切点。
+- [x] 智能剪切：仅重编码切点附近的半个 GOP，中间流复制；需编码参数与源一致（profile／level／SPS），难度高。剪辑模式 `smart`：按完整帧索引把每段分成「切点→首个关键帧」重编码、整 GOP 流复制、「最后一个关键帧→切点」重编码三部分（切点在关键帧或片尾时不重编码；同一 GOP 内整段重编码），各部分用 `-frames:v` 按帧数切出并存为 MP4，由 concat 分离器自动转为 Annex B（各部分带自己的 SPS/PPS）后无损拼接；重编码使用 libx264 并匹配源档次、级别与像素格式（可被硬件编码替换）；音频按各段时间一次性重新编码，避免拼接处的 AAC 间隙。仅支持 8-bit 4:2:0 Baseline／Main／High H.264、非隔行、SDR、无旋转标记，否则改为精确剪辑并记录原请求。实测复制部分逐帧哈希与源一致、重编码部分 PSNR ≥ 46 dB，FFmpeg 完整解码无错误。限制：假定封闭 GOP（开放 GOP 的前导 B 帧可能出错）；HEVC 未支持；同一 avc1 轨道中途变化 SPS 的浏览器兼容性只在 FFmpeg 中验证（本机 Chromium 无 H.264 解码器），待在 Chrome／Safari 实测。
+- [x] 章节读写：probe 加 `-show_chapters` 导入为书签；编辑时用 ffmetadata 写入书签／场景章节，剪辑与变速时换算时间。文件章节入库时存入 `meta.chapters`（旧视频在书签接口首次补读），显示在章节菜单并可导入为手动章节；提交编辑时快照用户手动章节与有效场景章节，执行时与文件章节合并、按剪辑／变速／混合／无转场合并换算后写入输出（不改时间轴的编辑原样保留，无法换算的编辑不处理），无章节时 `-map_chapters -1`。历史重新生成不带快照，因此不写章节。
+- [x] VFR 检测（`r_frame_rate` 与 `avg_frame_rate` 差异）并在合并／转场／效果前统一 `-fps_mode cfr`，避免音画漂移。探测记录 `nominal_fps` 与 `variable_frame_rate`（详情页显示）；合并、转场、效果的默认输出帧率改用标称帧率（实测 30 fps 标称、18.5 fps 平均的源原来会输出 18.514 fps），输出加 `-fps_mode cfr`；重新编码合并原来直接拼接各源音视频，视频轨短于音轨的源（实测短 0.11 秒）会让后续片段整体错位，现按源时长补齐／截齐音视频。
 
 派生媒体与播放
-- [ ] 兼容播放副本：HEVC 源优先 remux 为 `hvc1` MP4，前端按 `MediaSource.isTypeSupported` 决定是否需要 H.264 转码，省 CPU 与磁盘。
-- [ ] HLS：H.264 源最高档直接流复制切片（需对齐关键帧）；fMP4 分片以支持 HEVC／AV1 档位；Vidstack 清晰度菜单对竖屏仍按高度显示，需自定义标签。
-- [ ] 封面避开黑场：`blackdetect` 或 `thumbnail` 滤镜在默认时间点附近选代表帧。
-- [ ] HDR 色调映射提速：检测 `libplacebo`／`tonemap_vaapi`／`tonemap_opencl` 后优先使用；识别 Dolby Vision（Profile 5 无 transfer 标签）并提示。
+- [x] 兼容播放副本：HEVC 源优先 remux 为 `hvc1` MP4，前端按 `MediaSource.isTypeSupported` 决定是否需要 H.264 转码，省 CPU 与磁盘。客户端以 `?codec=hevc`／`?hevc=true` 声明支持：`hvc1` 标记的 MP4/MOV 原文件直接播放，其他 SDR HEVC 生成 `hevc-<任务>.mp4` 重新封装副本（记录在 `meta.hevc_playable_path`，启动清理识别）；不支持 HEVC 的浏览器沿用 H.264 副本；SDR HEVC 入库不再预生成 H.264 副本。HDR HEVC 仍走 H.264。未在支持 HEVC 的真实浏览器中验证播放（本机 Chromium 无 HEVC／H.264 解码）。
+- [x] HLS：H.264 源最高档直接流复制切片（需对齐关键帧）；fMP4 分片以支持 HEVC／AV1 档位；Vidstack 清晰度菜单对竖屏仍按高度显示，需自定义标签。可复制的源（SDR、逐行、恒定帧率 ≤60、无旋转、视频起点与容器一致、关键帧间隔 ≤10 秒）增加复制档：H.264 用 TS 替代同尺寸编码档，HEVC／AV1 用 fMP4（`hvc1`／`av01`，主播放列表升为 VERSION 7）作额外档；编码档改用 `-force_key_frames source`，实测与复制档分片边界一致（不规则关键帧 0/2.5/5.1/9/11 秒时三档均为 0/5.12/9.0）。清晰度菜单在 `qualityMenuItemsStart` 插槽中替换默认列表，按短边并在同尺寸多编码时注明编码。同时修正分片路由只允许 v0–v2 导致 1440p／2160p 档 404 的问题。未在支持 HEVC／AV1 的真实浏览器中验证播放。
+- [x] 封面避开黑场：`blackdetect` 或 `thumbnail` 滤镜在默认时间点附近选代表帧。采用 `signalstats`：自默认时间点起 3 秒按 4 fps 采样，排除平均亮度 < 40 或亮度分布（YHIGH−YLOW）< 24 的帧，取分布最宽者；不合适时依次尝试 25%、50% 处，仍无则用默认时间。HDR 先色调映射再统计。所选时间记录为 `meta.auto_cover_time`，封面面板显示；用户指定时间或上传图片不受影响。
+- [x] HDR 色调映射提速：检测 `libplacebo`／`tonemap_vaapi`／`tonemap_opencl` 后优先使用；识别 Dolby Vision（Profile 5 无 transfer 标签）并提示。启动时按 libplacebo、OpenCL、VAAPI 顺序对一帧合成 PQ 画面实际转换，成功者用于全部 HDR 转换（含 HLS），所需 `-init_hw_device` 插在输入前；都失败时用 zscale。探测读取 DOVI 配置记录的 Profile 与基础层兼容 ID，兼容 ID 为 0（Profile 5）时仅 libplacebo 做转换，否则编辑任务记录偏色警告，HEVC 原流播放与 HLS 复制档排除此类视频。本机无 Vulkan／OpenCL 设备，只验证了回退与命令构造，GPU 路径未在硬件上运行。
 
 分析与质量
-- [ ] 静音检测与黑边检测目前是同步 HTTP 请求（静音超时 600 秒、客户端断开不取消）；长视频应改为可取消、带进度的任务，可参照场景检测。
-- [ ] 导入时完整解码检查（`-v error -f null -`）标记损坏文件，提供 `-err_detect ignore_err` 重新封装修复。
-- [ ] 画质评估：`libvmaf`／`ssim` 报告压缩质量，或实现目标质量压缩。
-- [ ] 剪辑时间轴音频波形（`showwavespic`）。
-- [ ] 去隔行可选 `send_field`（双倍帧率，更流畅），需同步调整依赖 `info.fps` 的时间计算。
+- [x] 静音检测与黑边检测目前是同步 HTTP 请求（静音超时 600 秒、客户端断开不取消）；长视频应改为可取消、带进度的任务，可参照场景检测。新任务类型 `analysis`：提交时检查组件、音轨与源文件签名，相同参数的未完成任务复用；黑边按 8 个采样点、静音按 `-progress` 报告进度，去掉固定 600 秒超时（由停滞检测兜底），可暂停／取消，S3 原文件由任务队列自动取回。原 GET 接口改为 POST 并以任务返回结果；前端面板显示进度条与「取消检测」。
+- [x] 导入时完整解码检查（`-v error -f null -`）标记损坏文件，提供 `-err_detect ignore_err` 重新封装修复。入库成功后提交优先级 0 的 `integrity` 任务（`REELVAULT_INTEGRITY_CHECK`，默认开启），解码主视频与主音轨，记录错误数、是否中断与前 20 行示例到 `meta.integrity`（含文件签名，重新探测时清除）；详情页显示并可重新检查。新增编辑操作 `repair`：`-err_detect ignore_err -fflags +genpts+discardcorrupt` 后流复制重新封装（MP4 外的容器输出 MKV），实测人为损坏的 TS 由 6 处错误降为 0。
+- [x] 画质评估：`libvmaf`／`ssim` 报告压缩质量，或实现目标质量压缩。实现了报告：`CompressParams.measure_quality` 为真时，保存前把输出与源比较（源按输出尺寸、帧率缩放，HDR／隔行先规范化），有 libvmaf 用 VMAF（`n_subsample=5`），否则 SSIM；分数存为任务的 `params.quality` 并写入日志，任务行显示；评估失败只记警告。混合编辑改变时间轴，不提供。目标质量压缩（按分数搜索 CRF）未做。
+- [x] 剪辑时间轴音频波形（`showwavespic`）。改用峰值数据而非 `showwavespic` 图片，前端按主题绘制：入库与「重新生成缩略图」时以 `aresample=48000,asetnsamples,astats` 把主音轨分成约 1000 个窗口取峰值（dBFS 转线性），写入 `derived/<id>/waveform.json`，`waveform_url` 带版本号；时间轴底部 18px 绘制，按最大峰值归一化以便看清安静的音轨。生成失败只记录警告。旧视频需重新生成缩略图后才有波形。
+- [x] 去隔行可选 `send_field`（双倍帧率，更流畅），需同步调整依赖 `info.fps` 的时间计算。`REELVAULT_DEINTERLACE_MODE=field` 时 `bwdif` 改为 `send_field`；新增 `processed_fps(info)`（隔行且按场时为两倍），用于合并、转场与片段效果的默认帧率、HLS 输出帧率与码率档、压缩的最高帧率判断。实测 25i 源旋转重编码输出 50 fps、时长不变、逐行。默认仍为 `frame`。
 
 工程
-- [ ] `run_command` 以 `-hide_banner`+`-nostdin` 判断是否为 FFmpeg，较脆弱；改由 `ffmpeg_args` 显式标记。
-- [ ] 目标大小压缩支持硬件编码（NVENC／QSV 的 VBR 或多遍）。
+- [x] `run_command` 以 `-hide_banner`+`-nostdin` 判断是否为 FFmpeg，较脆弱；改由 `ffmpeg_args` 显式标记。`ffmpeg_args` 返回 `FFmpegCommand`（`list` 子类，可指定 `loglevel`），`run_command` 只对它注入线程限制、启用停滞检测并写任务日志；手写的响度、底噪、检测、画质与完整性命令改用 `ffmpeg_args`。ffprobe、能力探测与工作进程保持普通列表。
+- [x] 目标大小压缩支持硬件编码（NVENC／QSV 的 VBR 或多遍）。`OpPlan.target_bytes` 传给编码运行时：有可用硬件时取两遍计划的第二遍去掉统计参数作单遍 VBR（NVENC 加 `-multipass fullres`），结果超出目标 8% 以上则按实际比例×0.97 降码率重编码一次，仍超出则回退软件两遍；结果记录 `hardware_passes`。仅以模拟输出测试了流程，未在 GPU 上验证码率精度。
 - [ ] QSV、VAAPI 实机验证（见第 7 节）；本轮新增的 HEVC Main10、HLS Level 4.2–5.2 也只做了参数测试，未在硬件上运行。
 
 ## FFmpeg 可靠性改进（2026-10-22）

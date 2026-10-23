@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from .color import processed_fps
 from .ops import MP4_FLAGS, EffectParams, OpError, OpPlan, Source, aac, atempo_chain, video_target
 
 # Bound frame storage in each reverse filter. Decoders/encoders need additional memory.
@@ -22,7 +23,9 @@ def plan_effect(
     path, out, tmp = path.resolve(), out.resolve(), tmp.resolve()
     if p.start >= info.duration:
         raise OpError("效果位置超出视频时长")
-    fps = info.fps or 30
+    # Variable frame rate sources are normalised to their nominal constant rate, and
+    # field-rate deinterlacing doubles it.
+    fps = processed_fps(info) or 30
     frames = max(1, math.ceil(info.duration * fps - 1e-6))
     first = min(frames - 1, math.floor(p.start * fps + 0.5))
     last = min(frames, math.floor(min(p.end or info.duration, info.duration) * fps + 0.5))
@@ -159,6 +162,8 @@ def plan_effect(
             "0:v:0",
             *(["-map", "0:a:0", *aac()] if audio else []),
             *target.args(p.crf),
+            "-fps_mode",
+            "cfr",
             "-t",
             f"{duration:.9f}",
             *MP4_FLAGS,

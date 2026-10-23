@@ -32,6 +32,15 @@ export default function BookmarkPanel({ video, currentTime, seek }: { video: Vid
     } catch (e) { setError(e instanceof Error ? e : String(e)) }
     finally { setBusy(false) }
   }
+  const importChapters = async () => {
+    setBusy(true); setError('')
+    try {
+      await api.post(`/api/videos/${video.id}/bookmarks/import-chapters`, {})
+      await qc.invalidateQueries({ queryKey: ['bookmarks', video.id] })
+    } catch (e) { setError(e instanceof Error ? e : String(e)) }
+    finally { setBusy(false) }
+  }
+  const embedded = query.data?.embedded_chapters ?? []
   const remove = async (id: string) => {
     setBusy(true); setError('')
     try {
@@ -61,6 +70,10 @@ export default function BookmarkPanel({ video, currentTime, seek }: { video: Vid
       {mark.note && <Text size="xs" style={{ whiteSpace:'pre-wrap',overflowWrap:'anywhere' }}>{mark.note}</Text>}
     </Stack>)}
     {pages > 1 && <Pagination size="xs" total={pages} value={currentPage} onChange={setPage} />}
+    {!!embedded.length && <Group gap="xs">
+      <Text size="xs" c="dimmed">{tr("文件内含 {{count}} 个章节，已显示在章节菜单中。", { count: embedded.length })}</Text>
+      <Button size="compact-xs" variant="light" loading={busy} onClick={importChapters}>{tr("导入为可编辑章节")}</Button>
+    </Group>}
     {query.data?.chapters_stale && <Text size="xs" c="orange">{tr("自动章节已失效，请在剪辑页重新检测。")}</Text>}
     {!!query.data?.chapters.length && <Text size="xs" c="dimmed">{tr("播放器章节菜单提供 ")}{query.data.chapters.length}{tr(" 个章节；手动名称优先于同一时间的自动章节。")}</Text>}
   </Stack></Paper>

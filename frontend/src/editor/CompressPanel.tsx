@@ -24,6 +24,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
   const [audio, setAudio] = useState('128')
   const [maxFps, setMaxFps] = useState<string>('original')
   const [preset, setPreset] = useState('medium')
+  const [measure, setMeasure] = useState(false)
   const [output, setOutput] = useState(defaultOutput)
   const { submit, busy } = useSubmitEdit(video.id)
 
@@ -52,6 +53,8 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
     resolution: resolution === 'original' ? null : Number(resolution),
     target_size_mb: useTarget ? targetMb : null,
     audio_bitrate: Number(audio), max_fps: maxFps === 'original' ? null : Number(maxFps), preset,
+    // Mixed edits change the timeline, so only plain compression can be scored.
+    ...(measure && !mixed ? { measure_quality: true } : {}),
   }
   const edit = mixed ? { op: 'mixed', ...operations, compress: compression } : compression
   const valid = !mixed || (!!(operations.trim || operations.crop || operations.rotate || operations.speed || operations.mute)
@@ -76,6 +79,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
         setAudio(String(params.audio_bitrate ?? 128))
         setMaxFps(params.max_fps ? String(params.max_fps) : 'original')
         setPreset(String(params.preset ?? 'medium'))
+        setMeasure(!!params.measure_quality)
       }} />
       {mixed && <MixedFields {...ctx} value={operations} onChange={setOperations} />}
       <Text size="sm">{tr("原始大小 ")}<b>{formatBytes(video.size)}</b>{tr("，预计压缩后约 ")}<b>{formatBytes(estimate)}</b>
@@ -101,7 +105,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
           data={[{ value: 'original', label: tr("原始（{{v0}}×{{v1}}）", { v0: outputWidth, v1: outputHeight }) }, ...resOptions.map((r) => ({ value: String(r), label: tr("{{v0}}p 上限", { v0: r }) }))]}
         />
       </Group>
-      {codec === 'av1' && <Text size="xs" c="dimmed">{tr('AV1 使用软件编码，编码较慢；支持 AV1 的浏览器可直接播放。')}</Text>}
+      {codec === 'av1' && <Text size="xs" c="dimmed">{tr('AV1 优先使用支持 AV1 的硬件编码器，否则使用较慢的软件编码；支持 AV1 的浏览器可直接播放。')}</Text>}
       <Switch label={tr("按目标文件大小压缩（两遍编码）")} checked={useTarget} onChange={(e) => setUseTarget(e.currentTarget.checked)} />
       {codec === 'av1' && useTarget && <Text size="xs" c="dimmed">{tr('AV1 按目标大小压缩需要支持两遍编码的 FFmpeg；旧版请改用画质模式、H.264 或 H.265。')}</Text>}
       {useTarget ? (
@@ -149,6 +153,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
           ]}
         />
       </Group>
+      {!mixed && <Switch label={tr('完成后评估画质（有 libvmaf 时用 VMAF，否则用 SSIM）')} checked={measure} onChange={(e) => setMeasure(e.currentTarget.checked)} />}
       <OutputFields value={output} onChange={setOutput} />
       {mixed && !valid && <Text size="sm" c="red">{tr('请选择要与压缩组合的操作，并检查时间、裁切范围、旋转及倍速设置。')}</Text>}
       <Button loading={busy} disabled={!valid} onClick={run}>{mixed ? tr('开始混合编辑') : tr("开始压缩")}</Button>

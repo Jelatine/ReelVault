@@ -45,6 +45,7 @@ import BookmarkPanel from '../components/BookmarkPanel'
 import { useBookmarks } from '../lib/bookmarks'
 import EditHistory from '../components/EditHistory'
 import HlsPanel from '../components/HlsPanel'
+import IntegrityAlert from '../components/IntegrityAlert'
 import PlaybackCachePanel from '../components/PlaybackCachePanel'
 import { usePlaybackCache } from '../lib/playback-cache'
 import { useOriginalCache } from '../lib/original-cache'
@@ -165,14 +166,14 @@ function InfoPanel({ video }: { video: Video }) {
   const rows: [string, string][] = [
     [tr("时长"), formatDuration(video.duration, true)],
     [tr("分辨率"), video.width ? `${video.width}×${video.height}${video.rotation ? tr("（旋转 {{v0}}°）", { v0: video.rotation }) : ''}` : '-'],
-    [tr("帧率"), video.fps ? `${video.fps} fps` : '-'],
+    [tr("帧率"), video.fps ? `${video.fps} fps${media.variable_frame_rate ? tr("（可变帧率，标称 {{v0}} fps）", { v0: media.nominal_fps }) : ''}` : '-'],
     [tr("大小"), formatBytes(video.size)],
     [tr("码率"), formatBitrate(video.bitrate) || '-'],
     [tr("容器"), video.container ? video.container.toUpperCase() : '-'],
     [tr("视频"), [
       [codecName(video.video_codec), codecProfile(video.video_codec, media)].filter(Boolean).join(' ') || '-',
       depth && `${depth}-bit${media.pix_fmt ? ` (${media.pix_fmt})` : ''}`,
-      dynamicRange(media.color_transfer),
+      media.dolby_vision_profile ? tr('杜比视界 Profile {{v0}}', { v0: media.dolby_vision_profile }) : dynamicRange(media.color_transfer),
       formatBitrate(media.video_bitrate),
     ].filter(Boolean).join(' · ')],
     [tr("音频"), video.audio_codec ? [
@@ -182,6 +183,7 @@ function InfoPanel({ video }: { video: Video }) {
       formatBitrate(media.audio_bitrate),
     ].filter(Boolean).join(' · ') : tr("无音频")],
     ...(media.subtitle_count ? [[tr("字幕"), tr("{{v0}} 条内封字幕", { v0: media.subtitle_count })] as [string, string]] : []),
+    ...(video.integrity ? [[tr("完整性"), video.integrity.errors ? tr("发现 {{v0}} 处解码错误", { v0: video.integrity.errors }) : tr("完整解码未发现错误")] as [string, string]] : []),
     [tr("原文件名"), video.original_name || '-'],
     [tr("上传时间"), formatDate(video.created_at)],
   ]
@@ -217,6 +219,7 @@ function InfoPanel({ video }: { video: Video }) {
           ))}
         </Table.Tbody>
       </Table>
+      <IntegrityAlert video={video} />
       {video.video_codec === 'h264' && depth > 8 && (
         <Alert color="yellow" p="xs">
           <Text size="sm">{tr("{{v0}}-bit H.264 在浏览器中通常无法硬件解码，网页播放可能卡顿。可生成 HLS 或转码为 8-bit 后播放。", { v0: depth })}</Text>

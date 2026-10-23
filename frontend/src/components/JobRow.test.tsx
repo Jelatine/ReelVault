@@ -88,3 +88,8 @@ test('finished task links related videos and expands its log', async () => {
   fireEvent.click(screen.getByRole('button', { name: '收起日志' }))
   expect(screen.queryByRole('list', { name: '任务日志' })).toBeNull()
 })
+
+test('finished compression shows its quality score', () => {
+  show({ ...base, status: 'succeeded', params: { edit: { op: 'compress' }, quality: { metric: 'ssim', score: 0.9721 } } })
+  expect(screen.getByText('画质：SSIM 0.9721')).toBeTruthy()
+})

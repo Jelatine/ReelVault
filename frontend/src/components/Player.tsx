@@ -13,9 +13,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { formatDuration, formatDate } from '../lib/format'
 import type { Video } from '../lib/types'
+import { streamUrl } from '../lib/hevc'
 import PlayerMarkers from './PlayerMarkers'
 import { chapterVtt } from '../lib/bookmarks'
 import './player-markers.css'
+import QualityMenuItems from './QualityMenuItems'
 import type { Bookmark, Chapter } from '../lib/bookmarks'
 import { usePlaybackPreferences, validLoop, type LoopRange } from '../lib/playback'
 import { useSubtitles } from '../lib/subtitles'
@@ -110,6 +112,7 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
   }, [endpoint, video.id, video.deleted_at, qc])
   const nativeProps: React.VideoHTMLAttributes<HTMLVideoElement> = { preload: hlsUrl ? 'none' : 'metadata' }
   const type = video.container === 'webm' ? 'video/webm' : 'video/mp4'
+  const source = streamUrl(video)
   return (
     <>
     {sourceError && sourceError.url === hlsUrl && hlsUrl && <Text role="alert" size="sm" c="red">{tr("自适应播放失败：")}{sourceError.message}{tr("。可在下方改用原始播放。")}</Text>}
@@ -129,10 +132,10 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
     )}
     <div ref={touchRoot} className={touch ? 'touch-player' : undefined}>
     <MediaPlayer
-      key={hlsUrl ?? video.stream_url}
+      key={hlsUrl ?? source}
       ref={mergedRef}
       title={video.title}
-      src={{ src: hlsUrl ?? video.stream_url, type: hlsUrl ? 'application/x-mpegurl' : type }}
+      src={{ src: hlsUrl ?? source, type: hlsUrl ? 'application/x-mpegurl' : type }}
       onProviderChange={(provider) => {
         if (isHLSProvider(provider)) {
           // Load with the video route: a separate lazy download lets native HLS
@@ -217,7 +220,7 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
         noGestures={touch}
         noScrubGesture={touch}
         icons={defaultLayoutIcons}
-        slots={{ afterTimeSlider: <PlayerMarkers bookmarks={bookmarks} chapters={chapters} duration={video.duration}
+        slots={{ qualityMenuItemsStart: <QualityMenuItems />, afterTimeSlider: <PlayerMarkers bookmarks={bookmarks} chapters={chapters} duration={video.duration}
           seek={(time) => { if (player.current) player.current.currentTime = time }} /> }}
         thumbnails={video.thumbnails_url ?? undefined}
         playbackRates={[0.5, 0.75, 1, 1.25, 1.5, 2, 3]}

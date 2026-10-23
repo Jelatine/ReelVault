@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, TypeAdapter, model_validator
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from ..auth import require_auth
+from ..auth import CurrentAuth, require_auth
 from ..config import Settings
 from ..db import get_db
 from ..errors import APIError
@@ -24,6 +24,7 @@ from ..media.capabilities import missing_components
 from ..media.ffmpeg import AV1_TWO_PASS_UNSUPPORTED
 from ..models import EditPreset, Job, JobLog, Video
 from ..storage import budget_transaction, check_budget, job_bytes, job_requirements
+from .bookmarks import chapter_snapshot
 from .deps import get_jobs, get_settings
 
 router = APIRouter(prefix="/api", tags=["jobs"], dependencies=[Depends(require_auth)])
@@ -176,7 +177,10 @@ def require_components(jobs: JobManager, edit: ops.EditParams) -> None:
 
 @router.post("/jobs/batch")
 def batch_edit(
-    body: BatchEditBody, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+    body: BatchEditBody,
+    auth: CurrentAuth = Depends(require_auth),
+    db: Session = Depends(get_db),
+    jobs: JobManager = Depends(get_jobs),
 ) -> list[dict[str, Any]]:
     edit = body.edit
     if body.preset_id is not None:
@@ -199,8 +203,11 @@ def batch_edit(
         "output": body.output.model_dump(),
         **asset_params(db, jobs.settings, edit),
     }
+    chapters = chapter_snapshot(db, jobs.settings, ids, auth.user_id)
     submitted = jobs.submit_many(
-        db, [("edit", params, [vid]) for vid in ids], priority=body.priority
+        db,
+        [("edit", {**params, "chapters": {vid: chapters.get(vid)}}, [vid]) for vid in ids],
+        priority=body.priority,
     )
     return [jobs.describe(db, job) for job in submitted]
 
@@ -209,6 +216,7 @@ def batch_edit(
 def submit_edit(
     video_id: str,
     body: EditBody,
+    auth: CurrentAuth = Depends(require_auth),
     db: Session = Depends(get_db),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -234,6 +242,7 @@ def submit_edit(
         "edit": body.edit.model_dump(),
         "output": body.output.model_dump(),
         **asset_params(db, jobs.settings, body.edit),
+        "chapters": chapter_snapshot(db, jobs.settings, ids, auth.user_id),
     }
     job = jobs.submit(db, "edit", params, ids, priority=body.priority)
     return jobs.describe(db, job)

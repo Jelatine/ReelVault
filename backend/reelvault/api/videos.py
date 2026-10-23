@@ -31,12 +31,11 @@ from ..library import (
 )
 from ..locations import library_root
 from ..media import derive
-from ..media.detect import MAX_SEGMENTS, detect_crop, detect_silence, keep_segments
 from ..media.ffmpeg import FFmpegError, ffmpeg_args, run_command
 from ..media.probe import probe
 from ..media.timing import timing_index
 from ..metadata import MetadataPatch, update_metadata
-from ..models import Folder, Tag, Upload, Video, new_id, utcnow
+from ..models import Folder, Job, Tag, Upload, Video, new_id, utcnow
 from ..observability import audit_request
 from ..original_response import local_original, original_response
 from ..pinyin_search import normalize_pinyin_query
@@ -44,6 +43,7 @@ from ..playback_cache import stream_path
 from ..search_syntax import parse_search
 from ..storage import budget_transaction, check_budget, upload_bytes, upload_requirements
 from .deps import FiniteNumber, get_jobs, get_settings
+from .scenes import signature as file_signature
 
 router = APIRouter(prefix="/api", tags=["videos"], dependencies=[Depends(require_auth)])
 
@@ -691,9 +691,7 @@ async def video_timing(
         raise APIError(500, f"无法读取帧索引: {exc}", code="frame_index_failed") from exc
 
 
-def _analysis_source(
-    db: Session, settings: Settings, jobs: JobManager, video_id: str, feature: str
-) -> tuple[Video, Path]:
+def _analysis_video(db: Session, jobs: JobManager, video_id: str, feature: str) -> Video:
     video = get_video(db, video_id)
     if video.status != "ready":
         raise APIError(409, "请等待视频处理完成后再分析", code="video_not_ready")
@@ -706,58 +704,73 @@ def _analysis_source(
             code="ffmpeg_component_missing",
             params={"components": components},
         )
-    return video, local_original(settings, video.file_path)
+    return video
 
 
-@router.get("/videos/{video_id}/crop-detect")
-async def crop_detect(
+class SilenceBody(BaseModel):
+    noise_db: float = Field(-40, ge=-90, le=-10, allow_inf_nan=False)
+    min_duration: float = Field(0.8, ge=0.1, le=60, allow_inf_nan=False)
+    padding: float = Field(0.15, ge=0, le=2, allow_inf_nan=False)
+
+
+def _submit_analysis(
+    db: Session, jobs: JobManager, video: Video, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Queue a cancellable detection job, reusing an unfinished one with the same request."""
+    for active in db.scalars(
+        select(Job).where(Job.kind == "analysis", Job.status.in_(["queued", "running", "paused"]))
+    ):
+        if video.id in active.video_ids and all(
+            active.params.get(key) == value for key, value in params.items()
+        ):
+            return jobs.describe(db, active)
+    job = jobs.submit(
+        db, "analysis", {**params, "signature": file_signature(jobs.settings, video)}, [video.id]
+    )
+    return jobs.describe(db, job)
+
+
+@router.post("/videos/{video_id}/crop-detect")
+def crop_detect(
     video_id: str,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
-    _, source = _analysis_source(db, settings, jobs, video_id, "crop_detect")
-    try:
-        info = await probe(settings.ffprobe, str(source))
-        crop = await detect_crop(settings.ffmpeg, source, info)
-    except (OSError, FFmpegError) as exc:
-        raise APIError(500, f"黑边检测失败: {exc}", code="analysis_failed") from exc
-    return {"crop": crop, "width": info.width, "height": info.height}
+    """Job whose ``params.result`` holds ``crop`` (None without black bars)."""
+    video = _analysis_video(db, jobs, video_id, "crop_detect")
+    return _submit_analysis(db, jobs, video, {"analysis": "crop"})
 
 
-@router.get("/videos/{video_id}/silence")
-async def silence_detect(
+@router.post("/videos/{video_id}/integrity")
+def integrity_check(
+    video_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+) -> dict[str, Any]:
+    """Fully decode the video; the result appears as ``integrity`` on the video."""
+    video = get_video(db, video_id)
+    if video.status != "ready":
+        raise APIError(409, "请等待视频处理完成后再检查", code="video_not_ready")
+    for active in db.scalars(
+        select(Job).where(Job.kind == "integrity", Job.status.in_(["queued", "running", "paused"]))
+    ):
+        if video_id in active.video_ids:
+            return jobs.describe(db, active)
+    return jobs.describe(db, jobs.submit(db, "integrity", {}, [video_id]))
+
+
+@router.post("/videos/{video_id}/silence")
+def silence_detect(
     video_id: str,
-    noise_db: float = Query(-40, ge=-90, le=-10),
-    min_duration: float = Query(0.8, ge=0.1, le=60),
-    padding: float = Query(0.15, ge=0, le=2),
+    body: SilenceBody,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
-    _, source = _analysis_source(db, settings, jobs, video_id, "silence_detect")
-    try:
-        info = await probe(settings.ffprobe, str(source))
-        if info.audio_index is None:
-            raise APIError(400, "该视频没有音轨", code="no_audio_track")
-        silences = await detect_silence(
-            settings.ffmpeg, source, info, noise_db=noise_db, min_duration=min_duration
-        )
-    except (OSError, FFmpegError) as exc:
-        raise APIError(500, f"静音检测失败: {exc}", code="analysis_failed") from exc
-    segments = keep_segments(silences, info.duration, padding)
-    if len(segments) > MAX_SEGMENTS:
-        raise APIError(
-            400,
-            f"保留片段超过 {MAX_SEGMENTS} 个，请增大最短静音时长或降低静音阈值",
-            code="too_many_segments",
-            params={"max": MAX_SEGMENTS},
-        )
-    return {
-        "silences": [{"start": round(s, 3), "end": round(e, 3)} for s, e in silences],
-        "segments": segments,
-        "duration": info.duration,
-    }
+    """Job whose ``params.result`` holds ``silences``, ``segments`` and ``duration``."""
+    video = _analysis_video(db, jobs, video_id, "silence_detect")
+    if not video.audio_codec:
+        raise APIError(400, "该视频没有音轨", code="no_audio_track")
+    return _submit_analysis(db, jobs, video, {"analysis": "silence", **body.model_dump()})
 
 
 def _cache_headers() -> dict[str, str]:
@@ -768,11 +781,12 @@ def _cache_headers() -> dict[str, str]:
 def stream(
     video_id: str,
     request: Request,
+    codec: Literal["hevc"] | None = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> Response:
     video = get_video(db, video_id, allow_deleted=True)
-    path = stream_path(settings, video)
+    path = stream_path(settings, video, hevc=codec == "hevc")
     original = video.file_path if path == abs_path(settings, video.file_path) else None
     media_type = mimetypes.guess_type(path.name)[0] or "video/mp4"
     if path.suffix == ".mkv":
@@ -908,6 +922,7 @@ DERIVED_FILES = {
     "preview.mp4": ("video/mp4", derive.PREVIEW),
     "sprite.jpg": ("image/jpeg", derive.SPRITE),
     "thumbnails.vtt": ("text/vtt", derive.VTT),
+    "waveform.json": ("application/json", derive.WAVEFORM),
 }
 
 

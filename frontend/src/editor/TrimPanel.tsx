@@ -7,7 +7,7 @@ import { formatDuration } from '../lib/format'
 import { defaultOutput, useSubmitEdit, type EditorContext } from './edit'
 import PresetControls from './PresetControls'
 import { OutputFields } from './OutputFields'
-import { snapCut, timecode } from './frames'
+import { mergeSpans, snapCut, timecode } from './frames'
 import { useTiming } from './timing'
 import TimeInput from './TimeInput'
 import SequencePreview from './SequencePreview'
@@ -27,7 +27,7 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
   const [crf, setCrf] = useState(20)
   const [segments, setSegments] = useState<Seg[]>([{ start: 0, end: duration }])
   const [active, setActive] = useState(0)
-  const [mode, setMode] = useState<'precise' | 'fast'>('precise')
+  const [mode, setMode] = useState<'precise' | 'fast' | 'smart'>('precise')
   const [output, setOutput] = useState(defaultOutput)
   const previewEnd = useRef<number | null>(null)
   const { submit, busy } = useSubmitEdit(video.id)
@@ -53,9 +53,10 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
     )
 
   const seg = segments[active] ?? segments[0]
-  const fast = mode === 'fast' && segments.length === 1
-  const actual = fast && timing.data?.keyframes.length ? snapCut(segments[0].start, segments[0].end, timing.data.keyframes, duration) : null
-  const total = actual ? actual.end - actual.start : segments.reduce((acc, s) => acc + (s.end - s.start), 0)
+  const fast = mode === 'fast'
+  const keyframes = timing.data?.keyframes
+  const actual = fast && keyframes?.length ? mergeSpans(segments.map((s) => snapCut(s.start, s.end, keyframes, duration))) : null
+  const total = (actual ?? segments).reduce((acc, s) => acc + (s.end - s.start), 0)
 
   return (
     <Stack>
@@ -71,7 +72,7 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
         setCrf(Number(params.crf ?? 20))
         const applied = (params.segments as Seg[]).map((segment) => ({ ...segment, end: Math.min(segment.end, duration) })).filter((segment) => segment.end > segment.start)
         setSegments(applied.length ? applied : [{ start: 0, end: duration }])
-        setMode(params.mode === 'fast' && applied.length <= 1 ? 'fast' : 'precise')
+        setMode(params.mode === 'fast' || params.mode === 'smart' ? params.mode : 'precise')
         setActive(0)
       }} />
       <Text size="sm" c="dimmed">{tr("选择要保留的片段。可添加多个片段，将按顺序拼接。")}</Text>
@@ -148,7 +149,6 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
           variant="default"
           leftSection={<IconPlus size={14} />}
           onClick={() => {
-            setMode('precise')
             const start = Math.min(currentTime, Math.max(0, duration - 1))
             setSegments((segs) => [...segs, { start, end: Math.min(duration, start + 5) }])
             setActive(segments.length)
@@ -159,28 +159,37 @@ export default function TrimPanel({ video, currentTime, seek, play, pause, setOv
         <Text size="sm" mb={4}>{tr("剪辑模式")}</Text>
         <SegmentedControl
           value={mode}
-          onChange={(v) => setMode(v as 'precise' | 'fast')}
+          onChange={(v) => setMode(v as typeof mode)}
           data={[
             { value: 'precise', label: tr("精确（重新编码）") },
-            { value: 'fast', label: tr("快速（无损，按关键帧）"), disabled: segments.length > 1 },
+            { value: 'smart', label: tr("智能（仅重编码切点附近）") },
+            { value: 'fast', label: tr("快速（无损，按关键帧）") },
           ]}
         />
       </div>
       {fast && (
         <Alert color={actual ? 'blue' : 'orange'} title={tr("快速模式按关键帧吸附")}>
-          {actual ? <>{tr("实际起点 ")}{timecode(actual.start)}{tr("，实际终点 ")}{timecode(actual.end)}{tr("。音视频流时间基可能使文件时长略有差异。")}<Button size="xs" variant="subtle" onClick={() => setSegments([actual])}>{tr("使用这些切点")}</Button>
+          {actual ? <>{actual.map((span, i) => <Text size="sm" key={i}>{actual.length > 1 ? tr('片段 {{v0}}：', { v0: i + 1 }) : ''}{tr("实际起点 ")}{timecode(span.start)}{tr("，实际终点 ")}{timecode(span.end)}</Text>)}
+            {actual.length < segments.length && <Text size="sm">{tr("吸附后相邻或重叠的片段已合并。")}</Text>}
+            <Text size="sm">{tr("音视频流时间基可能使文件时长略有差异。")}{segments.length > 1 && tr("多段先逐段复制再无损拼接，片段衔接处音频可能有极短的间隙。")}</Text>
+            <Button size="xs" variant="subtle" onClick={() => { setSegments(actual); setActive(0) }}>{tr("使用这些切点")}</Button>
           </> : tr("正在读取关键帧，载入后显示实际切点。")}
         </Alert>
       )}
+      {mode === 'smart' && <Text size="xs" c={video.video_codec && video.video_codec !== 'h264' ? 'orange' : 'dimmed'}>
+        {video.video_codec && video.video_codec !== 'h264'
+          ? tr("智能剪切仅支持 H.264，此视频将改为精确剪辑。")
+          : tr("切点精确到帧：完整的关键帧间隔直接复制，只重新编码每个切点到相邻关键帧之间的画面；音频重新编码。")}
+      </Text>}
       {!fast && <NumberInput label={tr("画质 CRF（越小越清晰）")} min={0} max={51} value={crf} onChange={(value) => setCrf(Number(value))} />}
       <OutputFields value={output} onChange={setOutput} />
       <SequencePreview pause={pause} disabled={fast && !actual}
-        clips={(actual ? [actual] : segments).map((segment) => ({ video, ...segment }))}
+        clips={(actual ?? segments).map((segment) => ({ video, ...segment }))}
         note={fast ? tr("快速模式预览使用吸附后的关键帧切点。") : undefined} />
       <Button
         loading={busy}
         disabled={!seg || (fast && !actual)}
-        onClick={() => submit({ op: 'trim', mode: segments.length > 1 ? 'precise' : mode, segments, crf }, output)}
+        onClick={() => submit({ op: 'trim', mode, segments, crf }, output)}
       >{tr("剪辑（输出时长 ")}{formatDuration(total, true)}{tr('）')}
       </Button>
     </Stack>

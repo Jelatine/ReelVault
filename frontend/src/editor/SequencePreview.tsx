@@ -4,6 +4,7 @@ import { Alert, Button, Group, Modal, Stack, Text } from '@mantine/core'
 import { useEffect, useRef, useState } from 'react'
 import { formatDuration } from '../lib/format'
 import type { Video } from '../lib/types'
+import { streamUrl } from '../lib/hevc'
 
 export interface PreviewClip {
   video: Video
@@ -52,7 +53,7 @@ function SequencePlayer({ clips }: { clips: PreviewClip[] }) {
   return <Stack>
     <Text size="sm">{tr("片段 ")}{index + 1} / {clips.length} · {clip.video.title} · {formatDuration(clip.start, true)}–{formatDuration(clip.end, true)}</Text>
     {error && <Alert color="orange">{translateStoredText(error)}</Alert>}
-    <video key={`${index}:${run}`} ref={element} src={clip.video.stream_url} controls playsInline preload="auto"
+    <video key={`${index}:${run}`} ref={element} src={streamUrl(clip.video)} controls playsInline preload="auto"
       aria-label={tr("连续预览播放器")}
       style={{ width: '100%', maxHeight: '65vh', background: '#000' }}
       onLoadedMetadata={(event) => {

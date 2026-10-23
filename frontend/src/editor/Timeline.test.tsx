@@ -45,3 +45,16 @@ test('vtt cues parse identically with CRLF line endings', () => {
   expect(cues).toHaveLength(2)
   expect(cues[1]).toEqual({ start: 1.5, url: 'http://host/s.jpg?v=1', x: 160, y: 0, w: 160, h: 90 })
 })
+
+test('the audio waveform is drawn under the frames, scaled to the loudest peak', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({ json: async () => ({ duration: 19, peaks: [0.1, 0.2, 0] }) })))
+  const client = new QueryClient()
+  render(<QueryClientProvider client={client}>
+    <Timeline video={{ duration: 20, thumbnails_url: null, waveform_url: '/api/videos/v/waveform.json?v=1&w=1' } as Video} currentTime={0} onSeek={vi.fn()} />
+  </QueryClientProvider>)
+  const svg = await screen.findByTestId('timeline-waveform')
+  expect(svg.getAttribute('viewBox')).toBe('0 0 3 1')
+  expect((svg as unknown as HTMLElement).style.width).toBe('95%')
+  expect(svg.querySelector('path')?.getAttribute('d')).toBe('M0 1 L0 0.500 L1 0.500 L1 0.000 L2 0.000 L2 1.000 L3 1.000 L3 1 Z')
+  vi.unstubAllGlobals()
+})

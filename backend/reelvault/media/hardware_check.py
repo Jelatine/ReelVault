@@ -15,7 +15,9 @@ from . import encoding, ops
 from .ffmpeg import run_command
 from .probe import probe
 
-OPERATIONS = ("h264", "h265", "rotate", "merge")
+OPERATIONS = ("h264", "h265", "av1", "rotate", "merge")
+# Many GPUs that encode H.264/HEVC cannot encode AV1; a failure there is reported only.
+OPTIONAL = {"av1"}
 
 
 async def verify_operation(
@@ -30,7 +32,7 @@ async def verify_operation(
     info = await probe("ffprobe", str(samples["a"]))
     out = workdir / f"{operation}.mp4"
     dimensions = (320, 240)
-    if operation in {"h264", "h265"}:
+    if operation in {"h264", "h265", "av1"}:
         plan = ops.plan_compress(
             ops.CompressParams(codec=operation), (samples["a"], info), out, workdir
         )
@@ -48,13 +50,13 @@ async def verify_operation(
     else:
         raise ValueError(f"Unknown operation: {operation}")
     result = await runtime.run(plan.commands, family, duration=plan.duration, cwd=plan.cwd)
-    expected = encoding.FAMILIES[family][2 if operation == "h265" else 1]
+    expected = encoding.family_encoder(family, ops.ENCODERS.get(operation, "libx264"))
     # Explicit checks also work when Python is invoked with -O.
     if result["fallback"] is not None or result["encoder"] != expected:
         raise RuntimeError(f"Hardware encoding required: {result}")
     produced = await probe("ffprobe", str(out))
     if (
-        produced.video_codec != ("hevc" if operation == "h265" else "h264")
+        produced.video_codec != {"h265": "hevc", "av1": "av1"}.get(operation, "h264")
         or (produced.width, produced.height) != dimensions
         or produced.audio_codec != "aac"
         or abs(produced.duration - plan.duration) >= 0.2
@@ -106,7 +108,11 @@ async def check(family: str, device: str) -> dict[str, Any]:
                 )  # fmt: skip
                 samples[name] = path
             for operation in OPERATIONS:
+                if operation == "av1" and not encoding.family_encoder(family, "libsvtav1"):
+                    continue
                 entry: dict[str, Any] = {"operation": operation, "passed": False}
+                if operation in OPTIONAL:
+                    entry["optional"] = True
                 try:
                     entry.update(
                         await verify_operation(family, operation, samples, workdir, device=device)
@@ -115,7 +121,9 @@ async def check(family: str, device: str) -> dict[str, Any]:
                 except Exception as error:
                     entry["error"] = str(error)
                 report["operations"].append(entry)
-        report["passed"] = all(entry["passed"] for entry in report["operations"])
+        report["passed"] = all(
+            entry["passed"] for entry in report["operations"] if not entry.get("optional")
+        )
     except Exception as error:
         report["error"] = str(error)
     return report

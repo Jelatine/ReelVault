@@ -187,15 +187,12 @@ def test_budget_rejects_without_jobs_and_source_change_never_publishes(
     assert client.get(url).json()["ready"]
 
 
-def test_actual_default_size_boundary_with_sparse_hevc(client, settings):
+def test_actual_default_size_boundary_with_sparse_mpeg4(client, settings):
     from reelvault.storage import MIB
 
+    # MPEG-4 Part 2 needs an H.264 transcode; HEVC is only remuxed on request.
     source = make_video(
-        settings.library_dir / "large.mp4",
-        duration=0.4,
-        audio=False,
-        codec="libx265",
-        extra=["-preset", "ultrafast", "-x265-params", "log-level=error:pools=1"],
+        settings.library_dir / "large.mp4", duration=0.4, audio=False, codec="mpeg4"
     )
     with source.open("r+b") as output:
         output.truncate(256 * MIB + 1)
@@ -255,3 +252,61 @@ def test_cache_survives_backup_restore_restart_and_orphan_cleanup(
             row.meta = {k: v for k, v in row.meta.items() if k != "playable_signature"}
             db.commit()
         assert restored.get(video["stream_url"]).status_code == 200
+
+
+def hevc_video(path, *extra, x265=""):
+    return make_video(
+        path,
+        duration=1,
+        codec="libx265",
+        extra=["-preset", "ultrafast", "-x265-params", f"log-level=error:pools=1{x265}", *extra],
+    )
+
+
+def test_hevc_clients_get_the_original_or_a_remux(client, settings, tmp_path):
+    direct = upload_ready(client, hevc_video(tmp_path / "hvc1.mp4", "-tag:v", "hvc1"))
+    url = f"/api/videos/{direct['id']}/playback-cache"
+    assert not list((settings.derived_dir / direct["id"]).glob("*-*.mp4"))  # no eager copy
+    assert client.get(url).json()["ready"] is False  # H.264-only browsers still need a copy
+    hevc = client.get(url, params={"hevc": True}).json()
+    assert hevc["variant"] == "hevc" and hevc["required"] is False and hevc["ready"] is True
+    assert client.post(url, params={"hevc": True}).json() == {"cached": True}
+    assert (
+        client.get(direct["stream_url"] + "&codec=hevc").content
+        == (tmp_path / "hvc1.mp4").read_bytes()
+    )
+    assert client.get(direct["stream_url"]).status_code == 409
+
+    source = hevc_video(tmp_path / "hevc.mkv")
+    mkv = upload_ready(client, source)
+    url = f"/api/videos/{mkv['id']}/playback-cache"
+    assert client.get(url, params={"hevc": True}).json()["required"] is True
+    job = client.post(url, params={"hevc": True}).json()
+    assert job["params"]["variant"] == "hevc"
+    assert wait_job(client, job["id"])["status"] == "succeeded"
+    status = client.get(url, params={"hevc": True}).json()
+    assert status["ready"] and status["cached"] and status["job"]["id"] == job["id"]
+    assert client.get(url).json()["ready"] is False and client.get(url).json()["job"] is None
+    copy = settings.derived_dir / mkv["id"] / f"hevc-{job['id']}.mp4"
+    info = asyncio.run(probe("ffprobe", str(copy)))
+    assert info.video_codec == "hevc" and info.video_tag == "hvc1" and info.container == "mp4"
+    current = client.get(f"/api/videos/{mkv['id']}").json()
+    assert client.get(current["stream_url"] + "&codec=hevc").content == copy.read_bytes()
+    # The H.264 copy is a separate job and file; clearing removes both.
+    h264 = client.post(url).json()
+    assert wait_job(client, h264["id"])["status"] == "succeeded"
+    assert client.delete(url).json() == {"cleared": True}
+    assert not list((settings.derived_dir / mkv["id"]).glob("*-*.mp4"))
+    assert source.exists()
+
+
+def test_hdr_hevc_is_never_served_as_hevc(client, tmp_path):
+    # FFmpeg 8 negotiates colours from the frames, so write the VUI through x265 itself.
+    hdr = hevc_video(
+        tmp_path / "hdr.mp4",
+        "-tag:v", "hvc1",
+        x265=":colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
+    )  # fmt: skip
+    video = upload_ready(client, hdr)
+    status = client.get(f"/api/videos/{video['id']}/playback-cache", params={"hevc": True}).json()
+    assert status["variant"] == "h264" and status["required"] is True

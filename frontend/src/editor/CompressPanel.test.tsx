@@ -60,7 +60,7 @@ test.each([false, true])('select AV1 and submit quality or target size compressi
   const { client } = setup([], mixed)
   fireEvent.click(screen.getByRole('combobox', { name: '编码' }))
   fireEvent.click(screen.getByRole('option', { name: 'AV1（编码较慢）' }))
-  expect(screen.getByText('AV1 使用软件编码，编码较慢；支持 AV1 的浏览器可直接播放。')).toBeDefined()
+  expect(screen.getByText('AV1 优先使用支持 AV1 的硬件编码器，否则使用较慢的软件编码；支持 AV1 的浏览器可直接播放。')).toBeDefined()
   const button = screen.getByRole('button', { name: mixed ? '开始混合编辑' : '开始压缩' })
   fireEvent.click(button)
   const qualityEdit = submit.mock.lastCall![0]
@@ -82,4 +82,14 @@ test('standalone compression keeps the existing payload', () => {
   expect(submit).toHaveBeenCalledWith(expect.objectContaining({ op: 'compress', codec: 'h264' }), { mode: 'new', title: '' })
   expect(submit.mock.calls[0][0]).not.toHaveProperty('rotate')
   client.clear()
+})
+
+test('plain compression can ask for a quality score; mixed edits cannot', () => {
+  setup([], false)
+  fireEvent.click(screen.getByRole('switch', { name: '完成后评估画质（有 libvmaf 时用 VMAF，否则用 SSIM）' }))
+  fireEvent.click(screen.getByRole('button', { name: '开始压缩' }))
+  expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ op: 'compress', measure_quality: true }), expect.anything())
+  cleanup()
+  setup()
+  expect(screen.queryByRole('switch', { name: '完成后评估画质（有 libvmaf 时用 VMAF，否则用 SSIM）' })).toBeNull()
 })

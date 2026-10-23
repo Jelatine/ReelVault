@@ -4,7 +4,7 @@ import { api } from './api'
 import type { Video } from './types'
 export interface Bookmark { id: string; position: number; title: string; note: string; kind: 'bookmark' | 'chapter'; stale: boolean }
 export interface Chapter { start: number; end: number; title: string }
-export interface BookmarkData { bookmarks: Bookmark[]; chapters: Chapter[]; chapters_stale: boolean }
+export interface BookmarkData { bookmarks: Bookmark[]; chapters: Chapter[]; embedded_chapters?: Chapter[]; chapters_stale: boolean }
 export function useBookmarks(video: Video | undefined) {
   const user = useQueryClient().getQueryData<{ user: { username: string } | null }>(['auth'])?.user?.username ?? null
   return useQuery({ queryKey: ['bookmarks', video?.id, video?.stream_url, user],

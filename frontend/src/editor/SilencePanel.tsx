@@ -2,8 +2,10 @@ import { useTranslation } from 'react-i18next'
 import { tr } from '../lib/i18n'
 import { Accordion, Button, Group, NumberInput, Stack, Text } from '@mantine/core'
 import { useState } from 'react'
-import { api, errorText } from '../lib/api'
+import { errorText } from '../lib/api'
+import { useAnalysisJob } from '../lib/analysis'
 import type { Video } from '../lib/types'
+import AnalysisProgress from './AnalysisProgress'
 
 export interface KeptSegment { start: number; end: number }
 interface SilenceResult { silences: KeptSegment[]; segments: KeptSegment[]; duration: number }
@@ -13,13 +15,13 @@ export default function SilencePanel({ video, onSegments }: { video: Video; onSe
 
   const [noise, setNoise] = useState(-40), [minimum, setMinimum] = useState(0.8)
   const [busy, setBusy] = useState(false)
+  const analysis = useAnalysisJob()
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null)
   const valid = noise >= -90 && noise <= -10 && minimum >= 0.1 && minimum <= 60
   const detect = async () => {
     setBusy(true); setNote(null)
     try {
-      const query = new URLSearchParams({ noise_db: String(noise), min_duration: String(minimum) })
-      const result = await api.get<SilenceResult>(`/api/videos/${video.id}/silence?${query}`)
+      const result = await analysis.run<SilenceResult>(`/api/videos/${video.id}/silence`, { noise_db: noise, min_duration: minimum })
       if (!result.silences.length) setNote({ text: tr("未检测到静音片段"), error: false })
       else if (!result.segments.length) setNote({ text: tr("整段视频均为静音"), error: true })
       else {
@@ -46,6 +48,7 @@ export default function SilencePanel({ video, onSegments }: { video: Video; onSe
               <Button size="xs" variant="light" loading={busy} disabled={!valid} onClick={detect}>{tr("检测静音")}</Button>
               {note && <Text size="xs" c={note.error ? 'red' : 'dimmed'}>{note.text}</Text>}
             </Group>
+            <AnalysisProgress job={analysis.job} onCancel={() => void analysis.cancel()} />
           </Stack>
         </Accordion.Panel>
       </Accordion.Item>

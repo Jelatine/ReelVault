@@ -113,7 +113,9 @@ def apply_media_info(video: Video, info: MediaInfo, size: int) -> None:
     video.container = info.container
     video.video_codec = info.video_codec
     video.audio_codec = info.audio_codec
-    video.meta = {**(video.meta or {}), **info.to_meta()}
+    # A (re)probed file needs a new integrity check.
+    previous = {k: v for k, v in (video.meta or {}).items() if k != "integrity"}
+    video.meta = {**previous, **info.to_meta()}
     overrides = video.metadata_overrides or {}
     if "captured_at" in overrides:
         video.captured_at = capture_time(overrides["captured_at"])
@@ -148,6 +150,11 @@ def media_details(meta: dict[str, Any]) -> dict[str, Any]:
         "channels",
         "channel_layout",
         "audio_bitrate",
+        "variable_frame_rate",
+        "nominal_fps",
+        "auto_cover_time",
+        "custom_cover",
+        "dolby_vision_profile",
     )
     details = {key: meta[key] for key in keys if meta.get(key)}
     details["subtitle_count"] = len(meta.get("subtitle_streams") or [])
@@ -187,6 +194,7 @@ def video_to_dict(v: Video) -> dict[str, Any]:
         "rotation": (v.meta or {}).get("rotation", 0),
         "media": media_details(v.meta or {}),
         "cover_time": v.cover_time,
+        "integrity": (v.meta or {}).get("integrity"),
         "tags": sorted(t.name for t in v.tags),
         "created_at": v.created_at.isoformat(),
         "updated_at": v.updated_at.isoformat() if v.updated_at else None,
@@ -196,4 +204,9 @@ def video_to_dict(v: Video) -> dict[str, Any]:
         "poster_url": f"{base}/poster.jpg?v={ver}" if v.has_poster else None,
         "preview_url": f"{base}/preview.mp4?v={ver}" if v.has_preview else None,
         "thumbnails_url": f"{base}/thumbnails.vtt?v={ver}{sprite_suffix}" if v.has_sprite else None,
+        "waveform_url": (
+            f"{base}/waveform.json?v={ver}&w={(v.meta or {})['waveform_version']}"
+            if (v.meta or {}).get("waveform_version")
+            else None
+        ),
     }

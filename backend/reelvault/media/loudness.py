@@ -7,7 +7,7 @@ import math
 import re
 from pathlib import Path
 
-from .ffmpeg import ProcessHandle, ProgressCallback, run_command
+from .ffmpeg import ProcessHandle, ProgressCallback, ffmpeg_args, run_command
 from .ops import LOUDNESS_KEYS, noise_floor_command
 from .probe import MediaInfo
 
@@ -33,10 +33,8 @@ async def measure_loudness(
     handle: ProcessHandle | None = None,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, float] | None:
-    # loudnorm prints its measurement at info level; keep the -hide_banner/-nostdin
-    # pair so the runner still applies stall detection and thread limits.
-    command = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "info"]
-    command += ["-progress", "pipe:1", "-nostats", *args]
+    # loudnorm prints its measurement at info level.
+    command = ffmpeg_args(ffmpeg, args, loglevel="info")
     result = await run_command(command, duration=duration, on_progress=on_progress, handle=handle)
     return parse_loudness(result.stderr)
 
@@ -66,8 +64,7 @@ async def measure_noise_floor(
 ) -> float | None:
     """None for digital silence or when there is nothing to measure."""
     output = folder / "noise-floor.txt"
-    command = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
-    command += ["-progress", "pipe:1", "-nostats", *noise_floor_command(source, output.name)]
+    command = ffmpeg_args(ffmpeg, noise_floor_command(source, output.name))
     await run_command(
         command, duration=source[1].duration, on_progress=on_progress, handle=handle, cwd=folder
     )

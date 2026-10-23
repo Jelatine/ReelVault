@@ -17,23 +17,33 @@ from ..library import (
     stem_of,
 )
 from ..locations import library_root, location_of
-from ..media import derive, ops
+from ..media import chapters, derive, ops
 from ..media.adjust import plan_adjust
 from ..media.animation import plan_animation
 from ..media.assets import audio_asset, image_asset, lut_asset, subtitle_asset
-from ..media.color import sdr_commands
+from ..media.color import needs_tone_mapping, reencodes_video, sdr_commands
 from ..media.composite import plan_composite
+from ..media.detect import (
+    MAX_SEGMENTS,
+    check_integrity,
+    detect_crop,
+    detect_silence,
+    keep_segments,
+)
 from ..media.effects import plan_effect
+from ..media.ffmpeg import FFmpegError, FFmpegOperationalError
 from ..media.loudness import measure_loudness, measure_noise_floor
 from ..media.probe import MediaInfo, probe
+from ..media.quality import measure_quality
+from ..media.quality import metric as quality_metric
 from ..media.scenes import SceneParams, detect_scenes, source_signature
 from ..media.subtitles import plan_subtitle
-from ..media.timing import snap_cut, timing_index
+from ..media.timing import merge_spans, snap_cut, timing_index
 from ..media.transfer import move_output
 from ..media.validation import validate_output
 from ..media.watermark import plan_watermark
 from ..models import Job, SceneAnalysis, Video, new_id, utcnow
-from ..playback_cache import remove_copy
+from ..playback_cache import HEVC_PATH, HEVC_SIGNATURE, remove_copy
 from ..storage import MIB, check_budget
 from .ai import analyse_ai
 from .duplicates import duplicates
@@ -43,6 +53,30 @@ from .transcription import transcribe
 from .vision import index_vision
 
 edit_params: TypeAdapter[ops.EditParams] = TypeAdapter(ops.EditParams)
+
+
+async def _waveform(ctx: JobContext, video_id: str, source: Path, info: MediaInfo) -> None:
+    """Audio peaks for the trim timeline; a failure only loses the waveform."""
+    target = derived_dir(ctx.settings, video_id) / derive.WAVEFORM
+    try:
+        made = await derive.make_waveform(ctx.settings.ffmpeg, source, info, target, ctx.handle)
+    except FFmpegOperationalError:
+        raise
+    except (FFmpegError, OSError) as error:
+        ctx.log(f"音频波形生成失败：{str(error)[-300:]}", "warning")
+        made = False
+    with ctx.db() as db:
+        current = db.get(Video, video_id)
+        if current is None:
+            return
+        meta = dict(current.meta or {})
+        if made:
+            meta["waveform_version"] = int(meta.get("waveform_version", 0)) + 1
+        else:
+            meta.pop("waveform_version", None)
+            target.unlink(missing_ok=True)
+        current.meta = meta
+        db.commit()
 
 
 async def ingest(ctx: JobContext, job: Job) -> None:
@@ -72,8 +106,12 @@ async def ingest(ctx: JobContext, job: Job) -> None:
             assert video is not None
             apply_media_info(video, info, src.stat().st_size)
             required = 32 * MIB
+            # HEVC-capable browsers need at most a remux, so the H.264 copy is made
+            # only when a client asks for it.
             eager = (
-                not info.browser_playable and src.stat().st_size <= s.playable_eager_max_mb * MIB
+                not info.browser_playable
+                and not info.hevc_remuxable
+                and src.stat().st_size <= s.playable_eager_max_mb * MIB
             )
             if eager:
                 rate = (
@@ -100,7 +138,15 @@ async def ingest(ctx: JobContext, job: Job) -> None:
 
         ctx.stage(1, steps, "生成封面")
         if not custom_cover:
-            t = cover_time if cover_time is not None else derive.default_cover_time(info)
+            if cover_time is None:
+                t = await derive.choose_cover_time(s.ffmpeg, src, info, ctx.handle)
+                with ctx.db() as db:
+                    current = db.get(Video, video_id)
+                    if current is not None:
+                        current.meta = {**(current.meta or {}), "auto_cover_time": t}
+                        db.commit()
+            else:
+                t = cover_time
             await derive.extract_frame(
                 s.ffmpeg, src, info, out / derive.POSTER, t, handle=ctx.handle
             )
@@ -127,6 +173,7 @@ async def ingest(ctx: JobContext, job: Job) -> None:
         sprite_url = f"/api/videos/{video_id}/{derive.SPRITE}?v={version}"
         vtt.write_text(vtt.read_text().replace(derive.SPRITE, sprite_url), newline="\n")
         _update(ctx, video_id, has_sprite=True)
+        await _waveform(ctx, video_id, src, info)
 
         playable: str | None = None
         if eager:
@@ -178,6 +225,13 @@ async def ingest(ctx: JobContext, job: Job) -> None:
             db.commit()
         if old_playable and old_playable != (out / derive.PLAYABLE if playable else None):
             remove_copy(s, video_id, old_playable)
+        if s.integrity_check:
+            # Low priority: a full decode should not delay edits or other imports.
+            try:
+                with ctx.db() as db:
+                    ctx.manager.submit(db, "integrity", {}, [video_id], priority=0)
+            except Exception as error:
+                ctx.log(f"未能安排完整解码检查：{error}", "warning")
     except Exception as e:
         _update(ctx, video_id, status="error", error=str(e)[:2000])
         raise
@@ -258,9 +312,16 @@ async def edit(ctx: JobContext, job: Job) -> None:
         out = tmp / "output.mp4"
         match params:
             case ops.RotateParams():
-                plan = ops.plan_rotate(params, sources[0], out)
+                caps = ctx.manager.capabilities
+                supported = caps is not None and not caps.missing("lossless_rotate")
+                blocker = ops.lossless_rotation_blocker(params, sources[0][1], supported)
+                if blocker is None:
+                    ctx.log("仅修改显示方向，无损复制原始流", "info")
+                elif params.mode == "auto":
+                    ctx.log(f"无法无损旋转，重新编码：{blocker}", "info")
+                plan = ops.plan_rotate(params, sources[0], out, display_rotation=supported)
             case ops.TrimParams():
-                if params.mode == "fast" and len(params.segments) == 1:
+                if params.mode == "fast":
                     index = await timing_index(
                         s,
                         first_video.id,
@@ -269,15 +330,20 @@ async def edit(ctx: JobContext, job: Job) -> None:
                         keyframes_only=True,
                         handle=ctx.handle,
                     )
-                    segment = params.segments[0]
-                    if segment.start >= sources[0][1].duration:
-                        raise ops.OpError("剪辑区间超出视频时长")
-                    start, end = snap_cut(
-                        segment.start, segment.end, index["keyframes"], sources[0][1].duration
-                    )
-                    if end <= start:
-                        raise ops.OpError("剪辑区间超出视频时长")
-                    params.segments = [ops.Segment(start=start, end=end)]
+                    duration = sources[0][1].duration
+                    snapped: list[tuple[float, float]] = []
+                    for segment in params.segments:
+                        if segment.start >= duration:
+                            raise ops.OpError("剪辑区间超出视频时长")
+                        start, end = snap_cut(
+                            segment.start, segment.end, index["keyframes"], duration
+                        )
+                        if end <= start:
+                            raise ops.OpError("剪辑区间超出视频时长")
+                        snapped.append((start, end))
+                    params.segments = [
+                        ops.Segment(start=start, end=end) for start, end in merge_spans(snapped)
+                    ]
                     _set_job(
                         ctx,
                         job.id,
@@ -287,7 +353,39 @@ async def edit(ctx: JobContext, job: Job) -> None:
                             "edit": params.model_dump(),
                         },
                     )
-                plan = ops.plan_trim(params, sources[0], out)
+                if params.mode == "smart":
+                    blocker = ops.smart_cut_blocker(sources[0][1])
+                    if blocker:
+                        ctx.log(f"无法智能剪切，改为精确剪辑：{blocker}", "info")
+                        params.mode = "precise"
+                        _set_job(
+                            ctx,
+                            job.id,
+                            params={
+                                **job.params,
+                                "requested_edit": job.params["edit"],
+                                "edit": params.model_dump(),
+                            },
+                        )
+                if params.mode == "smart":
+                    ctx.set_progress(0, "读取帧索引")
+                    index = await timing_index(
+                        s,
+                        first_video.id,
+                        sources[0][0],
+                        sources[0][1].video_index,
+                        handle=ctx.handle,
+                    )
+                    plan = ops.plan_smart_trim(
+                        params, sources[0], out, tmp, index["frames"], index["keyframes"]
+                    )
+                    copied = sum(
+                        "-c" in args and args[args.index("-c") + 1] == "copy"
+                        for args in plan.commands[:-1]
+                    )
+                    ctx.log(f"智能剪切：{copied} 段直接复制，其余切点附近重新编码", "info")
+                else:
+                    plan = ops.plan_trim(params, sources[0], out, tmp)
             case ops.MergeParams():
                 plan = ops.plan_merge(params, sources, out, tmp)
             case ops.CompositeParams():
@@ -303,6 +401,8 @@ async def edit(ctx: JobContext, job: Job) -> None:
                 plan = ops.plan_speed(params, sources[0], out)
             case ops.MuteParams():
                 plan = ops.plan_mute(sources[0], out)
+            case ops.RepairParams():
+                plan = ops.plan_repair(sources[0], out)
             case ops.ConvertParams():
                 plan = ops.plan_convert(params, sources[0], out)
             case ops.ExtractAudioParams():
@@ -369,7 +469,37 @@ async def edit(ctx: JobContext, job: Job) -> None:
             case ops.AnimationParams():
                 plan = plan_animation(params, sources[0], out, tmp)
         result = out.with_suffix("." + plan.ext)
+        if "chapters" in job.params and plan.ext in chapters.CONTAINERS:
+            snapshot = job.params["chapters"] or {}
+            per_source = [
+                chapters.combine(
+                    info.duration,
+                    info.extra.get("chapters") or [],
+                    [tuple(mark) for mark in (snapshot.get(video.id) or {}).get("scenes", [])],
+                    [tuple(mark) for mark in (snapshot.get(video.id) or {}).get("manual", [])],
+                )
+                for _, info, video in loaded
+            ]
+            mapped = chapters.map_chapters(
+                params,
+                per_source,
+                [info.duration for _, info in sources],
+                [video.title for _, _, video in loaded],
+            )
+            if mapped is not None:
+                metadata = None
+                if mapped:
+                    metadata = tmp / "chapters.txt"
+                    metadata.write_text(chapters.ffmetadata(mapped), encoding="utf-8")
+                plan.commands[-1] = chapters.with_chapters(plan.commands[-1], metadata)
         commands = sdr_commands(plan.commands, sources)
+        untreated = [i for _, i in sources if i.dolby_vision_only and not needs_tone_mapping(i)]
+        if untreated and any(reencodes_video(args) for args in commands):
+            ctx.log(
+                "杜比视界 Profile 5 视频没有 HDR10 基础层，当前 FFmpeg 无法正确转换颜色"
+                "（需要可用的 libplacebo），重新编码的画面会偏色",
+                "warning",
+            )
         if commands != plan.commands:
             if any(info.is_hdr for _, info in sources):
                 ctx.log("HDR 视频重编码为 BT.709 SDR；无损复制保留原始 HDR", "info")
@@ -392,6 +522,7 @@ async def edit(ctx: JobContext, job: Job) -> None:
             on_progress=cb,
             handle=ctx.handle,
             cwd=plan.cwd,
+            target_bytes=plan.target_bytes,
         )
         with ctx.db() as db:
             stored = db.get(Job, job.id)
@@ -421,6 +552,27 @@ async def edit(ctx: JobContext, job: Job) -> None:
             audio=expect_audio,
             handle=ctx.handle,
         )
+        if isinstance(params, ops.CompressParams) and params.measure_quality:
+            caps = ctx.manager.capabilities
+            name = quality_metric(caps.filters if caps else None)
+            ctx.set_progress(0.96, "评估画质")
+            try:
+                measured = await measure_quality(
+                    s.ffmpeg,
+                    (result, await probe(s.ffprobe, str(result), ctx.handle)),
+                    sources[0],
+                    name,
+                    handle=ctx.handle,
+                )
+            except FFmpegOperationalError:
+                raise
+            except FFmpegError as error:
+                ctx.log(f"画质评估失败：{str(error)[-500:]}", "warning")
+            else:
+                if measured:
+                    _set_job(ctx, job.id, params={**job.params, "quality": measured})
+                    label = "VMAF" if measured["metric"] == "vmaf" else "SSIM"
+                    ctx.log(f"画质评估：{label} {measured['score']}", "info")
         ctx.set_progress(0.97, "保存结果")
         await ctx.handle.checkpoint()
 
@@ -718,6 +870,9 @@ async def hls(ctx: JobContext, job: Job) -> None:
     committed = False
     old_generation = None
     try:
+        index = await timing_index(
+            settings, video.id, source, info.video_index, keyframes_only=True, handle=ctx.handle
+        )
         renditions = await generate(
             settings.ffmpeg,
             settings.ffprobe,
@@ -728,6 +883,7 @@ async def hls(ctx: JobContext, job: Job) -> None:
             on_progress=ctx.stage(0, 1, "生成 HLS 清晰度"),
             encoding=ctx.manager.encoding,
             encoder=settings.encoder,
+            keyframes=index["keyframes"],
         )
         ctx.check_canceled()
         size = sum(p.stat().st_size for p in (temp / "hls").rglob("*") if p.is_file())
@@ -778,19 +934,35 @@ async def playable(ctx: JobContext, job: Job) -> None:
         raise RuntimeError("源视频已变化，请重新生成播放缓存")
     temp = ctx.settings.tmp_dir / f"job-{job.id}"
     temp.mkdir(parents=True, exist_ok=True)
-    target = derived_dir(ctx.settings, video.id) / f"playable-{job.id}.mp4"
+    hevc = job.params.get("variant") == "hevc"
+    if hevc and not info.hevc_remuxable:
+        raise RuntimeError("源视频不是可直接播放的 HEVC，请生成 H.264 播放缓存")
+    # HEVC remuxes are not playable-* files: startup cleanup only knows playable_path.
+    name = f"hevc-{job.id}.mp4" if hevc else f"playable-{job.id}.mp4"
+    target = derived_dir(ctx.settings, video.id) / name
     committed = False
     try:
-        encoding = await derive.make_playable(
-            ctx.settings.ffmpeg,
-            source,
-            info,
-            temp / derive.PLAYABLE,
-            ctx.handle,
-            ctx.stage(0, 1, "转码为浏览器可播放格式"),
-            encoding=ctx.manager.encoding,
-            encoder=ctx.settings.encoder,
-        )
+        encoding: dict[str, object] | None = None
+        if hevc:
+            await derive.make_hevc_playable(
+                ctx.settings.ffmpeg,
+                source,
+                info,
+                temp / derive.PLAYABLE,
+                ctx.handle,
+                ctx.stage(0, 1, "封装为 HEVC MP4"),
+            )
+        else:
+            encoding = await derive.make_playable(
+                ctx.settings.ffmpeg,
+                source,
+                info,
+                temp / derive.PLAYABLE,
+                ctx.handle,
+                ctx.stage(0, 1, "转码为浏览器可播放格式"),
+                encoding=ctx.manager.encoding,
+                encoder=ctx.settings.encoder,
+            )
         ctx.check_canceled()
         with ctx.db() as db:
             db.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -805,10 +977,19 @@ async def playable(ctx: JobContext, job: Job) -> None:
                 raise RuntimeError("源视频已变化，播放缓存未保存")
             # The completed copy is renamed on the same filesystem.
             check_budget(db, ctx.settings, 0, exclude_job=job.id)
-            old = abs_path(ctx.settings, current.playable_path) if current.playable_path else None
+            meta = current.meta or {}
+            recorded = meta.get(HEVC_PATH) if hevc else current.playable_path
+            old = abs_path(ctx.settings, recorded) if recorded else None
             (temp / derive.PLAYABLE).rename(target)
-            current.playable_path = rel_path(ctx.settings, target)
-            current.meta = {**(current.meta or {}), "playable_signature": sig}
+            if hevc:
+                current.meta = {
+                    **meta,
+                    HEVC_PATH: rel_path(ctx.settings, target),
+                    HEVC_SIGNATURE: sig,
+                }
+            else:
+                current.playable_path = rel_path(ctx.settings, target)
+                current.meta = {**meta, "playable_signature": sig}
             current.asset_version += 1
             stored = db.get(Job, job.id)
             if stored:
@@ -867,6 +1048,7 @@ async def sprite(ctx: JobContext, job: Job) -> None:
             current.meta = {**meta, "sprite_version": sprite_version}
             current.has_sprite = True
             db.commit()
+        await _waveform(ctx, video.id, source, info)
         ctx.set_progress(1, "缩略图已更新")
     finally:
         await asyncio.to_thread(shutil.rmtree, temp, ignore_errors=True)
@@ -902,7 +1084,71 @@ async def original_cache(ctx: JobContext, job: Job) -> None:
     ctx.set_progress(1, "原视频已保存到本地")
 
 
+async def integrity(ctx: JobContext, job: Job) -> None:
+    """Full decode of a video; the report is kept in its metadata for this file version."""
+    source, info, video = (await _load_sources(ctx, job.video_ids))[0]
+    sig = source_signature(source)
+    report = await check_integrity(
+        ctx.settings.ffmpeg, source, info, ctx.handle, ctx.stage(0, 1, "完整解码检查")
+    )
+    ctx.check_canceled()
+    with ctx.db() as db:
+        db.connection().exec_driver_sql("BEGIN IMMEDIATE")
+        current = db.get(Video, video.id)
+        if (
+            current is None
+            or current.file_path != video.file_path
+            or source_signature(source) != sig
+        ):
+            raise RuntimeError("源视频已变化，检查结果未保存")
+        current.meta = {
+            **(current.meta or {}),
+            "integrity": {**report, "signature": sig, "checked_at": utcnow().isoformat()},
+        }
+        db.commit()
+    errors = report["errors"]
+    ctx.set_progress(1, f"发现 {errors} 处解码错误" if errors else "未发现解码错误")
+
+
+async def analyse_media(ctx: JobContext, job: Job) -> None:
+    """Black bar or silence detection; the result is stored in the job parameters."""
+    source, info, video = (await _load_sources(ctx, job.video_ids))[0]
+    if source_signature(source) != job.params["signature"]:
+        raise RuntimeError("源视频已变化，请重新检测")
+    kind = job.params["analysis"]
+    result: dict[str, Any]
+    if kind == "crop":
+        progress = ctx.stage(0, 1, "检测黑边")
+        crop = await detect_crop(ctx.settings.ffmpeg, source, info, ctx.handle, progress)
+        result = {"crop": crop, "width": info.width, "height": info.height}
+    else:
+        if info.audio_index is None:
+            raise ops.OpError("该视频没有音轨")
+        silences = await detect_silence(
+            ctx.settings.ffmpeg,
+            source,
+            info,
+            noise_db=job.params["noise_db"],
+            min_duration=job.params["min_duration"],
+            handle=ctx.handle,
+            on_progress=ctx.stage(0, 1, "检测静音"),
+        )
+        segments = keep_segments(silences, info.duration, job.params["padding"])
+        if len(segments) > MAX_SEGMENTS:
+            raise ops.OpError(f"保留片段超过 {MAX_SEGMENTS} 个，请增大最短静音时长或降低静音阈值")
+        result = {
+            "silences": [{"start": round(s, 3), "end": round(e, 3)} for s, e in silences],
+            "segments": segments,
+            "duration": info.duration,
+        }
+    ctx.check_canceled()
+    _set_job(ctx, job.id, params={**job.params, "result": result})
+    ctx.set_progress(1, "检测完成")
+
+
 HANDLERS: dict[str, Handler] = {
+    "analysis": analyse_media,
+    "integrity": integrity,
     "original_cache": original_cache,
     "link_import": link_import,
     "ingest": ingest,

@@ -64,11 +64,13 @@ from .jobs.manager import JobManager
 from .library import abs_path
 from .maintenance import maintain
 from .media.capabilities import detect_capabilities
+from .media.color import DEINTERLACE, detect_tone_mapper
 from .media.encoding import detect_encoders
 from .media.ffmpeg import ffmpeg_version
 from .migrate import upgrade
 from .models import AuditEvent, HlsPackage, RuntimeSetting, Upload, User, Video
 from .observability import audit, prune_audit
+from .playback_cache import HEVC_PATH
 from .updates import Updater
 
 log = logging.getLogger("reelvault")
@@ -156,14 +158,15 @@ def cleanup_stale_uploads(app: FastAPI, settings: Settings, max_age_days: int = 
         if directory not in keep:
             shutil.rmtree(directory, ignore_errors=True)
     with app.state.sessionmaker() as db:
-        copies = {
-            abs_path(settings, v.playable_path)
-            for v in db.scalars(select(Video))
-            if v.playable_path
-        }
-    for f in settings.derived_dir.glob("*/playable-*.mp4"):
-        if f not in copies:
-            f.unlink(missing_ok=True)
+        copies = set()
+        for v in db.scalars(select(Video)):
+            for relative in (v.playable_path, (v.meta or {}).get(HEVC_PATH)):
+                if relative:
+                    copies.add(abs_path(settings, relative))
+    for pattern in ("*/playable-*.mp4", "*/hevc-*.mp4"):
+        for f in settings.derived_dir.glob(pattern):
+            if f not in copies:
+                f.unlink(missing_ok=True)
     # A crash during an output transfer can leave a staging file on its target disk.
     roots = [settings.library_dir, settings.exports_dir]
     roots += [entry.path / "library" for entry in settings.storage_locations.values()]
@@ -239,7 +242,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.ffmpeg_version = await ffmpeg_version(settings.ffmpeg)
             manager = JobManager(settings, app.state.sessionmaker, HANDLERS)
             manager.encoding.compiled = await detect_encoders(settings.ffmpeg)
+            DEINTERLACE.mode = settings.deinterlace_mode
             manager.capabilities = await detect_capabilities(settings.ffmpeg)
+            if manager.capabilities:
+                manager.capabilities.tone_mapper = await detect_tone_mapper(
+                    settings.ffmpeg, manager.capabilities.filters, settings.vaapi_device
+                )
             app.state.jobs = manager
             await manager.start()
             importer = Importer(settings, app.state.sessionmaker, manager)

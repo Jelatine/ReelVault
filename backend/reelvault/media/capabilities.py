@@ -29,8 +29,10 @@ FEATURES: dict[str, tuple[str, ...]] = {
     "h265": ("libx265",),
     "av1": ("libsvtav1",),
     "av1_two_pass": ("libsvtav1 (two-pass)",),
+    "lossless_rotate": ("-display_rotation",),
     "webm": ("libvpx-vp9", "libopus"),
     "mp3": ("libmp3lame",),
+    "vmaf": ("libvmaf",),
 }
 
 
@@ -39,11 +41,15 @@ class Capabilities:
     filters: set[str] = field(default_factory=set)
     encoders: set[str] = field(default_factory=set)
     av1_two_pass: bool | None = None
+    # Command-line options from `-h long`, with their leading dash.
+    options: set[str] = field(default_factory=set)
+    # HDR to SDR conversion actually usable: libplacebo, opencl, vaapi or zscale.
+    tone_mapper: str = "zscale"
 
     def missing(self, feature: str) -> list[str]:
         if feature == "av1_two_pass":
             return list(FEATURES[feature]) if self.av1_two_pass is False else []
-        available = self.filters | self.encoders
+        available = self.filters | self.encoders | self.options
         return [name for name in FEATURES[feature] if name not in available]
 
     def status(self) -> dict[str, bool]:
@@ -95,11 +101,13 @@ async def detect_capabilities(ffmpeg: str) -> Capabilities | None:
     try:
         filters = await run_command([ffmpeg, "-hide_banner", "-filters"], timeout=30)
         encoders = await run_command([ffmpeg, "-hide_banner", "-encoders"], timeout=30)
+        options = await run_command([ffmpeg, "-hide_banner", "-h", "long"], timeout=30)
     except (FFmpegError, OSError):
         return None
     capabilities = Capabilities(
         set(re.findall(r"^\s*\S{2,3}\s+(\S+)\s+\S*->\S*", filters.stdout.decode(), re.M)),
         set(re.findall(r"^\s*[VAS]\S{5}\s+(\S+)", encoders.stdout.decode(errors="replace"), re.M)),
+        options=set(re.findall(r"^(-[\w:]+)", options.stdout.decode(errors="replace"), re.M)),
     )
     capabilities.av1_two_pass = (
         await detect_av1_two_pass(ffmpeg) if "libsvtav1" in capabilities.encoders else False

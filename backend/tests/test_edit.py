@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -10,8 +12,9 @@ from reelvault.config import Settings
 from reelvault.media import derive, ops
 from reelvault.media.ops import atempo_chain
 from reelvault.media.probe import MediaInfo
+from reelvault.models import Video
 
-from .conftest import upload_ready, wait_job, wait_ready
+from .conftest import make_video, upload_ready, wait_job, wait_ready
 
 
 def run_edit(
@@ -40,6 +43,54 @@ def test_rotate(client: TestClient, clip: dict[str, Any], angle: int, dims: tupl
     v = result_video(client, job)
     assert (v["width"], v["height"]) == dims
     assert v["title"] == "clip_a (旋转)"
+    # A pure rotation of an MP4 only rewrites the display matrix.
+    assert job["params"]["encoding"]["encoder"] == "copy/other"
+    assert v["video_codec"] == clip["video_codec"] and v["size"] == pytest.approx(
+        clip["size"], rel=0.02
+    )
+
+
+def test_rotate_reencodes_flips_matroska_and_explicit_requests(
+    client: TestClient, clip: dict[str, Any], samples: dict[str, Path]
+) -> None:
+    flipped = run_edit(client, clip["id"], {"op": "rotate", "angle": 90, "flip": "vertical"})
+    assert flipped["params"]["encoding"]["encoder"] == "libx264"
+    assert (result_video(client, flipped)["width"], result_video(client, flipped)["height"]) == (
+        240,
+        320,
+    )
+    forced = run_edit(client, clip["id"], {"op": "rotate", "angle": 90, "mode": "reencode"})
+    assert forced["params"]["encoding"]["encoder"] == "libx264"
+    mkv = upload_ready(client, samples["mkv"])
+    job = run_edit(client, mkv["id"], {"op": "rotate", "angle": 270})
+    assert job["params"]["encoding"]["encoder"] != "copy/other"
+    assert (result_video(client, job)["width"], result_video(client, job)["height"]) == (
+        mkv["height"],
+        mkv["width"],
+    )
+
+
+def test_lossless_rotation_plan_composes_with_source_rotation(tmp_path: Path) -> None:
+    info = MediaInfo(width=240, height=320, duration=4, video_codec="h264", container="mov")
+    info.rotation = 270  # displayed 90 degrees clockwise
+    params = ops.RotateParams(angle=90)
+    plan = ops.plan_rotate(
+        params, (tmp_path / "in.mov", info), tmp_path / "o.mp4", display_rotation=True
+    )
+    (command,) = plan.commands
+    assert command[:2] == ["-display_rotation:0", "180"] and plan.ext == "mov"
+    assert command[command.index("-c") + 1] == "copy" and command[-1].endswith("o.mov")
+    info.rotation = 0
+    plan = ops.plan_rotate(
+        ops.RotateParams(angle=270),
+        (tmp_path / "in.mov", info),
+        tmp_path / "o.mp4",
+        display_rotation=True,
+    )
+    assert plan.commands[0][1] == "90"  # 270 clockwise is 90 counter-clockwise
+    unsupported = ops.plan_rotate(params, (tmp_path / "in.mov", info), tmp_path / "o.mp4")
+    assert "-display_rotation:0" not in unsupported.commands[0] and unsupported.ext == "mp4"
+    assert "FFmpeg" in (ops.lossless_rotation_blocker(params, info, False) or "")
 
 
 @pytest.mark.parametrize("mode", ["fast", "precise"])
@@ -83,6 +134,136 @@ def test_trim_multi_segment(client: TestClient, clip: dict[str, Any]) -> None:
     v = result_video(client, run_edit(client, clip["id"], edit))
     assert 2.2 < v["duration"] < 2.8
     assert v["audio_codec"] == "aac"
+
+
+def test_fast_trim_multi_segment_copies_and_concats(
+    client: TestClient, samples: dict[str, Path]
+) -> None:
+    source = upload_ready(client, samples["long"])
+    segments = [{"start": 1.2, "end": 2.5}, {"start": 5.0, "end": 6.2}, {"start": 6.3, "end": 8}]
+    job = run_edit(client, source["id"], {"op": "trim", "mode": "fast", "segments": segments})
+    # Keyframes every second: [1,3] [5,7] [6,8]; the last two overlap and are merged.
+    assert job["params"]["edit"]["segments"] == [
+        {"start": 1.0, "end": 3.0},
+        {"start": 5.0, "end": 8.0},
+    ]
+    assert job["params"]["requested_edit"]["segments"] == segments
+    assert job["params"]["encoding"]["encoder"] == "copy/other"
+    v = result_video(client, job)
+    assert v["container"] == "mp4" and v["video_codec"] == "h264"
+    assert 4.9 < v["duration"] < 5.2
+    mkv = upload_ready(client, samples["mkv"])
+    edit = {
+        "op": "trim",
+        "mode": "fast",
+        "segments": [{"start": 0, "end": 0.9}, {"start": 2.1, "end": 3}],
+    }
+    v = result_video(client, run_edit(client, mkv["id"], edit))
+    assert v["container"] == "mkv" and 1.7 < v["duration"] < 2.4
+
+
+def test_fast_trim_multi_segment_plan(tmp_path: Path) -> None:
+    info = MediaInfo(duration=10, container="mov", audio_codec="aac", audio_index=1)
+    params = ops.TrimParams(
+        mode="fast", segments=[ops.Segment(start=0, end=2), ops.Segment(start=4, end=6)]
+    )
+    plan = ops.plan_trim(params, (tmp_path / "in", info), tmp_path / "out.mp4", tmp_path)
+    assert plan.ext == "mov" and len(plan.commands) == 3 and plan.duration == 4
+    assert [c[-1] for c in plan.commands] == [
+        str(tmp_path / "part0.mov"),
+        str(tmp_path / "part1.mov"),
+        str(tmp_path / "out.mov"),
+    ]
+    listing = (tmp_path / "trim-concat.txt").read_text()
+    assert listing == (
+        f"file '{tmp_path / 'part0.mov'}'\noutpoint 2.000000\n"
+        f"file '{tmp_path / 'part1.mov'}'\noutpoint 2.000000\n"
+    )
+    with pytest.raises(ops.OpError):
+        ops.plan_trim(params, (tmp_path / "in", info), tmp_path / "out.mp4")
+
+
+def test_smart_parts_copy_whole_gops_and_reencode_cut_gops() -> None:
+    frames = [round(i * 0.04, 6) for i in range(250)]
+    keys = frames[::50]  # every 2 s
+    parts = ops.smart_parts(frames, keys, 1.3, 7.7)
+    assert [(p.start, p.end, p.copy) for p in parts] == [
+        (33, 50, False),
+        (50, 150, True),
+        (150, 193, False),
+    ]
+    # Cuts on a keyframe and at the end of the file need no re-encoding.
+    assert [(p.start, p.end, p.copy) for p in ops.smart_parts(frames, keys, 2, 100)] == [
+        (50, 250, True)
+    ]
+    assert [(p.start, p.end, p.copy) for p in ops.smart_parts(frames, keys, 2, 6)] == [
+        (50, 150, True)
+    ]
+    # Inside one GOP everything is re-encoded; outside the file nothing is cut.
+    assert [(p.start, p.end, p.copy) for p in ops.smart_parts(frames, keys, 2.1, 3)] == [
+        (53, 75, False)
+    ]
+    assert ops.smart_parts(frames, keys, 20, 30) == []
+
+
+def test_smart_cut_blockers() -> None:
+    info = MediaInfo(
+        duration=4, video_codec="h264", video_profile="High", pix_fmt="yuv420p", fps=25
+    )
+    assert ops.smart_cut_blocker(info) is None
+    assert "H.264" in (ops.smart_cut_blocker(replace(info, video_codec="hevc")) or "")
+    assert ops.smart_cut_blocker(replace(info, video_profile="High 10"))
+    assert ops.smart_cut_blocker(replace(info, field_order="tt"))
+    assert ops.smart_cut_blocker(replace(info, rotation=90))
+
+
+def frame_hashes(path: Path) -> list[str]:
+    output = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v", "-f", "framemd5", "-"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return [
+        line.rsplit(",", 1)[1].strip() for line in output.splitlines() if not line.startswith("#")
+    ]
+
+
+def test_smart_trim_copies_inner_gops_frame_exactly(
+    client: TestClient, settings: Settings, samples: dict[str, Path]
+) -> None:
+    source = upload_ready(client, samples["long"])
+    segments = [{"start": 1.3, "end": 3.7}, {"start": 10.5, "end": 12}]
+    job = run_edit(client, source["id"], {"op": "trim", "mode": "smart", "segments": segments})
+    assert job["params"]["edit"]["mode"] == "smart"
+    v = result_video(client, job)
+    assert v["video_codec"] == "h264" and v["audio_codec"] == "aac"
+    assert v["duration"] == pytest.approx(3.9, abs=0.08)
+    with client.app.state.sessionmaker() as db:
+        out = settings.data_dir / db.get(Video, v["id"]).file_path
+    produced, original = frame_hashes(out), frame_hashes(samples["long"])
+    # 60 frames from 1.32 s and 37 from 10.52 s (25 fps, a keyframe every second). The GOP
+    # from 2 s is copied bit-exactly; 3.00-3.68 s ends at a cut, so it is re-encoded.
+    assert len(produced) == 97
+    assert produced[17:42] == original[50:75]
+    assert produced[42] != original[75]
+    assert produced[60 + 12 :] == original[275:300]  # 11.00-11.96 s
+    ffmpeg_ok = subprocess.run(
+        ["ffmpeg", "-v", "error", "-xerror", "-i", str(out), "-f", "null", "-"]
+    )
+    assert ffmpeg_ok.returncode == 0
+
+
+def test_smart_trim_falls_back_to_precise(
+    client: TestClient, samples: dict[str, Path], tmp_path: Path
+) -> None:
+    hevc = make_video(tmp_path / "hevc.mp4", duration=3, codec="libx265", extra=["-tag:v", "hvc1"])
+    source = upload_ready(client, hevc)
+    edit = {"op": "trim", "mode": "smart", "segments": [{"start": 0.5, "end": 2}]}
+    job = run_edit(client, source["id"], edit)
+    assert job["params"]["edit"]["mode"] == "precise"
+    assert job["params"]["requested_edit"]["mode"] == "smart"
+    assert 1.3 < result_video(client, job)["duration"] < 1.7
 
 
 def test_merge_lossless_and_reencode(client: TestClient, samples: dict[str, Path]) -> None:

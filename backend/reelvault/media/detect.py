@@ -4,8 +4,16 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
-from .ffmpeg import ProcessHandle, run_command
+from .ffmpeg import (
+    FFmpegError,
+    FFmpegOperationalError,
+    ProcessHandle,
+    ProgressCallback,
+    ffmpeg_args,
+    run_command,
+)
 from .probe import MediaInfo
 
 CROP_SAMPLES = 8
@@ -16,16 +24,17 @@ MAX_SEGMENTS = 50
 
 
 def _analysis(ffmpeg: str, args: list[str]) -> list[str]:
-    # Detection filters report at info level; -nostdin/-hide_banner keep the runner's
-    # stall detection, fed by -progress since detections can be minutes apart.
-    return [
-        ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "info",
-        "-progress", "pipe:1", "-nostats", *args,
-    ]  # fmt: skip
+    # Detection filters report at info level; -progress feeds the runner's stall
+    # detection since detections can be minutes apart.
+    return ffmpeg_args(ffmpeg, args, loglevel="info")
 
 
 async def detect_crop(
-    ffmpeg: str, source: Path, info: MediaInfo, handle: ProcessHandle | None = None
+    ffmpeg: str,
+    source: Path,
+    info: MediaInfo,
+    handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> dict[str, int] | None:
     """Union of the content found at evenly spaced samples; None without black bars.
 
@@ -49,6 +58,8 @@ async def detect_crop(
             handle=handle,
             timeout=60,
         )  # fmt: skip
+        if on_progress:
+            on_progress((i + 1) / CROP_SAMPLES)
         crops = re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", result.stderr)
         if not crops:
             continue
@@ -75,6 +86,7 @@ async def detect_silence(
     noise_db: float,
     min_duration: float,
     handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> list[tuple[float, float]]:
     """Silent intervals of the primary audio track on the container timeline."""
     if info.audio_index is None:
@@ -89,7 +101,8 @@ async def detect_silence(
             ],
         ),
         handle=handle,
-        timeout=600,
+        duration=info.duration,
+        on_progress=on_progress,
     )  # fmt: skip
     silences: list[tuple[float, float]] = []
     start: float | None = None
@@ -124,3 +137,36 @@ def keep_segments(
     if duration - position > 0.05:
         segments.append({"start": round(position, 3), "end": round(duration, 3)})
     return segments
+
+
+INTEGRITY_SAMPLE = 20
+
+
+async def check_integrity(
+    ffmpeg: str,
+    source: Path,
+    info: MediaInfo,
+    handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> dict[str, Any]:
+    """Decode the video and audio tracks completely and collect the decoder errors."""
+    streams = ["-map", f"0:{info.video_index}"]
+    if info.audio_index is not None:
+        streams += ["-map", f"0:{info.audio_index}"]
+    args = ffmpeg_args(ffmpeg, ["-i", str(source), *streams, "-f", "null", "-"])
+    try:
+        result = await run_command(
+            args, handle=handle, duration=info.duration, on_progress=on_progress
+        )
+        output, failed = result.stderr, False
+    except FFmpegOperationalError:
+        raise
+    except FFmpegError as error:
+        # Decoding stopped early: the remaining file could not be read at all.
+        output, failed = str(error), True
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    return {
+        "errors": len(lines) + (1 if failed and not lines else 0),
+        "aborted": failed,
+        "sample": [line[:300] for line in lines[:INTEGRITY_SAMPLE]],
+    }

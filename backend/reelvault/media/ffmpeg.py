@@ -265,7 +265,7 @@ async def run_command(
     parsed into a 0..1 fraction and reported through `on_progress`."""
     control = handle or ProcessHandle()
     # Only FFmpeg commands receive codec/filter options, never ffprobe or workers.
-    is_ffmpeg = "-hide_banner" in args and "-nostdin" in args
+    is_ffmpeg = isinstance(args, FFmpegCommand)
     # Palette generation and a full-video sprite emit their sole frame only at EOF.
     # Their frame/time counters cannot distinguish a busy decoder from a stall.
     single_frame = any(
@@ -297,7 +297,7 @@ async def run_command(
     track = on_progress is not None and duration > 0
     # All job-owned FFmpeg calls share this handle, including derived assets and
     # hardware retries. Other commands (ffprobe, downloads) keep their stdout intact.
-    log_event = control.on_log if "-hide_banner" in args else None
+    log_event = control.on_log if is_ffmpeg else None
     log_progress = log_event is not None and "pipe:1" in args and "-progress" in args
     if cwd is not None and "/" in args[0] and not Path(args[0]).is_absolute():
         args = [str(Path(args[0]).resolve()), *args[1:]]
@@ -475,18 +475,36 @@ async def run_command(
     )
 
 
-def ffmpeg_args(ffmpeg: str, args: list[str], *, progress: bool = True) -> list[str]:
-    base = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
+class FFmpegCommand(list[str]):
+    """A media FFmpeg run built by ffmpeg_args: run_command applies thread limits and
+    stall detection and logs it to the job. Other commands (ffprobe, capability
+    queries, workers) are plain lists and run untouched."""
+
+
+def ffmpeg_args(
+    ffmpeg: str, args: list[str], *, progress: bool = True, loglevel: str = "error"
+) -> FFmpegCommand:
+    base = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", loglevel]
     if progress:
         base += ["-progress", "pipe:1", "-nostats"]
-    return base + args
+    return FFmpegCommand(base + args)
 
 
 async def ffprobe_json(
     ffprobe: str, path: str, handle: ProcessHandle | None = None
 ) -> dict[str, Any]:
     result = await run_command(
-        [ffprobe, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path],
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            "-show_chapters",
+            path,
+        ],  # fmt: skip
         handle=handle,
         timeout=60,
     )

@@ -56,7 +56,10 @@ export default function CoverPanel({ video, currentTime, seek }: EditorContext) 
     <Stack>
       {video.poster_url && <Image src={video.poster_url} radius="md" mah={220} fit="contain" bg="black" />}
       <Text size="sm" c="dimmed">
-        {video.cover_time != null ? tr("当前封面取自 {{v0}}", { v0: formatDuration(video.cover_time, true) }) : tr("当前为默认/自定义封面")}
+        {video.cover_time != null ? tr("当前封面取自 {{v0}}", { v0: formatDuration(video.cover_time, true) })
+          : video.media?.custom_cover ? tr("当前为上传的自定义封面")
+          : video.media?.auto_cover_time != null ? tr("当前为自动选取的封面（{{v0}}，已避开黑场和纯色画面）", { v0: formatDuration(video.media.auto_cover_time, true) })
+          : tr("当前为默认/自定义封面")}
       </Text>
       <Button
         leftSection={<IconCamera size={16} />}

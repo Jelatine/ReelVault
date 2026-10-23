@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -9,6 +10,9 @@ BROWSER_CONTAINERS = {"mp4", "mov", "webm", "m4v"}
 BROWSER_VIDEO_CODECS = {"h264", "vp8", "vp9", "av1"}
 BROWSER_AUDIO_CODECS = {"aac", "mp3", "opus", "vorbis"}
 MP4_AUDIO_CODECS = {"aac", "mp3", "opus", "alac", "ac3"}
+
+
+STANDARD_RATES = (23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 50.0, 59.94, 60.0, 120.0)
 
 
 @dataclass
@@ -25,7 +29,11 @@ class MediaInfo:
     height: int = 0
     rotation: int = 0
     fps: float = 0
+    # Nominal (r_frame_rate) rate; differs from the average rate for variable frame rate.
+    nominal_fps: float = 0
     video_codec: str = ""
+    # Sample entry / FourCC, e.g. hvc1 or hev1 for HEVC in MP4.
+    video_tag: str = ""
     video_index: int = 0
     pix_fmt: str = ""
     field_order: str = ""
@@ -36,6 +44,9 @@ class MediaInfo:
     color_primaries: str = ""
     color_space: str = ""
     color_range: str = ""
+    # Dolby Vision configuration record: profile and base-layer compatibility id.
+    dolby_vision_profile: int = 0
+    dolby_vision_compatibility: int = 0
     audio_codec: str | None = None
     audio_index: int | None = None
     sample_rate: int = 0
@@ -58,6 +69,30 @@ class MediaInfo:
         return self.color_transfer in {"smpte2084", "arib-std-b67"}
 
     @property
+    def dolby_vision_only(self) -> bool:
+        """Dolby Vision without an HDR10/HLG/SDR base layer (profile 5): its colours
+        need the dynamic metadata, so plain decoders show green and purple."""
+        return self.dolby_vision_profile > 0 and self.dolby_vision_compatibility == 0
+
+    @property
+    def variable_frame_rate(self) -> bool:
+        return (
+            self.fps > 0
+            and self.nominal_fps > 0
+            and abs(self.nominal_fps - self.fps) > 0.01 * self.fps
+        )
+
+    @property
+    def output_fps(self) -> float:
+        """Constant rate for re-timed outputs: VFR sources use their nominal rate."""
+        if not self.variable_frame_rate:
+            return self.fps
+        if self.nominal_fps <= 120:
+            return self.nominal_fps
+        # Some VFR files report the timebase (e.g. 90000) as their nominal rate.
+        return min(STANDARD_RATES, key=lambda rate: abs(rate - self.fps))
+
+    @property
     def interlaced(self) -> bool:
         return self.field_order in {"tt", "bb", "tb", "bt"}
 
@@ -72,6 +107,25 @@ class MediaInfo:
             and not self.is_hdr
             and self.video_codec in BROWSER_VIDEO_CODECS
             and (self.audio_codec is None or self.audio_codec in BROWSER_AUDIO_CODECS)
+        )
+
+    @property
+    def hevc_remuxable(self) -> bool:
+        """SDR HEVC that HEVC-capable browsers play once it is in MP4 as hvc1."""
+        return (
+            self.video_codec == "hevc"
+            and not self.is_hdr
+            and not self.dolby_vision_only
+            and (self.audio_codec is None or self.audio_codec in {"aac", "mp3", "opus"})
+        )
+
+    @property
+    def hevc_direct(self) -> bool:
+        """The original already is such an MP4; no copy is needed for those browsers."""
+        return (
+            self.hevc_remuxable
+            and self.container in {"mp4", "mov", "m4v"}
+            and self.video_tag == "hvc1"
         )
 
     @property
@@ -90,7 +144,10 @@ class MediaInfo:
             "video_index": self.video_index,
             "audio_index": self.audio_index,
             "pix_fmt": self.pix_fmt,
+            "video_tag": self.video_tag,
             "field_order": self.field_order,
+            "nominal_fps": self.nominal_fps,
+            "variable_frame_rate": self.variable_frame_rate,
             "video_profile": self.video_profile,
             "video_level": self.video_level,
             "video_bitrate": self.video_bitrate,
@@ -98,6 +155,7 @@ class MediaInfo:
             "color_primaries": self.color_primaries,
             "color_space": self.color_space,
             "color_range": self.color_range,
+            "dolby_vision_profile": self.dolby_vision_profile,
             "sample_rate": self.sample_rate,
             "channels": self.channels,
             "channel_layout": self.channel_layout,
@@ -171,12 +229,14 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     info.video_duration = float(video.get("duration") or 0)
     info.extra = {**(fmt.get("tags") or {}), **(video.get("tags") or {})}
     info.extra["subtitle_streams"] = subtitle_streams(data)
+    info.extra["chapters"] = embedded_chapters(data)
     info.extra["audio_streams"] = [
         {"index": int(s["index"]), "codec": s.get("codec_name") or "unknown"}
         for s in data.get("streams") or []
         if s.get("codec_type") == "audio"
     ]
     info.video_codec = video.get("codec_name", "")
+    info.video_tag = video.get("codec_tag_string", "")
     info.pix_fmt = video.get("pix_fmt", "")
     info.field_order = video.get("field_order", "")
     info.video_has_b_frames = int(video.get("has_b_frames") or 0) > 0
@@ -188,6 +248,12 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     info.color_primaries = video.get("color_primaries", "")
     info.color_space = video.get("color_space", "")
     info.color_range = video.get("color_range", "")
+    for side_data in video.get("side_data_list") or []:
+        if side_data.get("side_data_type") == "DOVI configuration record":
+            info.dolby_vision_profile = int(side_data.get("dv_profile") or 0)
+            info.dolby_vision_compatibility = int(
+                side_data.get("dv_bl_signal_compatibility_id") or 0
+            )
     info.coded_width = int(video.get("width") or 0)
     info.coded_height = int(video.get("height") or 0)
     info.rotation = _rotation(video)
@@ -198,6 +264,7 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
     info.fps = round(
         _parse_rate(video.get("avg_frame_rate")) or _parse_rate(video.get("r_frame_rate")), 3
     )
+    info.nominal_fps = round(_parse_rate(video.get("r_frame_rate")), 3)
     if not info.duration:
         info.duration = float(video.get("duration") or 0)
 
@@ -214,6 +281,31 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
 
 async def probe(ffprobe: str, path: str, handle: ProcessHandle | None = None) -> MediaInfo:
     return parse_probe(await ffprobe_json(ffprobe, path, handle), path)
+
+
+def embedded_chapters(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Container chapters on the same timeline as frame timestamps (format start = 0)."""
+    offset = float((data.get("format") or {}).get("start_time") or 0)
+    result: list[dict[str, Any]] = []
+    for chapter in data.get("chapters") or []:
+        try:
+            start, end = float(chapter["start_time"]) - offset, float(chapter["end_time"]) - offset
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not (math.isfinite(start) and math.isfinite(end)):
+            continue
+        start, end = max(0.0, start), max(0.0, end)
+        if end <= start:
+            continue
+        title = str((chapter.get("tags") or {}).get("title") or "").strip()[:128]
+        result.append(
+            {
+                "start": round(start, 6),
+                "end": round(end, 6),
+                "title": title or f"章节 {len(result) + 1}",
+            }
+        )
+    return sorted(result, key=lambda chapter: chapter["start"])
 
 
 def subtitle_streams(data: dict[str, Any]) -> list[dict[str, Any]]:

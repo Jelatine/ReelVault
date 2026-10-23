@@ -8,7 +8,8 @@ import VideoPage from './VideoPage'
 vi.mock('../lib/queries', async (original) => ({ ...(await original<typeof import('../lib/queries')>()),
   useJobs: () => ({ data: [] }), useFolders: () => ({ data: [] }),
   useVideo: (id: string) => ({ data: { id, title: id, description: '', tags: [], status: 'ready', deleted_at: null,
-    duration: 120, cover_time: 0, size: 10, width: 320, height: 240, fps: 25, created_at: '2026-10-05T00:00:00Z', stream_url: `/${id}` } }),
+    duration: 120, cover_time: 0, size: 10, width: 320, height: 240, fps: 25, created_at: '2026-10-05T00:00:00Z', stream_url: `/${id}`,
+    media: id === 'vfr' ? { subtitle_count: 0, variable_frame_rate: true, nominal_fps: 30 } : undefined } }),
 }))
 vi.mock('../lib/collections', async (original) => ({ ...(await original<typeof import('../lib/collections')>()),
   useCollection: () => ({ data: { id: 7, name: '连续播放', count: 3, items: [
@@ -66,5 +67,14 @@ test('finishing a collection video automatically opens the next ready member and
   expect(screen.getByTestId('location').textContent).toBe('/videos/b?collection=7&autoplay=1')
   fireEvent.click(screen.getByText('结束播放'))
   expect(screen.getByTestId('location').textContent).toBe('/videos/b?collection=7&autoplay=1')
+  client.clear()
+})
+
+test('variable frame rate videos show their nominal rate', () => {
+  const client = new QueryClient()
+  render(<MantineProvider><QueryClientProvider client={client}><MemoryRouter initialEntries={['/videos/vfr']}>
+    <Routes><Route path="videos/:id" element={<VideoPage />} /></Routes>
+  </MemoryRouter></QueryClientProvider></MantineProvider>)
+  expect(screen.getByText('25 fps（可变帧率，标称 30 fps）')).toBeDefined()
   client.clear()
 })

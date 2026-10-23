@@ -28,6 +28,20 @@ export default function Timeline({ video, currentTime, segments = [], onSeek, fr
     staleTime: Infinity,
   })
   const duration = video.duration || 1
+  const { data: waveform } = useQuery({
+    queryKey: ['waveform', video.waveform_url],
+    queryFn: async () => (await (await fetch(video.waveform_url!)).json()) as { duration: number; peaks: number[] },
+    enabled: !!video.waveform_url,
+    staleTime: Infinity,
+  })
+  const peaks = waveform?.peaks ?? []
+  // Quiet tracks are scaled up so their shape stays visible.
+  const loudest = Math.max(0.05, ...peaks)
+  const wavePath = peaks.length
+    ? `M0 1 ${peaks.map((peak, i) => `L${i} ${(1 - peak / loudest).toFixed(3)} L${i + 1} ${(1 - peak / loudest).toFixed(3)}`).join(' ')} L${peaks.length} 1 Z`
+    : ''
+  // Peaks cover the audio duration, which can differ slightly from the container's.
+  const waveWidth = waveform ? Math.min(100, (waveform.duration / duration) * 100) : 100
 
   const HEIGHT = 56
   const [width, setWidth] = useState(0)
@@ -105,6 +119,10 @@ export default function Timeline({ video, currentTime, segments = [], onSeek, fr
           })()}
         />
       ))}
+      {wavePath && <svg className="timeline-waveform" viewBox={`0 0 ${peaks.length} 1`} preserveAspectRatio="none"
+        style={{ width: `${waveWidth}%` }} aria-hidden="true" data-testid="timeline-waveform">
+        <path d={wavePath} />
+      </svg>}
       {segments.map((s, i) => (
         <div
           key={i}

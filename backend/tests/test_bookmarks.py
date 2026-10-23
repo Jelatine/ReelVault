@@ -19,7 +19,12 @@ from .test_scenes import scene_video
 def test_bookmark_crud_order_bounds_and_owner(client, settings, samples):
     video = upload_ready(client, samples["a"])
     url = f"/api/videos/{video['id']}/bookmarks"
-    assert client.get(url).json() == {"bookmarks": [], "chapters": [], "chapters_stale": False}
+    assert client.get(url).json() == {
+        "bookmarks": [],
+        "chapters": [],
+        "embedded_chapters": [],
+        "chapters_stale": False,
+    }
     later = client.post(
         url, json={"position": 2.75, "title": "Later", "note": "逐帧检查\n中文备注"}
     ).json()

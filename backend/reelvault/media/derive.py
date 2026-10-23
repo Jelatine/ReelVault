@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import math
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -27,6 +29,8 @@ POSTER = "poster.jpg"
 PREVIEW = "preview.mp4"
 SPRITE = "sprite.jpg"
 VTT = "thumbnails.vtt"
+WAVEFORM = "waveform.json"
+WAVEFORM_BINS = 1000
 PLAYABLE = "playable.mp4"
 
 # mjpeg needs full-range YUV; newer ffmpeg refuses to encode limited range.
@@ -43,8 +47,127 @@ def scaled_height(info: MediaInfo, width: int) -> int:
     return even(width * info.height / info.width)
 
 
+def parse_peaks(text: str) -> list[float]:
+    """Linear 0-1 peak per window from astats Peak_level (dBFS) metadata."""
+    peaks = []
+    for raw in re.findall(r"Peak_level=(\S+)", text):
+        try:
+            level = float(raw)
+        except ValueError:
+            continue
+        peaks.append(round(min(1.0, 10 ** (level / 20)), 3) if math.isfinite(level) else 0.0)
+    return peaks
+
+
+async def make_waveform(
+    ffmpeg: str,
+    src: Path,
+    info: MediaInfo,
+    out: Path,
+    handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> bool:
+    """Peak envelope of the primary audio track for the trim timeline; False without audio."""
+    if info.audio_index is None or info.duration <= 0:
+        return False
+    rate = 48000
+    window = max(1, math.ceil(info.duration * rate / WAVEFORM_BINS))
+    with tempfile.TemporaryDirectory(prefix="reelvault-waveform-") as directory:
+        stats = Path(directory) / "peaks.txt"
+        af = (
+            f"aresample={rate},asetnsamples=n={window}:p=0,"
+            "astats=metadata=1:reset=1:measure_perchannel=none:measure_overall=Peak_level,"
+            f"ametadata=mode=print:key=lavfi.astats.Overall.Peak_level:file={stats.name}"
+        )
+        args = ["-i", str(src), "-map", f"0:{info.audio_index}", "-vn", "-sn", "-dn"]
+        args += ["-af", af, "-f", "null", "-"]
+        await run_command(
+            ffmpeg_args(ffmpeg, args),
+            duration=info.duration,
+            handle=handle,
+            on_progress=on_progress,
+            cwd=Path(directory),
+        )
+        peaks = parse_peaks(stats.read_text())
+    out.write_text(json.dumps({"duration": info.duration, "peaks": peaks}, separators=(",", ":")))
+    return True
+
+
 def default_cover_time(info: MediaInfo) -> float:
     return round(min(info.duration * 0.1, 10.0), 3) if info.duration > 1 else 0.0
+
+
+# Automatic covers sample a few seconds from the default time (then later points) and
+# keep the most detailed frame that is neither black nor flat.
+COVER_WINDOW = 3.0
+COVER_SAMPLE_FPS = 4
+COVER_MIN_LUMA = 40  # 8-bit average; limited-range black is 16
+COVER_MIN_SPREAD = 24  # YHIGH - YLOW: fades, titles on flat colour and black stay below
+
+
+def parse_cover_stats(text: str, offset: float) -> list[tuple[float, float, float]]:
+    """(time, average luma, luma spread) per sampled frame of signalstats metadata."""
+    samples: list[tuple[float, float, float]] = []
+    current: dict[str, float] = {}
+
+    def flush() -> None:
+        if {"time", "YAVG", "YLOW", "YHIGH"} <= current.keys():
+            samples.append(
+                (current["time"] + offset, current["YAVG"], current["YHIGH"] - current["YLOW"])
+            )
+
+    for line in text.splitlines():
+        if line.startswith("frame:"):
+            flush()
+            current = {}
+            for field in line.split():
+                if field.startswith("pts_time:"):
+                    with contextlib.suppress(ValueError):
+                        current["time"] = float(field.split(":", 1)[1])
+        elif line.startswith("lavfi.signalstats."):
+            key, _, value = line.removeprefix("lavfi.signalstats.").partition("=")
+            with contextlib.suppress(ValueError):
+                current[key] = float(value)
+    flush()
+    return samples
+
+
+def pick_cover(samples: list[tuple[float, float, float]]) -> float | None:
+    usable = [s for s in samples if s[1] >= COVER_MIN_LUMA and s[2] >= COVER_MIN_SPREAD]
+    if not usable:
+        return None
+    # Most detail wins; the earliest of equally detailed frames.
+    return max(usable, key=lambda s: (s[2], -s[0]))[0]
+
+
+async def choose_cover_time(
+    ffmpeg: str, src: Path, info: MediaInfo, handle: ProcessHandle | None = None
+) -> float:
+    """Automatic cover time that avoids black and flat frames near the default time."""
+    start = default_cover_time(info)
+    if info.duration <= 0:
+        return start
+    windows = [start, info.duration * 0.25, info.duration * 0.5]
+    with tempfile.TemporaryDirectory(prefix="reelvault-cover-") as directory:
+        stats = Path(directory) / "cover-stats.txt"
+        for window in dict.fromkeys(round(w, 3) for w in windows if w < info.duration):
+            vf = (
+                f"fps={COVER_SAMPLE_FPS},scale=160:-2,format=yuv420p,signalstats,"
+                f"metadata=mode=print:file={stats.name}"
+            )
+            args = ["-ss", f"{window:.3f}", "-i", str(src), "-t", str(COVER_WINDOW)]
+            args += ["-map", f"0:{info.video_index}", "-vf", vf, "-f", "null", "-"]
+            args = sdr_commands([args], [(src, info)])[0]
+            try:
+                await run_command(
+                    ffmpeg_args(ffmpeg, args, progress=False), handle=handle, cwd=Path(directory)
+                )
+                chosen = pick_cover(parse_cover_stats(stats.read_text(), window))
+            except (FFmpegError, OSError):
+                return start
+            if chosen is not None:
+                return round(min(chosen, max(info.duration - 0.05, 0.0)), 3)
+    return start
 
 
 async def extract_frame(
@@ -291,6 +414,24 @@ async def make_sprite(
     # Fixed LF: Windows would otherwise write CRLF and break naive cue splitting.
     vtt = build_vtt(info.duration, interval, count, tw, th, SPRITE)
     (out_dir / VTT).write_text(vtt, newline="\n")
+
+
+async def make_hevc_playable(
+    ffmpeg: str,
+    src: Path,
+    info: MediaInfo,
+    out: Path,
+    handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> None:
+    """Remux SDR HEVC into an hvc1 MP4 (browsers reject hev1 and Matroska)."""
+    args = ["-i", str(src), "-map", f"0:{info.video_index}"]
+    if info.audio_index is not None:
+        args += ["-map", f"0:{info.audio_index}"]
+    args += ["-c", "copy", "-tag:v", "hvc1", "-movflags", "+faststart", "-f", "mp4", str(out)]
+    await run_command(
+        ffmpeg_args(ffmpeg, args), duration=info.duration, on_progress=on_progress, handle=handle
+    )
 
 
 async def make_playable(

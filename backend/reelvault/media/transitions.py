@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .color import processed_fps
 from .ops import MP4_FLAGS, MergeParams, OpError, OpPlan, Source, aac, even, video_target
 
 
@@ -15,7 +16,7 @@ def plan_transitions(p: MergeParams, sources: list[Source], out: Path) -> OpPlan
             raise OpError("转场时长必须小于每段时长，中间片段至少为转场时长的两倍")
     first = sources[0][1]
     w, h = even(p.width or first.width), even(p.height or first.height)
-    fps = p.fps or (min(first.fps, 60) if first.fps else 30)
+    fps = p.fps or (min(processed_fps(first), 60) if first.output_fps else 30)
     any_audio = any(info.has_audio for _, info in sources)
     target = video_target(*(info for _, info in sources))
     args: list[str] = []
@@ -63,5 +64,5 @@ def plan_transitions(p: MergeParams, sources: list[Source], out: Path) -> OpPlan
     args += ["-filter_complex", ";".join(chains), "-map", f"[{previous_v}]"]
     if any_audio:
         args += ["-map", f"[{previous_a}]", *aac()]
-    args += [*target.args(p.crf), "-t", f"{total:.6f}", *MP4_FLAGS, str(out)]
+    args += [*target.args(p.crf), "-fps_mode", "cfr", "-t", f"{total:.6f}", *MP4_FLAGS, str(out)]
     return OpPlan([args], total)

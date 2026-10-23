@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from reelvault.media import ffmpeg
-from reelvault.media.ffmpeg import FFmpegError, ProcessHandle, run_command
+from reelvault.media.ffmpeg import FFmpegCommand, FFmpegError, ProcessHandle, run_command
 
 
 @pytest.mark.parametrize(
@@ -61,7 +61,7 @@ def test_repeated_progress_heartbeat_does_not_hide_stall():
     with pytest.raises(ffmpeg.FFmpegTimeout, match="无处理进展"):
         asyncio.run(
             run_command(
-                [sys.executable, "-c", script, "-hide_banner", "-nostdin", "-progress", "pipe:1"],
+                FFmpegCommand([sys.executable, "-c", script, "-progress", "pipe:1"]),
                 handle=handle,
             )
         )
@@ -72,17 +72,17 @@ def test_single_frame_analysis_does_not_trigger_encoding_stall_timeout():
     handle = ProcessHandle(stall_timeout=0.05)
     result = asyncio.run(
         run_command(
-            [
-                sys.executable,
-                "-c",
-                "import time; time.sleep(0.2); print('frame=1')",
-                "-hide_banner",
-                "-nostdin",
-                "-progress",
-                "pipe:1",
-                "-frames:v",
-                "1",
-            ],
+            FFmpegCommand(
+                [
+                    sys.executable,
+                    "-c",
+                    "import time; time.sleep(0.2); print('frame=1')",
+                    "-progress",
+                    "pipe:1",
+                    "-frames:v",
+                    "1",
+                ]
+            ),
             handle=handle,
             timeout=2,
         )
@@ -186,7 +186,7 @@ def test_progress_logs_are_throttled_and_stdout_is_preserved(monkeypatch):
     fractions = []
     result = asyncio.run(
         run_command(
-            [sys.executable, "-c", script, "-hide_banner", "-progress", "pipe:1"],
+            FFmpegCommand([sys.executable, "-c", script, "-progress", "pipe:1"]),
             handle=handle,
             on_progress=fractions.append,
         )
@@ -207,12 +207,9 @@ def test_failure_and_cancellation_do_not_log_completion():
     with pytest.raises(FFmpegError, match="bad codec"):
         asyncio.run(
             run_command(
-                [
-                    sys.executable,
-                    "-c",
-                    'import sys;sys.stderr.write("bad codec");sys.exit(2)',
-                    "-hide_banner",
-                ],
+                FFmpegCommand(
+                    [sys.executable, "-c", 'import sys;sys.stderr.write("bad codec");sys.exit(2)']
+                ),
                 handle=handle,
             )
         )
@@ -221,5 +218,22 @@ def test_failure_and_cancellation_do_not_log_completion():
     events.clear()
     handle.cancel()
     with pytest.raises(ffmpeg.Canceled):
-        asyncio.run(run_command([sys.executable, "-hide_banner"], handle=handle))
+        asyncio.run(run_command(FFmpegCommand([sys.executable]), handle=handle))
     assert events == []
+
+
+def test_only_marked_commands_get_ffmpeg_handling():
+    script = "print('ok')"
+    events = []
+    handle = ProcessHandle(on_log=lambda message, level: events.append(message))
+    # Flags alone no longer make a command an FFmpeg run: no job log, no stall detection.
+    asyncio.run(
+        run_command([sys.executable, "-c", script, "-hide_banner", "-nostdin"], handle=handle)
+    )
+    assert events == []
+    marked = FFmpegCommand([sys.executable, "-c", script])
+    asyncio.run(run_command(marked, handle=handle))
+    assert events[0].startswith("FFmpeg 开始：") and events[-1].startswith("FFmpeg 完成")
+    built = ffmpeg.ffmpeg_args("ffmpeg", ["-i", "x"], loglevel="info")
+    assert isinstance(built, FFmpegCommand)
+    assert built[:6] == ["ffmpeg", "-hide_banner", "-nostdin", "-y", "-loglevel", "info"]

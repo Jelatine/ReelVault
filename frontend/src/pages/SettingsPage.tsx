@@ -219,6 +219,7 @@ function SystemPanel() {
         </Text>
       </SimpleGrid>
       <FfmpegFeatures features={data.ffmpeg_features} />
+      {data.hdr_tone_mapper && <Text size="sm" c="dimmed">{tr("HDR 色调映射：{{v0}}", { v0: data.hdr_tone_mapper === 'zscale' ? tr('zscale（CPU）') : tr('{{v0}}（GPU）', { v0: data.hdr_tone_mapper }) })}</Text>}
     </Stack>
   )
 }
@@ -244,6 +245,8 @@ function FfmpegFeatures({ features }: { features?: Record<string, boolean> | nul
     h265: tr("H.265 编码"),
     av1: tr("AV1 编码"),
     av1_two_pass: tr('AV1 两遍编码'),
+    lossless_rotate: tr("无损旋转"),
+    vmaf: tr("VMAF 画质评估"),
     webm: tr("WebM 转换"),
     mp3: tr("MP3 导出"),
   }

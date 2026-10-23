@@ -3,8 +3,10 @@ import { tr } from '../lib/i18n'
 import { Button, Divider, Group, NativeSelect, NumberInput, Select, SegmentedControl, Stack, Text, Title } from '@mantine/core'
 import { useMediaQuery } from '@mantine/hooks'
 import { useEffect, useState } from 'react'
-import { api, errorText } from '../lib/api'
+import { errorText } from '../lib/api'
+import { useAnalysisJob } from '../lib/analysis'
 import { defaultOutput, useSubmitEdit, type EditorContext } from './edit'
+import AnalysisProgress from './AnalysisProgress'
 import PresetControls from './PresetControls'
 import { OutputFields } from './OutputFields'
 import AudioPanel from './AudioPanel'
@@ -48,6 +50,7 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
   const [format, setFormat] = useState('mp4')
   const [audioFormat, setAudioFormat] = useState('mp3')
   const [detecting, setDetecting] = useState(false)
+  const analysis = useAnalysisJob()
   const [cropNote, setCropNote] = useState<{ text: string; error: boolean } | null>(null)
 
   useEffect(() => {
@@ -62,7 +65,7 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
   const detectBars = async () => {
     setDetecting(true); setCropNote(null)
     try {
-      const result = await api.get<{ crop: typeof crop | null }>(`/api/videos/${video.id}/crop-detect`)
+      const result = await analysis.run<{ crop: typeof crop | null }>(`/api/videos/${video.id}/crop-detect`)
       if (result.crop) {
         setRatio('free'); setCrop(result.crop)
         setCropNote({ text: tr("已按检测到的画面区域填入裁切范围"), error: false })
@@ -103,6 +106,7 @@ export default function MorePanel({ video, setOverlay, currentTime, pause }: Edi
             <Button size="xs" variant="light" loading={detecting} onClick={detectBars}>{tr("自动检测黑边")}</Button>
             {cropNote && <Text size="xs" c={cropNote.error ? 'red' : 'dimmed'}>{cropNote.text}</Text>}
           </Group>
+          <AnalysisProgress job={analysis.job} onCancel={() => void analysis.cancel()} />
           <Group grow>
             <NumberInput size="xs" label="X" value={crop.x} min={0} max={video.width} onChange={(v) => setCropField('x', Number(v))} />
             <NumberInput size="xs" label="Y" value={crop.y} min={0} max={video.height} onChange={(v) => setCropField('y', Number(v))} />

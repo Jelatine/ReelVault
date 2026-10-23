@@ -23,6 +23,17 @@ export function snapCut(start: number, end: number, keys: number[], duration: nu
   return { start: actualStart, end: Math.min(actualEnd, duration) }
 }
 
+/** Join consecutive spans that keyframe snapping made overlap or touch (matches the server). */
+export function mergeSpans(spans: { start: number; end: number }[]) {
+  const merged: { start: number; end: number }[] = []
+  for (const span of spans) {
+    const last = merged[merged.length - 1]
+    if (last && last.start <= span.start && span.start <= last.end + 0.000001) last.end = Math.max(last.end, span.end)
+    else merged.push({ ...span })
+  }
+  return merged
+}
+
 export function timecode(time: number): string {
   const milliseconds = Math.max(0, Math.round(time * 1000))
   return `${String(Math.floor(milliseconds / 3600000)).padStart(2, '0')}:${String(Math.floor(milliseconds / 60000) % 60).padStart(2, '0')}:${String(Math.floor(milliseconds / 1000) % 60).padStart(2, '0')}.${String(milliseconds % 1000).padStart(3, '0')}`

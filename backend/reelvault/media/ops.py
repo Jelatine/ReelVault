@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import bisect
+import math
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from .color import processed_fps
 from .derive import even
 from .probe import MP4_AUDIO_CODECS, MediaInfo
 
@@ -27,6 +30,8 @@ class OpPlan:
     ext: str = "mp4"
     files: list[Path] = field(default_factory=list)
     cwd: Path | None = None
+    # Output size a target-size compression aims for, in bytes.
+    target_bytes: int | None = None
 
 
 # ---------------------------------------------------------------- parameters
@@ -48,6 +53,9 @@ class RotateParams(BaseModel):
     angle: Literal[0, 90, 180, 270] = 90
     flip: Literal["none", "horizontal", "vertical"] = "none"
     crf: int = Field(20, ge=0, le=51)
+    # auto: a pure rotation of an MP4/MOV only rewrites the display matrix (stream copy)
+    # when FFmpeg supports -display_rotation; otherwise, and for reencode, re-encode.
+    mode: Literal["auto", "reencode"] = "auto"
 
     @model_validator(mode="after")
     def _noop(self) -> RotateParams:
@@ -60,7 +68,8 @@ class TrimParams(BaseModel):
     op: Literal["trim"] = "trim"
     segments: list[Segment] = Field(min_length=1, max_length=50)
     # fast: stream copy, cuts land on keyframes. precise: re-encode, frame accurate.
-    mode: Literal["fast", "precise"] = "precise"
+    # smart: frame accurate, re-encoding only from each cut to the nearest keyframe.
+    mode: Literal["fast", "precise", "smart"] = "precise"
     crf: int = Field(20, ge=0, le=51)
 
 
@@ -106,6 +115,8 @@ class CompressParams(BaseModel):
     target_size_mb: float | None = Field(None, gt=0, allow_inf_nan=False)
     audio_bitrate: Literal[64, 96, 128, 160, 192, 256] = 128
     preset: Literal["ultrafast", "veryfast", "faster", "fast", "medium", "slow"] = "medium"
+    # Score the result against the source (VMAF, or SSIM without libvmaf).
+    measure_quality: bool = False
 
 
 class CropParams(BaseModel):
@@ -329,8 +340,15 @@ class MixedParams(BaseModel):
         return self
 
 
+class RepairParams(BaseModel):
+    """Remux while discarding corrupt packets; nothing is re-encoded."""
+
+    op: Literal["repair"] = "repair"
+
+
 EditParams = Annotated[
-    RotateParams
+    RepairParams
+    | RotateParams
     | TrimParams
     | MergeParams
     | CompressParams
@@ -352,6 +370,7 @@ EditParams = Annotated[
 ]
 
 OP_LABELS = {
+    "repair": "修复（重新封装）",
     "mixed": "混合编辑",
     "rotate": "旋转",
     "trim": "剪辑",
@@ -500,8 +519,34 @@ def scaled_dims(info: MediaInfo, short_side: int | None) -> tuple[int, int]:
 # ---------------------------------------------------------------- builders
 
 
-def plan_rotate(p: RotateParams, src: Source, out: Path) -> OpPlan:
+# Matroska muxers before FFmpeg 7 drop the display matrix on stream copy.
+DISPLAY_MATRIX_CONTAINERS = {"mp4", "mov", "m4v"}
+
+
+def lossless_rotation_blocker(p: RotateParams, info: MediaInfo, supported: bool) -> str | None:
+    """Why a rotation must be re-encoded, or None when the display matrix suffices."""
+    if p.mode == "reencode":
+        return "已选择重新编码"
+    if p.flip != "none":
+        return "翻转需要重新编码"
+    if info.container not in DISPLAY_MATRIX_CONTAINERS:
+        return "仅 MP4／MOV 支持无损旋转"
+    if not supported:
+        return "当前 FFmpeg 不支持 -display_rotation（需要 6.1 或更高版本）"
+    return None
+
+
+def plan_rotate(
+    p: RotateParams, src: Source, out: Path, *, display_rotation: bool = False
+) -> OpPlan:
     path, info = src
+    if lossless_rotation_blocker(p, info, display_rotation) is None:
+        # The display matrix is counter-clockwise and replaces the source's rotation.
+        rotation = (info.rotation - p.angle) % 360
+        args = [f"-display_rotation:{info.video_index}", str(rotation), "-i", str(path)]
+        args += [*maps(info, subtitles=True, container=info.container), "-c", "copy"]
+        out = out.with_suffix("." + info.container)
+        return OpPlan([[*args, *MP4_FLAGS, str(out)]], info.duration, ext=info.container)
     filters = {90: ["transpose=clock"], 180: ["hflip", "vflip"], 270: ["transpose=cclock"]}.get(
         p.angle, []
     )
@@ -515,7 +560,36 @@ def plan_rotate(p: RotateParams, src: Source, out: Path) -> OpPlan:
     return OpPlan([args], info.duration)
 
 
-def plan_trim(p: TrimParams, src: Source, out: Path) -> OpPlan:
+def _fast_cut(path: Path, info: MediaInfo, start: float, end: float, out: Path) -> list[str]:
+    """Stream-copy one segment; cuts land on keyframes the caller already snapped to."""
+    seek = start
+    if info.container in {"mkv", "webm"} and info.video_has_b_frames:
+        # FFmpeg backs a seek off by 3/23 s for demuxers that seek by DTS when
+        # B-frames delay output; Matroska would then land on the previous keyframe.
+        seek = start + MATROSKA_SEEK_BACKOFF + 0.001
+        if end - seek <= 0.01:
+            seek = start
+    # -t counts from the requested seek point, not from the copied keyframe.
+    args = ["-ss", f"{seek:.6f}", "-i", str(path), "-t", f"{end - seek:.6f}"]
+    # Copied subtitle packets keep cues from before the cut and overrun the end.
+    args += maps(info)
+    args += ["-c", "copy", "-avoid_negative_ts", "make_zero"]
+    if out.suffix in {".mp4", ".mov", ".m4v"}:
+        args += MP4_FLAGS
+    return [*args, str(out)]
+
+
+def concat_listing(paths: list[Path], outpoints: list[float] | None = None) -> str:
+    """Concat demuxer script; an outpoint stops each file at its intended length."""
+    lines = []
+    for i, path in enumerate(paths):
+        lines.append("file '" + str(path).replace("'", "'\\''") + "'\n")
+        if outpoints:
+            lines.append(f"outpoint {outpoints[i]:.6f}\n")
+    return "".join(lines)
+
+
+def plan_trim(p: TrimParams, src: Source, out: Path, tmp: Path | None = None) -> OpPlan:
     path, info = src
     segs: list[tuple[float, float]] = []
     for seg in p.segments:
@@ -526,26 +600,30 @@ def plan_trim(p: TrimParams, src: Source, out: Path) -> OpPlan:
         raise OpError("剪辑区间超出视频时长")
     total = sum(e - s for s, e in segs)
 
+    if p.mode == "fast":
+        ext = copy_ext(info)
+        out = out.with_suffix("." + ext)
+        if len(segs) == 1:
+            return OpPlan([_fast_cut(path, info, *segs[0], out)], total, ext=ext)
+        if tmp is None:
+            raise OpError("多段快速剪辑需要临时目录")
+        # Cut each segment by stream copy, then join them with the concat demuxer.
+        parts = [tmp / f"part{i}.{ext}" for i in range(len(segs))]
+        commands = [
+            _fast_cut(path, info, s, e, part) for (s, e), part in zip(segs, parts, strict=True)
+        ]
+        listing = tmp / "trim-concat.txt"
+        # Copied parts overrun by up to a frame and an AAC packet; without outpoints the
+        # demuxer offsets each following part by that overrun.
+        listing.write_text(concat_listing(parts, [e - s for s, e in segs]))
+        args = ["-f", "concat", "-safe", "0", "-i", str(listing), "-map", "0", "-c", "copy"]
+        if ext in {"mp4", "mov", "m4v"}:
+            args += MP4_FLAGS
+        commands.append([*args, str(out)])
+        return OpPlan(commands, total, ext=ext, files=[listing, *parts])
+
     if len(segs) == 1:
         start, end = segs[0]
-        if p.mode == "fast":
-            seek = start
-            if info.container in {"mkv", "webm"} and info.video_has_b_frames:
-                # FFmpeg backs a seek off by 3/23 s for demuxers that seek by DTS when
-                # B-frames delay output; Matroska would then land on the previous keyframe.
-                seek = start + MATROSKA_SEEK_BACKOFF + 0.001
-                if end - seek <= 0.01:
-                    seek = start
-            # -t counts from the requested seek point, not from the copied keyframe.
-            args = ["-ss", f"{seek:.6f}", "-i", str(path), "-t", f"{end - seek:.6f}"]
-            ext = copy_ext(info)
-            # Copied subtitle packets keep cues from before the cut and overrun the end.
-            args += maps(info)
-            args += ["-c", "copy", "-avoid_negative_ts", "make_zero"]
-            if ext in {"mp4", "mov", "m4v"}:
-                args += MP4_FLAGS
-            out = out.with_suffix("." + ext)
-            return OpPlan([args + [str(out)]], total, ext=ext)
         args = ["-ss", f"{start:.3f}", "-i", str(path), "-t", f"{end - start:.3f}"]
         args += [*maps(info, subtitles=True), *video_target(info).args(p.crf), *aac()]
         args += [*subtitle_codec(info), *MP4_FLAGS, str(out)]
@@ -568,6 +646,144 @@ def plan_trim(p: TrimParams, src: Source, out: Path) -> OpPlan:
         args += ["-map", "[a]", *aac()]
     args += [*video_target(info).args(p.crf), *MP4_FLAGS, str(out)]
     return OpPlan([args], total)
+
+
+# H.264 profiles libx264 can match; the concat demuxer converts H.264 parts to Annex B
+# with their own in-band parameter sets, so re-encoded and copied parts can be joined.
+SMART_PROFILES = {
+    "Constrained Baseline": "baseline",
+    "Baseline": "baseline",
+    "Main": "main",
+    "High": "high",
+}
+
+
+def smart_cut_blocker(info: MediaInfo) -> str | None:
+    """Why a smart cut falls back to a full re-encode, or None when it can run."""
+    if info.video_codec != "h264":
+        return "智能剪切仅支持 H.264 视频"
+    if info.video_profile not in SMART_PROFILES or info.pix_fmt not in {"yuv420p", "yuvj420p"}:
+        return "智能剪切仅支持 8-bit 4:2:0 的 Baseline／Main／High 档次"
+    if info.interlaced or info.is_hdr:
+        return "隔行扫描或 HDR 视频无法智能剪切"
+    if info.rotation:
+        return "带旋转标记的视频无法智能剪切"
+    if info.fps <= 0:
+        return "无法获取帧率"
+    return None
+
+
+@dataclass
+class SmartPart:
+    start: int  # first frame index
+    end: int  # frame index after the last frame
+    copy: bool
+
+
+def smart_parts(
+    frames: list[float], keyframes: list[float], start: float, end: float
+) -> list[SmartPart]:
+    """Copy whole GOPs inside [start, end) and re-encode the partial GOPs at both cuts.
+
+    Assumes closed GOPs: frames shown before a keyframe are decoded before it.
+    """
+    first = bisect.bisect_left(frames, start - 1e-6)
+    last = bisect.bisect_left(frames, end - 1e-6)
+    if first >= last:
+        return []
+    keys = {round(k, 6) for k in keyframes}
+    inside = [i for i in range(first, last) if round(frames[i], 6) in keys]
+    if not inside:
+        return [SmartPart(first, last, False)]
+    copy_start = inside[0]
+    # The copy may run to the cut when the cut is a keyframe or the end of the file.
+    copy_end = last if last == len(frames) or round(frames[last], 6) in keys else inside[-1]
+    parts = []
+    if first < copy_start:
+        parts.append(SmartPart(first, copy_start, False))
+    if copy_start < copy_end:
+        parts.append(SmartPart(copy_start, copy_end, True))
+    if copy_end < last:
+        parts.append(SmartPart(copy_end, last, False))
+    return parts
+
+
+def plan_smart_trim(
+    p: TrimParams,
+    src: Source,
+    out: Path,
+    tmp: Path,
+    frames: list[float],
+    keyframes: list[float],
+) -> OpPlan:
+    path, info = src
+    profile = SMART_PROFILES[info.video_profile]
+    encode = ["-c:v", "libx264", "-preset", "medium", "-crf", str(p.crf), "-profile:v", profile]
+    if info.video_level:
+        encode += ["-level:v", f"{info.video_level / 10:.1f}"]
+    encode += ["-pix_fmt", info.pix_fmt, "-fps_mode", "passthrough"]
+    video_only = ["-map", f"0:{info.video_index}", "-an", "-sn", "-dn"]
+    commands: list[list[str]] = []
+    parts: list[Path] = []
+    spans: list[tuple[float, float]] = []
+    for segment in p.segments:
+        segment_parts = smart_parts(frames, keyframes, segment.start, segment.end)
+        if not segment_parts:
+            continue
+        first, last = segment_parts[0].start, segment_parts[-1].end
+        spans.append((frames[first], frames[last] if last < len(frames) else info.duration))
+        for part in segment_parts:
+            target = tmp / f"smart{len(parts)}.mp4"
+            count = ["-frames:v", str(part.end - part.start)]
+            if part.copy:
+                seek = frames[part.start] + 0.001
+                if info.container in {"mkv", "webm"} and info.video_has_b_frames:
+                    seek += MATROSKA_SEEK_BACKOFF
+                args = ["-ss", f"{seek:.6f}", "-i", str(path), *count, *video_only]
+                args += ["-c", "copy", "-avoid_negative_ts", "make_zero", str(target)]
+            else:
+                # Accurate seek drops frames before -ss; a quarter frame early keeps the
+                # first frame despite timestamp rounding but not the one before it.
+                seek = max(0.0, frames[part.start] - 0.25 / info.fps)
+                args = ["-ss", f"{seek:.6f}", "-i", str(path), *count, *video_only, *encode]
+                args.append(str(target))
+            commands.append(args)
+            parts.append(target)
+    if not parts:
+        raise OpError("剪辑区间超出视频时长")
+    total = sum(e - s for s, e in spans)
+    listing = tmp / "smart-concat.txt"
+    listing.write_text(concat_listing(parts))
+    files = [listing, *parts]
+    final = ["-f", "concat", "-safe", "0", "-i", str(listing)]
+    if info.has_audio:
+        # One continuous audio encode avoids AAC priming gaps at every join.
+        audio = tmp / "smart-audio.m4a"
+        chains, labels = [], []
+        for track, index in enumerate(audio_indices(info)):
+            pieces = [f"[s{track}_{i}]" for i in range(len(spans))]
+            split = "".join(pieces)
+            chains.append(f"[0:{index}]asplit={len(spans)}{split}" if len(spans) > 1 else "")
+            trimmed = []
+            for i, (s, e) in enumerate(spans):
+                source = pieces[i] if len(spans) > 1 else f"[0:{index}]"
+                chains.append(
+                    f"{source}atrim=start={s:.6f}:end={e:.6f},asetpts=PTS-STARTPTS[t{track}_{i}]"
+                )
+                trimmed.append(f"[t{track}_{i}]")
+            chains.append(f"{''.join(trimmed)}concat=n={len(spans)}:v=0:a=1[a{track}]")
+            labels.append(f"[a{track}]")
+        graph = ";".join(chain for chain in chains if chain)
+        args = ["-i", str(path), "-filter_complex", graph]
+        for label in labels:
+            args += ["-map", label]
+        commands.append([*args, *aac(), str(audio)])
+        files.append(audio)
+        final += ["-i", str(audio), "-map", "0:v", "-map", "1:a"]
+    else:
+        final += ["-map", "0:v"]
+    commands.append([*final, "-c", "copy", *MP4_FLAGS, str(out.with_suffix(".mp4"))])
+    return OpPlan(commands, total, files=files)
 
 
 def merge_lossless_ok(sources: list[Source]) -> bool:
@@ -609,9 +825,7 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
     if lossless:
         first = sources[0][1]
         listing = tmp / "concat.txt"
-        listing.write_text(
-            "".join("file '" + str(path).replace("'", "'\\''") + "'\n" for path, _ in sources)
-        )
+        listing.write_text(concat_listing([path for path, _ in sources]))
         # Only the primary tracks: later files need not carry the same extra tracks.
         primary = ["-map", f"0:{first.video_index}"]
         if first.audio_index is not None:
@@ -623,7 +837,7 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
     first = sources[0][1]
     w = even(p.width or first.width)
     h = even(p.height or first.height)
-    fps = p.fps or (min(first.fps, 60) if first.fps else 30)
+    fps = p.fps or (min(processed_fps(first), 60) if first.output_fps else 30)
     any_audio = any(i.has_audio for _, i in sources)
     target = video_target(*(info for _, info in sources))
 
@@ -642,17 +856,27 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
 
     chains, labels = [], []
     for idx, (_, info) in enumerate(sources):
+        # Every source contributes exactly its duration to both tracks. A video track
+        # shorter than its audio (common with variable frame rate) would otherwise shift
+        # every later source against its sound.
+        length = info.duration
         chains.append(
-            f"[{idx}:{info.video_index}]scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},format={target.pix_fmt}[v{idx}]"
+            f"[{idx}:{info.video_index}]setpts=PTS-STARTPTS,"
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps},format={target.pix_fmt},"
+            f"tpad=start_mode=clone:start_duration={max(0, info.video_delay):.6f}:"
+            f"stop_mode=clone:stop_duration={length:.6f},trim=duration={length:.6f},"
+            f"setpts=PTS-STARTPTS[v{idx}]"
         )
         labels.append(f"[v{idx}]")
         if any_audio:
             a_in = (
                 f"{silent_inputs[idx]}:0" if idx in silent_inputs else f"{idx}:{info.audio_index}"
             )
+            delay = max(0, round(info.audio_delay * 48000)) if idx not in silent_inputs else 0
             chains.append(
-                f"[{a_in}]aformat=sample_rates=48000:channel_layouts=stereo,"
+                f"[{a_in}]aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,"
+                f"asetpts=PTS-STARTPTS,adelay={delay}S:all=1,apad,atrim=duration={length:.6f},"
                 f"asetpts=PTS-STARTPTS[a{idx}]"
             )
             labels.append(f"[a{idx}]")
@@ -662,7 +886,7 @@ def plan_merge(p: MergeParams, sources: list[Source], out: Path, tmp: Path) -> O
     args += ["-filter_complex", graph, "-map", "[v]"]
     if any_audio:
         args += ["-map", "[a]", *aac()]
-    args += [*target.args(p.crf), *MP4_FLAGS, str(out)]
+    args += [*target.args(p.crf), "-fps_mode", "cfr", *MP4_FLAGS, str(out)]
     return OpPlan([args], total)
 
 
@@ -694,7 +918,7 @@ def plan_compress(
     filters = list(video_filters or [])
     if (w, h) != (even(info.width), even(info.height)) or info.width % 2 or info.height % 2:
         filters.append(f"scale={w}:{h}")
-    if p.max_fps and info.fps > p.max_fps:
+    if p.max_fps and processed_fps(info) > p.max_fps:
         filters.append(f"fps={p.max_fps}")
     # H.265/AV1 keep a 10-bit SDR source at 10 bits; H.264 stays 8-bit for browsers.
     ten_bit = p.codec != "h264" and info.high_bit_depth and not info.is_hdr
@@ -738,7 +962,8 @@ def plan_compress(
     common = [*input_args, *vf, "-c:v", encoder, "-preset", preset, *rate]
     pass1 = [*common, *pass_args(1), "-map", f"0:{info.video_index}", "-an", "-f", "null", "-"]
     pass2 = [*common, *pass_args(2), *stream_maps, *tag, *audio, *MP4_FLAGS, str(out)]
-    return OpPlan([pass1, pass2], info.duration)
+    target = math.floor(p.target_size_mb * 1024 * 1024)
+    return OpPlan([pass1, pass2], info.duration, target_bytes=target)
 
 
 def plan_mixed(p: MixedParams, src: Source, out: Path, tmp: Path) -> OpPlan:
@@ -805,6 +1030,18 @@ def plan_speed(p: SpeedParams, src: Source, out: Path) -> OpPlan:
         args += ["-filter:a", atempo_chain(p.factor), *aac()]
     args += [*video_target(info).args(p.crf), *MP4_FLAGS, str(out)]
     return OpPlan([args], info.duration / p.factor)
+
+
+def plan_repair(src: Source, out: Path) -> OpPlan:
+    path, info = src
+    ext = copy_ext(info)
+    out = out.with_suffix("." + ext)
+    args = ["-err_detect", "ignore_err", "-fflags", "+genpts+discardcorrupt", "-i", str(path)]
+    args += [*maps(info, subtitles=True, container=ext), "-c", "copy"]
+    args += ["-avoid_negative_ts", "make_zero"]
+    if ext in {"mp4", "mov", "m4v"}:
+        args += MP4_FLAGS
+    return OpPlan([[*args, str(out)]], info.duration, ext=ext)
 
 
 def plan_mute(src: Source, out: Path) -> OpPlan:
