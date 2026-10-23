@@ -13,6 +13,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { formatDuration, formatDate } from '../lib/format'
 import type { Video } from '../lib/types'
+import { streamUrl } from '../lib/hevc'
 import PlayerMarkers from './PlayerMarkers'
 import { chapterVtt } from '../lib/bookmarks'
 import './player-markers.css'
@@ -110,6 +111,7 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
   }, [endpoint, video.id, video.deleted_at, qc])
   const nativeProps: React.VideoHTMLAttributes<HTMLVideoElement> = { preload: hlsUrl ? 'none' : 'metadata' }
   const type = video.container === 'webm' ? 'video/webm' : 'video/mp4'
+  const source = streamUrl(video)
   return (
     <>
     {sourceError && sourceError.url === hlsUrl && hlsUrl && <Text role="alert" size="sm" c="red">{tr("自适应播放失败：")}{sourceError.message}{tr("。可在下方改用原始播放。")}</Text>}
@@ -129,10 +131,10 @@ const Player = forwardRef<MediaPlayerInstance, Props>(function Player({ video, o
     )}
     <div ref={touchRoot} className={touch ? 'touch-player' : undefined}>
     <MediaPlayer
-      key={hlsUrl ?? video.stream_url}
+      key={hlsUrl ?? source}
       ref={mergedRef}
       title={video.title}
-      src={{ src: hlsUrl ?? video.stream_url, type: hlsUrl ? 'application/x-mpegurl' : type }}
+      src={{ src: hlsUrl ?? source, type: hlsUrl ? 'application/x-mpegurl' : type }}
       onProviderChange={(provider) => {
         if (isHLSProvider(provider)) {
           // Load with the video route: a separate lazy download lets native HLS

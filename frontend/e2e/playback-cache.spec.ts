@@ -19,13 +19,13 @@ test('deferred HEVC cache plays real media, cleans safely, offers HLS', async ({
   expect((await (await page.request.get(endpoint)).json()).cached).toBe(false)
   await page.goto(`/videos/${video.id}`)
   await expect(page.getByText('此视频需要兼容播放缓存或 HLS，准备好后即可播放。', { exact: true })).toBeVisible()
-  await page.route('**/playback-cache', async route => {
+  await page.route('**/playback-cache*', async route => {
     if (route.request().method() === 'POST') return route.fulfill({ status: 507, json: { code: 'storage_budget_exceeded', detail: '磁盘可用空间不足，请清理空间或取消未完成任务后重试', params: {} } })
     return route.continue()
   })
   await page.getByRole('button', { name: '生成兼容播放缓存', exact: true }).click()
   await expect(page.getByText(/磁盘可用空间不足/)).toBeVisible()
-  await page.unroute('**/playback-cache')
+  await page.unroute('**/playback-cache*')
   await page.getByRole('button', { name: '生成兼容播放缓存', exact: true }).click()
   await expect(page.getByText(/^兼容播放缓存已就绪/)).toBeVisible()
   await expect.poll(() => page.locator('video').evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThanOrEqual(2)

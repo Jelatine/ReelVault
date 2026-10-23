@@ -41,7 +41,7 @@ AV1 兼容性收尾验证：后端完整回归 710 项通过、20 项跳过，�
 - [x] VFR 检测（`r_frame_rate` 与 `avg_frame_rate` 差异）并在合并／转场／效果前统一 `-fps_mode cfr`，避免音画漂移。探测记录 `nominal_fps` 与 `variable_frame_rate`（详情页显示）；合并、转场、效果的默认输出帧率改用标称帧率（实测 30 fps 标称、18.5 fps 平均的源原来会输出 18.514 fps），输出加 `-fps_mode cfr`；重新编码合并原来直接拼接各源音视频，视频轨短于音轨的源（实测短 0.11 秒）会让后续片段整体错位，现按源时长补齐／截齐音视频。
 
 派生媒体与播放
-- [ ] 兼容播放副本：HEVC 源优先 remux 为 `hvc1` MP4，前端按 `MediaSource.isTypeSupported` 决定是否需要 H.264 转码，省 CPU 与磁盘。
+- [x] 兼容播放副本：HEVC 源优先 remux 为 `hvc1` MP4，前端按 `MediaSource.isTypeSupported` 决定是否需要 H.264 转码，省 CPU 与磁盘。客户端以 `?codec=hevc`／`?hevc=true` 声明支持：`hvc1` 标记的 MP4/MOV 原文件直接播放，其他 SDR HEVC 生成 `hevc-<任务>.mp4` 重新封装副本（记录在 `meta.hevc_playable_path`，启动清理识别）；不支持 HEVC 的浏览器沿用 H.264 副本；SDR HEVC 入库不再预生成 H.264 副本。HDR HEVC 仍走 H.264。未在支持 HEVC 的真实浏览器中验证播放（本机 Chromium 无 HEVC／H.264 解码）。
 - [ ] HLS：H.264 源最高档直接流复制切片（需对齐关键帧）；fMP4 分片以支持 HEVC／AV1 档位；Vidstack 清晰度菜单对竖屏仍按高度显示，需自定义标签。
 - [ ] 封面避开黑场：`blackdetect` 或 `thumbnail` 滤镜在默认时间点附近选代表帧。
 - [ ] HDR 色调映射提速：检测 `libplacebo`／`tonemap_vaapi`／`tonemap_opencl` 后优先使用；识别 Dolby Vision（Profile 5 无 transfer 标签）并提示。

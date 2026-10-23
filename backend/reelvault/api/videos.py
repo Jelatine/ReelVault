@@ -768,11 +768,12 @@ def _cache_headers() -> dict[str, str]:
 def stream(
     video_id: str,
     request: Request,
+    codec: Literal["hevc"] | None = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> Response:
     video = get_video(db, video_id, allow_deleted=True)
-    path = stream_path(settings, video)
+    path = stream_path(settings, video, hevc=codec == "hevc")
     original = video.file_path if path == abs_path(settings, video.file_path) else None
     media_type = mimetypes.guess_type(path.name)[0] or "video/mp4"
     if path.suffix == ".mkv":

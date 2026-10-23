@@ -32,6 +32,8 @@ class MediaInfo:
     # Nominal (r_frame_rate) rate; differs from the average rate for variable frame rate.
     nominal_fps: float = 0
     video_codec: str = ""
+    # Sample entry / FourCC, e.g. hvc1 or hev1 for HEVC in MP4.
+    video_tag: str = ""
     video_index: int = 0
     pix_fmt: str = ""
     field_order: str = ""
@@ -99,6 +101,24 @@ class MediaInfo:
         )
 
     @property
+    def hevc_remuxable(self) -> bool:
+        """SDR HEVC that HEVC-capable browsers play once it is in MP4 as hvc1."""
+        return (
+            self.video_codec == "hevc"
+            and not self.is_hdr
+            and (self.audio_codec is None or self.audio_codec in {"aac", "mp3", "opus"})
+        )
+
+    @property
+    def hevc_direct(self) -> bool:
+        """The original already is such an MP4; no copy is needed for those browsers."""
+        return (
+            self.hevc_remuxable
+            and self.container in {"mp4", "mov", "m4v"}
+            and self.video_tag == "hvc1"
+        )
+
+    @property
     def remuxable_to_mp4(self) -> bool:
         """Codecs are fine for the browser; only the container is the problem."""
         return self.video_codec in {"h264", "av1"} and (
@@ -114,6 +134,7 @@ class MediaInfo:
             "video_index": self.video_index,
             "audio_index": self.audio_index,
             "pix_fmt": self.pix_fmt,
+            "video_tag": self.video_tag,
             "field_order": self.field_order,
             "nominal_fps": self.nominal_fps,
             "variable_frame_rate": self.variable_frame_rate,
@@ -204,6 +225,7 @@ def parse_probe(data: dict[str, Any], path: str = "") -> MediaInfo:
         if s.get("codec_type") == "audio"
     ]
     info.video_codec = video.get("codec_name", "")
+    info.video_tag = video.get("codec_tag_string", "")
     info.pix_fmt = video.get("pix_fmt", "")
     info.field_order = video.get("field_order", "")
     info.video_has_b_frames = int(video.get("has_b_frames") or 0) > 0

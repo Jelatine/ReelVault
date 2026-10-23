@@ -1800,5 +1800,8 @@
   "读取帧索引": "Reading frame index",
   "文件内含 {{count}} 个章节，已显示在章节菜单中。": "The file contains {{count}} chapters; they are shown in the chapter menu.",
   "导入为可编辑章节": "Import as editable chapters",
-  "（可变帧率，标称 {{v0}} fps）": " (variable frame rate, nominal {{v0}} fps)"
+  "（可变帧率，标称 {{v0}} fps）": " (variable frame rate, nominal {{v0}} fps)",
+  "此浏览器支持 HEVC：只需把原始视频流重新封装为 MP4，无需转码。": "This browser supports HEVC: the original video stream only needs to be remuxed into MP4, without transcoding.",
+  "封装为 HEVC MP4": "Remuxing to HEVC MP4",
+  "源视频不是可直接播放的 HEVC，请生成 H.264 播放缓存": "The source is not directly playable HEVC; generate the H.264 playback cache"
 }

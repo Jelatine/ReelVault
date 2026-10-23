@@ -33,7 +33,7 @@ from ..media.transfer import move_output
 from ..media.validation import validate_output
 from ..media.watermark import plan_watermark
 from ..models import Job, SceneAnalysis, Video, new_id, utcnow
-from ..playback_cache import remove_copy
+from ..playback_cache import HEVC_PATH, HEVC_SIGNATURE, remove_copy
 from ..storage import MIB, check_budget
 from .ai import analyse_ai
 from .duplicates import duplicates
@@ -72,8 +72,12 @@ async def ingest(ctx: JobContext, job: Job) -> None:
             assert video is not None
             apply_media_info(video, info, src.stat().st_size)
             required = 32 * MIB
+            # HEVC-capable browsers need at most a remux, so the H.264 copy is made
+            # only when a client asks for it.
             eager = (
-                not info.browser_playable and src.stat().st_size <= s.playable_eager_max_mb * MIB
+                not info.browser_playable
+                and not info.hevc_remuxable
+                and src.stat().st_size <= s.playable_eager_max_mb * MIB
             )
             if eager:
                 rate = (
@@ -845,19 +849,35 @@ async def playable(ctx: JobContext, job: Job) -> None:
         raise RuntimeError("源视频已变化，请重新生成播放缓存")
     temp = ctx.settings.tmp_dir / f"job-{job.id}"
     temp.mkdir(parents=True, exist_ok=True)
-    target = derived_dir(ctx.settings, video.id) / f"playable-{job.id}.mp4"
+    hevc = job.params.get("variant") == "hevc"
+    if hevc and not info.hevc_remuxable:
+        raise RuntimeError("源视频不是可直接播放的 HEVC，请生成 H.264 播放缓存")
+    # HEVC remuxes are not playable-* files: startup cleanup only knows playable_path.
+    name = f"hevc-{job.id}.mp4" if hevc else f"playable-{job.id}.mp4"
+    target = derived_dir(ctx.settings, video.id) / name
     committed = False
     try:
-        encoding = await derive.make_playable(
-            ctx.settings.ffmpeg,
-            source,
-            info,
-            temp / derive.PLAYABLE,
-            ctx.handle,
-            ctx.stage(0, 1, "转码为浏览器可播放格式"),
-            encoding=ctx.manager.encoding,
-            encoder=ctx.settings.encoder,
-        )
+        encoding: dict[str, object] | None = None
+        if hevc:
+            await derive.make_hevc_playable(
+                ctx.settings.ffmpeg,
+                source,
+                info,
+                temp / derive.PLAYABLE,
+                ctx.handle,
+                ctx.stage(0, 1, "封装为 HEVC MP4"),
+            )
+        else:
+            encoding = await derive.make_playable(
+                ctx.settings.ffmpeg,
+                source,
+                info,
+                temp / derive.PLAYABLE,
+                ctx.handle,
+                ctx.stage(0, 1, "转码为浏览器可播放格式"),
+                encoding=ctx.manager.encoding,
+                encoder=ctx.settings.encoder,
+            )
         ctx.check_canceled()
         with ctx.db() as db:
             db.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -872,10 +892,19 @@ async def playable(ctx: JobContext, job: Job) -> None:
                 raise RuntimeError("源视频已变化，播放缓存未保存")
             # The completed copy is renamed on the same filesystem.
             check_budget(db, ctx.settings, 0, exclude_job=job.id)
-            old = abs_path(ctx.settings, current.playable_path) if current.playable_path else None
+            meta = current.meta or {}
+            recorded = meta.get(HEVC_PATH) if hevc else current.playable_path
+            old = abs_path(ctx.settings, recorded) if recorded else None
             (temp / derive.PLAYABLE).rename(target)
-            current.playable_path = rel_path(ctx.settings, target)
-            current.meta = {**(current.meta or {}), "playable_signature": sig}
+            if hevc:
+                current.meta = {
+                    **meta,
+                    HEVC_PATH: rel_path(ctx.settings, target),
+                    HEVC_SIGNATURE: sig,
+                }
+            else:
+                current.playable_path = rel_path(ctx.settings, target)
+                current.meta = {**meta, "playable_signature": sig}
             current.asset_version += 1
             stored = db.get(Job, job.id)
             if stored:

@@ -293,6 +293,24 @@ async def make_sprite(
     (out_dir / VTT).write_text(vtt, newline="\n")
 
 
+async def make_hevc_playable(
+    ffmpeg: str,
+    src: Path,
+    info: MediaInfo,
+    out: Path,
+    handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> None:
+    """Remux SDR HEVC into an hvc1 MP4 (browsers reject hev1 and Matroska)."""
+    args = ["-i", str(src), "-map", f"0:{info.video_index}"]
+    if info.audio_index is not None:
+        args += ["-map", f"0:{info.audio_index}"]
+    args += ["-c", "copy", "-tag:v", "hvc1", "-movflags", "+faststart", "-f", "mp4", str(out)]
+    await run_command(
+        ffmpeg_args(ffmpeg, args), duration=info.duration, on_progress=on_progress, handle=handle
+    )
+
+
 async def make_playable(
     ffmpeg: str,
     src: Path,
