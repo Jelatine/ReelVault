@@ -101,7 +101,7 @@ export default function CompressPanel({ mixed = false, ...ctx }: EditorContext &
           data={[{ value: 'original', label: tr("原始（{{v0}}×{{v1}}）", { v0: outputWidth, v1: outputHeight }) }, ...resOptions.map((r) => ({ value: String(r), label: tr("{{v0}}p 上限", { v0: r }) }))]}
         />
       </Group>
-      {codec === 'av1' && <Text size="xs" c="dimmed">{tr('AV1 使用软件编码，编码较慢；支持 AV1 的浏览器可直接播放。')}</Text>}
+      {codec === 'av1' && <Text size="xs" c="dimmed">{tr('AV1 优先使用支持 AV1 的硬件编码器，否则使用较慢的软件编码；支持 AV1 的浏览器可直接播放。')}</Text>}
       <Switch label={tr("按目标文件大小压缩（两遍编码）")} checked={useTarget} onChange={(e) => setUseTarget(e.currentTarget.checked)} />
       {codec === 'av1' && useTarget && <Text size="xs" c="dimmed">{tr('AV1 按目标大小压缩需要支持两遍编码的 FFmpeg；旧版请改用画质模式、H.264 或 H.265。')}</Text>}
       {useTarget ? (

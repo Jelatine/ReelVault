@@ -294,6 +294,63 @@ def test_startup_check_skips_absent_devices_in_auto(monkeypatch: pytest.MonkeyPa
     assert result["encoder"] == "h264_qsv" and "h264_qsv" not in runtime.unavailable
 
 
+def test_hardware_av1_from_compress_plan(tmp_path: Path) -> None:
+    info = ops.MediaInfo(width=1280, height=720, duration=10, fps=30, video_codec="hevc")
+    info.pix_fmt = "yuv420p10le"
+    params = ops.CompressParams(codec="av1", quality="high")
+    (args,) = ops.plan_compress(
+        params, (tmp_path / "in", info), tmp_path / "o.mp4", tmp_path
+    ).commands
+    expected = {"qsv": "av1_qsv", "nvenc": "av1_nvenc", "vaapi": "av1_vaapi"}
+    for family, codec in expected.items():
+        changed = hardware_command(args, family, "/dev/dri/renderD128")
+        assert changed[changed.index("-c:v") + 1] == codec
+        assert "libsvtav1" not in changed and "-crf" not in changed
+        assert "-profile:v" not in changed  # AV1 Main covers 10 bits
+    qsv = hardware_command(args, "qsv", "")
+    assert qsv[qsv.index("-global_quality") + 1] == "120"  # CRF 30 on the 0-255 scale
+    assert qsv[qsv.index("-pix_fmt") + 1] == "p010le"
+    nvenc = hardware_command(args, "nvenc", "")
+    assert nvenc[nvenc.index("-qp") + 1] == "120"
+    vaapi = hardware_command(args, "vaapi", "/dev/dri/renderD128")
+    assert vaapi[vaapi.index("-vf") + 1].endswith("format=p010,hwupload")
+    # VideoToolbox has no AV1 encoder: the command stays software.
+    assert hardware_command(args, "videotoolbox", "") == args
+
+
+def test_hardware_av1_choices_and_status() -> None:
+    runtime = EncoderRuntime("ffmpeg", {"h264_videotoolbox", "av1_nvenc", "av1_qsv"})
+    runtime.unavailable = {"av1_qsv"}
+    assert runtime.choices("auto", "libsvtav1") == ["nvenc"]
+    assert runtime.choices("videotoolbox", "libsvtav1") == []
+    assert runtime.choices("qsv", "libsvtav1") == ["qsv"]
+    families = {f["value"]: f for f in runtime.status("auto")["families"]}
+    assert [e["name"] for e in families["videotoolbox"]["encoders"]] == [
+        "h264_videotoolbox",
+        "hevc_videotoolbox",
+    ]
+    assert [e["name"] for e in families["nvenc"]["encoders"]][-1] == "av1_nvenc"
+
+
+def test_hardware_av1_run_and_two_pass_stays_software(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    async def run(args: list[str], **kwargs: Any) -> None:
+        calls.append(args)
+
+    monkeypatch.setattr(encoding, "run_command", run)
+    runtime = EncoderRuntime("ffmpeg", {"av1_nvenc"})
+    command = ["-i", "in.mp4", "-c:v", "libsvtav1", "-preset", "8", "-crf", "36", "out.mp4"]
+    result = asyncio.run(runtime.run([command], "auto"))
+    assert result["encoder"] == "av1_nvenc" and "av1_nvenc" in calls[-1]
+    two_pass = [[*command[:-1], "-b:v", "500k", "-pass", "1", "-f", "null", "-"]]
+    monkeypatch.setattr(encoding.Path, "is_file", lambda self: True)
+    monkeypatch.setattr(encoding.Path, "stat", lambda self: type("S", (), {"st_size": 1})())
+    two_pass[0][-3:-3] = ["-passlogfile", "log"]
+    result = asyncio.run(runtime.run(two_pass, "auto"))
+    assert result["encoder"] == "libsvtav1" and result["fallback"]
+
+
 def test_vaapi_unsupported_on_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(encoding.sys, "platform", "win32")
     runtime = EncoderRuntime("ffmpeg", {"h264_vaapi", "h264_nvenc"})
@@ -352,10 +409,12 @@ def test_real_software_fallback_output(
     not os.environ.get("REELVAULT_TEST_HARDWARE"),
     reason="requires actual GPU/driver; opt in explicitly",
 )
-@pytest.mark.parametrize("operation", ["h264", "h265", "rotate", "merge"])
+@pytest.mark.parametrize("operation", ["h264", "h265", "av1", "rotate", "merge"])
 def test_real_hardware_output(samples: dict[str, Path], tmp_path: Path, operation: str) -> None:
     family = os.environ["REELVAULT_TEST_HARDWARE"]
     assert family in encoding.FAMILIES, f"Unknown hardware family: {family}"
+    if operation == "av1" and not os.environ.get("REELVAULT_TEST_HARDWARE_AV1"):
+        pytest.skip("hardware AV1 encoding is opt-in: set REELVAULT_TEST_HARDWARE_AV1=1")
 
     asyncio.run(
         verify_operation(

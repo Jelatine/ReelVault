@@ -23,7 +23,7 @@
   - [x] 前端 `CompressPanel` 编码下拉增加 AV1（混合编辑共用该面板，`MixedFields` 无独立编码下拉），提示软件编码较慢、支持 AV1 的浏览器可直接播放；`describeEdit` 正确显示 AV1，中英文翻译已补齐。
   - [x] 完成前后端回归并提交；后端两项非 AV1 失败及复测结果见下方记录。
   - [x] 验证旧版 FFmpeg 的 AV1 两遍编码兼容性：Ubuntu 24.04 arm64 的 FFmpeg 6.1.1 + SVT-AV1 1.7.0 实测第一遍成功退出但统计文件为空，确实忽略 `-pass`。启动时实际验证统计写入与第二遍读取（兼容发行版回移补丁），不支持时拒绝 AV1 目标大小压缩，提示升级或改用画质模式／H.264／H.265；任务执行时再次检查第一遍非空统计，防止静默退化。设置页与压缩面板补齐中英文提示。FFmpeg 6.1.1、7.0、8.0 的上游接口源码也未接入通用两遍统计；本机 9.0.2 实测支持。报告见 `validation/av1-two-pass-compatibility.json`。
-  - [ ] 可选：硬件 AV1（`av1_nvenc`／`av1_qsv`／`av1_vaapi`）加入 `encoding.FAMILIES`，复用现有回退；VideoToolbox 无 AV1 编码。
+  - [x] 可选：硬件 AV1（`av1_nvenc`／`av1_qsv`／`av1_vaapi`）加入 `encoding.FAMILIES`，复用现有回退；VideoToolbox 无 AV1 编码，命令保持软件。SVT-AV1 的 CRF（0–63）×4 映射到硬件 AV1 的 0–255 量化刻度，10-bit 使用 P010（AV1 Main 已覆盖 10-bit，不加 `main10`）；目标大小仍走软件两遍。启动检测与设置页列出各家 AV1 编码器；`hardware_check` 增加 AV1 项（许多 GPU 不支持 AV1 编码，失败只记录不计入总结果），实机测试需另设 `REELVAULT_TEST_HARDWARE_AV1=1`。未在硬件上运行。
 
 前端验证：完整单元测试 138 项通过，覆盖 AV1 压缩／混合编辑、画质／目标大小提交与嵌套预设恢复；lint、翻译审计、TypeScript 与生产构建通过。Chromium 相关回归 5 项通过、1 项 S3 条件跳过；新增 AV1 实测通过，压缩与混合编辑均由 `libsvtav1` 生成 AV1，编辑链摘要正确，结果通过原视频流接口直接解码播放。
 

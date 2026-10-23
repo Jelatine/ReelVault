@@ -60,7 +60,7 @@ test.each([false, true])('select AV1 and submit quality or target size compressi
   const { client } = setup([], mixed)
   fireEvent.click(screen.getByRole('combobox', { name: '编码' }))
   fireEvent.click(screen.getByRole('option', { name: 'AV1（编码较慢）' }))
-  expect(screen.getByText('AV1 使用软件编码，编码较慢；支持 AV1 的浏览器可直接播放。')).toBeDefined()
+  expect(screen.getByText('AV1 优先使用支持 AV1 的硬件编码器，否则使用较慢的软件编码；支持 AV1 的浏览器可直接播放。')).toBeDefined()
   const button = screen.getByRole('button', { name: mixed ? '开始混合编辑' : '开始压缩' })
   fireEvent.click(button)
   const qualityEdit = submit.mock.lastCall![0]

@@ -22,12 +22,14 @@ from .ffmpeg import (
     run_command,
 )
 
-FAMILIES = {
-    "videotoolbox": ("VideoToolbox (macOS)", "h264_videotoolbox", "hevc_videotoolbox"),
-    "qsv": ("Intel QSV", "h264_qsv", "hevc_qsv"),
-    "vaapi": ("VAAPI (Linux)", "h264_vaapi", "hevc_vaapi"),
-    "nvenc": ("NVIDIA NVENC", "h264_nvenc", "hevc_nvenc"),
+# Label, then the hardware counterparts of SOFTWARE in order; VideoToolbox has no AV1.
+FAMILIES: dict[str, tuple[str, str, str, str | None]] = {
+    "videotoolbox": ("VideoToolbox (macOS)", "h264_videotoolbox", "hevc_videotoolbox", None),
+    "qsv": ("Intel QSV", "h264_qsv", "hevc_qsv", "av1_qsv"),
+    "vaapi": ("VAAPI (Linux)", "h264_vaapi", "hevc_vaapi", "av1_vaapi"),
+    "nvenc": ("NVIDIA NVENC", "h264_nvenc", "hevc_nvenc", "av1_nvenc"),
 }
+SOFTWARE = ("libx264", "libx265", "libsvtav1")
 # Windows FFmpeg builds compile VAAPI through libva-win32, but there is no render device.
 UNSUPPORTED = {"win32": {"vaapi"}}
 PROBE_TIMEOUT = 30
@@ -47,9 +49,17 @@ async def detect_encoders(ffmpeg: str) -> set[str]:
 
 def software_encoder(args: list[str]) -> str | None:
     for i, arg in enumerate(args[:-1]):
-        if arg == "-c:v" and args[i + 1] in {"libx264", "libx265"}:
+        if arg == "-c:v" and args[i + 1] in SOFTWARE:
             return args[i + 1]
     return None
+
+
+def family_encoder(family: str, software: str) -> str | None:
+    return FAMILIES[family][1 + SOFTWARE.index(software)]
+
+
+def family_encoders(family: str) -> list[str]:
+    return [encoder for encoder in FAMILIES[family][1:] if encoder]
 
 
 # Hardware decoders paired with each encoder family. Unsupported codecs (images, lavfi)
@@ -66,16 +76,21 @@ def hardware_command(
     first ``-map [label]`` following the previous output's ``-c:v``.
     """
     software = software_encoder(args)
-    if not software:
+    encoder = family_encoder(family, software) if software else None
+    if not software or not encoder:
         return list(args)
-    encoder = FAMILIES[family][1 if software == "libx264" else 2]
+    av1 = software == "libsvtav1"
     crf = int(args[args.index("-crf") + 1]) if "-crf" in args else 23
+    if av1:
+        # SVT-AV1 CRF is 0-63; hardware AV1 quantizers use the 0-255 qindex scale.
+        crf = min(255, crf * 4)
     bitrate = "-b:v" in args
-    # 10-bit output is only requested for HEVC; every family encodes it as Main10 P010.
-    ten_bit = software == "libx265" and any(
+    # 10-bit output is only requested for HEVC and AV1; every family encodes it as P010.
+    ten_bit = software != "libx264" and any(
         args[i] == "-pix_fmt" and args[i + 1] == "yuv420p10le" for i in range(len(args) - 1)
     )
-    main10 = ["-profile:v", "main10"] if ten_bit else []
+    # AV1 Main profile already covers 10 bits.
+    main10 = ["-profile:v", "main10"] if ten_bit and not av1 else []
     if family == "videotoolbox":
         quality = max(1, min(100, round(100 - crf * 100 / 51)))
         rate = [] if bitrate else ["-q:v", str(quality)]
@@ -177,14 +192,14 @@ class EncoderRuntime:
 
     def choices(self, requested: str, software: str) -> list[str]:
         families = list(FAMILIES) if requested == "auto" else [requested]
-        index = 1 if software == "libx264" else 2
         return [
             f
             for f in families
             if f in FAMILIES
             and supported(f)
-            and FAMILIES[f][index] in self.compiled
-            and not (requested == "auto" and FAMILIES[f][index] in self.unavailable)
+            and (encoder := family_encoder(f, software))
+            and encoder in self.compiled
+            and not (requested == "auto" and encoder in self.unavailable)
         ]
 
     async def verify(self) -> None:
@@ -198,8 +213,8 @@ class EncoderRuntime:
             for family, spec in FAMILIES.items():
                 if not supported(family):
                     continue
-                for software, encoder in zip(("libx264", "libx265"), spec[1:], strict=True):
-                    if encoder not in self.compiled:
+                for software, encoder in zip(SOFTWARE, spec[1:], strict=True):
+                    if not encoder or encoder not in self.compiled:
                         continue
                     args = ["-f", "lavfi", "-i", "color=s=256x256:d=0.2", "-c:v", software]
                     args = hardware_command([*args, "-f", "null", "-"], family, self.device)
@@ -235,7 +250,7 @@ class EncoderRuntime:
                             "compiled": encoder in self.compiled,
                             **self.outcomes.get(encoder, {"usable": None, "error": None}),
                         }
-                        for encoder in spec[1:]
+                        for encoder in family_encoders(family)
                     ],
                 }
                 for family, spec in FAMILIES.items()
@@ -311,12 +326,12 @@ class EncoderRuntime:
                     on_progress(completed / total)
 
         attempts = [
-            (family, decode)
+            (family, chosen, decode)
             for family in families
+            if software and (chosen := family_encoder(family, software))
             for decode in ((True, False) if family in DECODERS else (False,))
         ]
-        for family, decode in attempts:
-            chosen = FAMILIES[family][1 if software == "libx264" else 2]
+        for family, chosen, decode in attempts:
             try:
                 async with self.hardware_slot(handle):
                     await execute(
