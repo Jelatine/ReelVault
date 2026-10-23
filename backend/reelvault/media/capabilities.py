@@ -67,7 +67,10 @@ def required_features(edit: ops.EditParams) -> list[str]:
                 *(["denoise"] if edit.denoise else []),
             ]
         case ops.AudioParams():
-            return ["loudness"] if edit.normalize else []
+            return [
+                *(["loudness"] if edit.normalize else []),
+                *(["audio_denoise"] if edit.denoise else []),
+            ]
         case ops.SubtitleParams():
             # Embedded bitmap subtitles are overlaid instead; that depends on the source.
             return ["subtitle_burn"] if edit.subtitle_asset_id else []

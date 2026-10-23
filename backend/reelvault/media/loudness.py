@@ -1,13 +1,15 @@
-"""First pass of two-pass EBU R128 loudness normalisation."""
+"""Measurement passes for audio processing: EBU R128 loudness and noise floor."""
 
 from __future__ import annotations
 
 import json
 import math
 import re
+from pathlib import Path
 
 from .ffmpeg import ProcessHandle, ProgressCallback, run_command
-from .ops import LOUDNESS_KEYS
+from .ops import LOUDNESS_KEYS, noise_floor_command
+from .probe import MediaInfo
 
 
 def parse_loudness(stderr: str) -> dict[str, float] | None:
@@ -37,3 +39,39 @@ async def measure_loudness(
     command += ["-progress", "pipe:1", "-nostats", *args]
     result = await run_command(command, duration=duration, on_progress=on_progress, handle=handle)
     return parse_loudness(result.stderr)
+
+
+# afftdn accepts noise floors in this range.
+NOISE_FLOOR_RANGE = (-80.0, -20.0)
+
+
+def parse_noise_floor(text: str) -> float | None:
+    """10th percentile of window RMS levels: the quiet parts between sounds."""
+    levels = sorted(
+        value for raw in re.findall(r"RMS_level=(\S+)", text) if math.isfinite(value := float(raw))
+    )
+    if not levels:
+        return None
+    low, high = NOISE_FLOOR_RANGE
+    return max(low, min(high, levels[len(levels) // 10]))
+
+
+async def measure_noise_floor(
+    ffmpeg: str,
+    source: tuple[Path, MediaInfo],
+    folder: Path,
+    *,
+    handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> float | None:
+    """None for digital silence or when there is nothing to measure."""
+    output = folder / "noise-floor.txt"
+    command = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error"]
+    command += ["-progress", "pipe:1", "-nostats", *noise_floor_command(source, output.name)]
+    await run_command(
+        command, duration=source[1].duration, on_progress=on_progress, handle=handle, cwd=folder
+    )
+    try:
+        return parse_noise_floor(output.read_text())
+    finally:
+        output.unlink(missing_ok=True)

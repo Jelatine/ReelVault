@@ -1761,5 +1761,10 @@
   "检测低于阈值且持续足够长的静音，将其余部分填入下方的剪辑片段，可再手动调整。": "Detects stretches below the threshold that last long enough and fills the rest into the segments below, which you can still adjust.",
   "静音阈值（dB）": "Silence threshold (dB)",
   "最短静音（秒）": "Minimum silence (s)",
-  "检测静音": "Detect silence"
+  "检测静音": "Detect silence",
+  "原声降噪强度（dB，0 为关闭）": "Original audio noise reduction (dB, 0 = off)",
+  "先测量底噪再用 FFT 降噪，适合持续的嘶声、风扇声等": "Measures the noise floor, then applies FFT denoising; suits steady hiss or fan noise",
+  "测量底噪": "Measuring noise floor",
+  "原音轨为数字静音，跳过降噪": "The original track is digital silence; skipping noise reduction",
+  " · 降噪 {{v0}} dB": " · denoise {{v0}} dB"
 }

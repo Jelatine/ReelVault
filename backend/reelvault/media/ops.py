@@ -148,6 +148,8 @@ class AudioParams(BaseModel):
     music_gain_db: float = Field(-12, ge=-60, le=24, allow_inf_nan=False)
     normalize: bool = False
     target_lufs: float = Field(-16, ge=-70, le=-5, allow_inf_nan=False)
+    # FFT noise reduction (dB) applied to the original track; 0 disables it.
+    denoise: float = Field(0, ge=0, le=40, allow_inf_nan=False)
     fade_in: float = Field(0, ge=0, le=3600, allow_inf_nan=False)
     fade_out: float = Field(0, ge=0, le=3600, allow_inf_nan=False)
     audio_asset_id: str | None = Field(None, pattern=r"^[a-f0-9]{32}$")
@@ -160,6 +162,8 @@ class AudioParams(BaseModel):
             raise ValueError("替换或混音需要选择上传的音频")
         if self.mode == "adjust" and self.audio_asset_id:
             raise ValueError("调整原音轨不使用外部音频")
+        if self.mode == "replace" and self.denoise:
+            raise ValueError("降噪仅作用于原音轨，替换音轨时不可用")
         return self
 
 
@@ -857,8 +861,30 @@ def plan_embed_cover(src: Source, cover: Path, out: Path) -> OpPlan:
 LOUDNESS_KEYS = ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")
 
 
+AUDIO_COMMON = "aformat=sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS"
+NOISE_WINDOW = 4800  # 100 ms at 48 kHz
+
+
+def _original_alignment(info: MediaInfo) -> str:
+    alignment = f"atrim=start={max(0, -info.audio_delay)},{AUDIO_COMMON}"
+    if info.audio_delay > 0:
+        alignment += f",adelay={round(info.audio_delay * 1000)}:all=1"
+    return alignment
+
+
+def noise_floor_command(src: Source, output: str) -> list[str]:
+    """Write the RMS level of each 100 ms window of the original track to `output`."""
+    path, info = src
+    graph = (
+        f"[0:{info.audio_index}]{_original_alignment(info)},asetnsamples=n={NOISE_WINDOW},"
+        "astats=metadata=1:reset=1:measure_perchannel=none:measure_overall=RMS_level,"
+        f"ametadata=mode=print:key=lavfi.astats.Overall.RMS_level:file={output}[m]"
+    )
+    return ["-i", str(path), "-filter_complex", graph, "-map", "[m]", "-f", "null", "-"]
+
+
 def _audio_graph(
-    p: AudioParams, src: Source, asset: tuple[Path, int] | None
+    p: AudioParams, src: Source, asset: tuple[Path, int] | None, noise_floor: float | None = None
 ) -> tuple[list[str], list[str], str]:
     """Inputs and filter chains up to the selected (unnormalised) audio label."""
     path, info = src
@@ -873,12 +899,13 @@ def _audio_graph(
         raise OpError("该视频没有音轨，请选择替换音轨或背景音乐")
     args = ["-i", str(path)]
     chains = []
-    common = "aformat=sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS"
+    common = AUDIO_COMMON
     original = p.mode in {"adjust", "mix"} and info.has_audio
     if original:
-        alignment = f"atrim=start={max(0, -info.audio_delay)},{common}"
-        if info.audio_delay > 0:
-            alignment += f",adelay={round(info.audio_delay * 1000)}:all=1"
+        alignment = _original_alignment(info)
+        if p.denoise and noise_floor is not None:
+            # afftdn only removes noise near its floor; noise tracking alone barely acts.
+            alignment += f",afftdn=nr={p.denoise}:nf={noise_floor:.1f}"
         chains.append(
             f"[0:{info.audio_index}]{alignment},volume={p.gain_db}dB,apad,atrim=duration={duration}[original]"
         )
@@ -904,10 +931,13 @@ def _audio_graph(
 
 
 def loudness_command(
-    p: AudioParams, src: Source, asset: tuple[Path, int] | None = None
+    p: AudioParams,
+    src: Source,
+    asset: tuple[Path, int] | None = None,
+    noise_floor: float | None = None,
 ) -> list[str]:
     """First loudnorm pass: measure exactly the audio the final pass will normalise."""
-    args, chains, selected = _audio_graph(p, src, asset)
+    args, chains, selected = _audio_graph(p, src, asset, noise_floor)
     chains.append(f"[{selected}]loudnorm=I={p.target_lufs}:TP=-1.5:LRA=11:print_format=json[m]")
     args += ["-filter_complex", ";".join(chains), "-map", "[m]", "-t", str(src[1].duration)]
     return [*args, "-f", "null", "-"]
@@ -919,10 +949,11 @@ def plan_audio(
     out: Path,
     asset: tuple[Path, int] | None = None,
     measured: dict[str, float] | None = None,
+    noise_floor: float | None = None,
 ) -> OpPlan:
     path, info = src
     duration = info.duration
-    args, chains, selected = _audio_graph(p, src, asset)
+    args, chains, selected = _audio_graph(p, src, asset, noise_floor)
     ext = copy_ext(info)
     if ext == "webm":
         ext = "mkv"  # WebM cannot hold the AAC output.

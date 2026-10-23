@@ -13,11 +13,11 @@ import PresetControls from './PresetControls'
 export interface AudioAsset { id: string; name: string; duration: number; size: number }
 interface Params {
   op: 'audio'; mode: 'adjust' | 'replace' | 'mix'; gain_db: number; music_gain_db: number
-  normalize: boolean; target_lufs: number; fade_in: number; fade_out: number
+  normalize: boolean; target_lufs: number; denoise: number; fade_in: number; fade_out: number
   audio_asset_id: string | null; loop: boolean; offset: number
 }
 const defaults: Params = { op: 'audio', mode: 'adjust', gain_db: 0, music_gain_db: -12,
-  normalize: false, target_lufs: -16, fade_in: 0, fade_out: 0, audio_asset_id: null, loop: false, offset: 0 }
+  normalize: false, target_lufs: -16, denoise: 0, fade_in: 0, fade_out: 0, audio_asset_id: null, loop: false, offset: 0 }
 
 export default function AudioPanel({ videoId, duration, hasAudio }: { videoId: string; duration: number; hasAudio: boolean }) {
   useTranslation()
@@ -30,7 +30,8 @@ export default function AudioPanel({ videoId, duration, hasAudio }: { videoId: s
   const [output, setOutput] = useState(defaultOutput)
   const { submit, busy } = useSubmitEdit(videoId)
   const external = params.mode !== 'adjust'
-  const edit = { ...params, audio_asset_id: external ? selected || null : null, loop: external && params.loop, offset: external ? params.offset : 0 }
+  const edit = { ...params, audio_asset_id: external ? selected || null : null, loop: external && params.loop, offset: external ? params.offset : 0,
+    denoise: params.mode === 'replace' ? 0 : params.denoise }
   const asset = assets.data?.find((item) => item.id === selected)
   const valid = duration > 0 && params.fade_in + params.fade_out <= duration &&
     (external ? !!asset && params.offset < duration : hasAudio)
@@ -68,6 +69,9 @@ export default function AudioPanel({ videoId, duration, hasAudio }: { videoId: s
       data={[{ value: 'adjust', label: tr("调整原音轨") }, { value: 'replace', label: tr("替换音轨") }, { value: 'mix', label: tr("混入背景音乐") }]} />
     {params.mode !== 'replace' && <NumberInput label={tr("原声音量（dB）")} value={params.gain_db} min={-60} max={24}
       onChange={(value) => field('gain_db', Number(value))} disabled={!hasAudio} />}
+    {params.mode !== 'replace' && <NumberInput label={tr("原声降噪强度（dB，0 为关闭）")} value={params.denoise} min={0} max={40}
+      description={tr("先测量底噪再用 FFT 降噪，适合持续的嘶声、风扇声等")}
+      onChange={(value) => field('denoise', Number(value))} disabled={!hasAudio} />}
     {!hasAudio && <Text size="xs" c="dimmed">{tr("视频没有原音轨，可替换音轨或添加背景音乐。")}</Text>}
     {external && <Stack gap="xs">
       {assets.error && <Alert color="red">{tr("无法载入音频素材：")}{assets.error.message}</Alert>}

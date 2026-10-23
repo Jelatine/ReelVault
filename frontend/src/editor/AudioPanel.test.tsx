@@ -27,13 +27,14 @@ function show(hasAudio = true) {
 test('submit gain, loudness and fades; block fades beyond duration', async () => {
   show()
   fireEvent.change(screen.getByLabelText('原声音量（dB）'), { target: { value: '-6' } })
+  fireEvent.change(screen.getByLabelText('原声降噪强度（dB，0 为关闭）'), { target: { value: '12' } })
   fireEvent.click(screen.getByLabelText('响度标准化（loudnorm）'))
   fireEvent.change(screen.getByLabelText('目标响度（LUFS）'), { target: { value: '-18' } })
   fireEvent.change(screen.getByLabelText('淡入时长（秒）'), { target: { value: '1' } })
   fireEvent.change(screen.getByLabelText('淡出时长（秒）'), { target: { value: '1' } })
   fireEvent.click(screen.getByRole('button', { name: '生成音频处理视频' }))
   expect(mocks.submit).toHaveBeenCalledWith(expect.objectContaining({ op: 'audio', mode: 'adjust', gain_db: -6,
-    normalize: true, target_lufs: -18, fade_in: 1, fade_out: 1, audio_asset_id: null }), { mode: 'new', title: '' })
+    normalize: true, target_lufs: -18, denoise: 12, fade_in: 1, fade_out: 1, audio_asset_id: null }), { mode: 'new', title: '' })
   fireEvent.change(screen.getByLabelText('淡入时长（秒）'), { target: { value: '4' } })
   expect(screen.getByText('淡入与淡出总时长不能超过视频时长。')).toBeTruthy()
   expect((screen.getByRole('button', { name: '生成音频处理视频' }) as HTMLButtonElement).disabled).toBe(true)

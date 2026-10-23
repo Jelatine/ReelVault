@@ -24,7 +24,7 @@ from ..media.assets import audio_asset, image_asset, lut_asset, subtitle_asset
 from ..media.color import sdr_commands
 from ..media.composite import plan_composite
 from ..media.effects import plan_effect
-from ..media.loudness import measure_loudness
+from ..media.loudness import measure_loudness, measure_noise_floor
 from ..media.probe import MediaInfo, probe
 from ..media.scenes import SceneParams, detect_scenes, source_signature
 from ..media.subtitles import plan_subtitle
@@ -314,21 +314,38 @@ async def edit(ctx: JobContext, job: Job) -> None:
                 plan = ops.plan_embed_cover(sources[0], cover, out)
             case ops.AudioParams():
                 audio_input = (abs_path(s, asset.file_path), asset.stream_index) if asset else None
+                measurements: dict[str, Any] = {}
+                noise_floor = None
+                if params.denoise and sources[0][1].has_audio:
+                    ctx.set_progress(0, "测量底噪")
+                    noise_floor = await measure_noise_floor(
+                        s.ffmpeg,
+                        sources[0],
+                        tmp,
+                        handle=ctx.handle,
+                        on_progress=lambda fraction: ctx.set_progress(fraction * 0.15),
+                    )
+                    if noise_floor is None:
+                        ctx.log("原音轨为数字静音，跳过降噪", "warning")
+                    else:
+                        measurements["noise_floor"] = noise_floor
                 measured = None
                 if params.normalize:
-                    ctx.set_progress(0, "测量响度")
+                    ctx.set_progress(0.15, "测量响度")
                     measured = await measure_loudness(
                         s.ffmpeg,
-                        ops.loudness_command(params, sources[0], audio_input),
+                        ops.loudness_command(params, sources[0], audio_input, noise_floor),
                         duration=sources[0][1].duration,
                         handle=ctx.handle,
-                        on_progress=lambda fraction: ctx.set_progress(fraction * 0.3),
+                        on_progress=lambda fraction: ctx.set_progress(0.15 + fraction * 0.15),
                     )
                     if measured is None:
                         ctx.log("无法测量有效响度（如静音），改用单遍动态标准化", "warning")
                     else:
-                        _set_job(ctx, job.id, params={**job.params, "loudness": measured})
-                plan = ops.plan_audio(params, sources[0], out, audio_input, measured)
+                        measurements["loudness"] = measured
+                if measurements:
+                    _set_job(ctx, job.id, params={**job.params, **measurements})
+                plan = ops.plan_audio(params, sources[0], out, audio_input, measured, noise_floor)
             case ops.SubtitleParams():
                 plan = plan_subtitle(
                     params, sources[0], out, tmp, abs_path(s, asset.file_path) if asset else None

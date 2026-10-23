@@ -27,7 +27,7 @@ export function describeEdit(edit: Record<string, unknown>): string {
     case 'embed_cover': return tr("把当前封面写入视频文件")
     case 'subtitle': return tr("烧录字幕 · {{v0}} · CRF {{v1}}", { v0: edit.subtitle_asset_id ? tr("外挂字幕") : tr("内封轨道 {{v0}}", { v0: edit.embedded_index }), v1: edit.crf ?? 20 })
     case 'watermark': return tr("{{v0}} · {{v1}} · 透明度 {{v2}}% · {{v3}} · CRF {{v4}}", { v0: edit.mode === 'image' ? tr("图片水印") : tr("文字叠加"), v1: edit.position, v2: Math.round(Number(edit.opacity ?? 0.65) * 100), v3: edit.mode === 'image' ? tr("宽度 {{v0}}%", { v0: edit.width_percent ?? 20 }) : tr("字号 {{v0}}px", { v0: edit.font_size ?? 32 }), v4: edit.crf ?? 20 })
-    case 'audio': return tr("音频 · {{v0}} · 原声 {{v1}} dB{{v2}}{{v3}} · 淡入 {{v4}}s / 淡出 {{v5}}s", { v0: { adjust: tr("调整原音轨"), replace: tr("替换音轨"), mix: tr("背景音乐混合") }[String(edit.mode)] ?? tr("调整原音轨"), v1: edit.gain_db ?? 0, v2: edit.mode !== 'adjust' ? tr(" · 素材 {{v0}} dB", { v0: edit.music_gain_db ?? -12 }) : '', v3: edit.normalize ? tr(" · 标准化 {{v0}} LUFS", { v0: edit.target_lufs ?? -16 }) : '', v4: edit.fade_in ?? 0, v5: edit.fade_out ?? 0 })
+    case 'audio': return tr("音频 · {{v0}} · 原声 {{v1}} dB{{v2}}{{v3}} · 淡入 {{v4}}s / 淡出 {{v5}}s", { v0: { adjust: tr("调整原音轨"), replace: tr("替换音轨"), mix: tr("背景音乐混合") }[String(edit.mode)] ?? tr("调整原音轨"), v1: edit.gain_db ?? 0, v2: edit.mode !== 'adjust' ? tr(" · 素材 {{v0}} dB", { v0: edit.music_gain_db ?? -12 }) : '', v3: (edit.normalize ? tr(" · 标准化 {{v0}} LUFS", { v0: edit.target_lufs ?? -16 }) : '') + (Number(edit.denoise) ? tr(" · 降噪 {{v0}} dB", { v0: edit.denoise }) : ''), v4: edit.fade_in ?? 0, v5: edit.fade_out ?? 0 })
     default: return tr("编辑视频")
   }
 }

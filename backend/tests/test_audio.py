@@ -16,7 +16,12 @@ from reelvault.backup import BackupError, create_backup, restore_backup
 from reelvault.config import Settings
 from reelvault.main import create_app
 from reelvault.media.ffmpeg import ffmpeg_args, run_command
-from reelvault.media.loudness import measure_loudness, parse_loudness
+from reelvault.media.loudness import (
+    measure_loudness,
+    measure_noise_floor,
+    parse_loudness,
+    parse_noise_floor,
+)
 from reelvault.media.ops import AudioParams, OpError, loudness_command, plan_audio
 from reelvault.media.probe import probe
 
@@ -381,3 +386,52 @@ def test_normalize_job_records_measurement(client: TestClient, samples: dict[str
         "input_thresh",
         "target_offset",
     }
+
+
+def test_real_denoise_reduces_background_noise(tmp_path: Path) -> None:
+    source = tmp_path / "noisy.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
+        + ["-f", "lavfi", "-i", "testsrc=size=160x120:rate=25:duration=4"]
+        + ["-f", "lavfi", "-i", "anoisesrc=color=white:amplitude=0.05:duration=4:sample_rate=48000"]
+        + ["-c:v", "libx264", "-c:a", "aac", "-shortest", str(source)],
+        check=True,
+    )
+
+    async def render(params: AudioParams, name: str) -> tuple[Path, float | None]:
+        src = (source, await probe("ffprobe", str(source)))
+        floor = await measure_noise_floor("ffmpeg", src, tmp_path) if params.denoise else None
+        plan = plan_audio(params, src, tmp_path / name, noise_floor=floor)
+        await run_command(ffmpeg_args("ffmpeg", plan.commands[0]))
+        return tmp_path / name, floor
+
+    plain, _ = asyncio.run(render(AudioParams(), "plain.mp4"))
+    clean, floor = asyncio.run(render(AudioParams(denoise=24), "clean.mp4"))
+    assert floor == pytest.approx(rms_db(pcm(plain, 0.5, 3)), abs=3)
+    assert rms(pcm(clean, 1.5, 2)) < rms(pcm(plain, 1.5, 2)) * 0.5
+    assert not list(tmp_path.glob("noise-floor.txt"))
+    with pytest.raises(ValueError, match="降噪"):
+        AudioParams(mode="replace", audio_asset_id="0" * 32, denoise=12)
+
+
+def rms_db(values: list[float]) -> float:
+    return 20 * math.log10(rms(values))
+
+
+def test_parse_noise_floor_uses_quiet_windows_and_clamps() -> None:
+    windows = "".join(
+        f"lavfi.astats.Overall.RMS_level={v}\n" for v in [-20] * 9 + [-60] + [-30] * 10
+    )
+    assert parse_noise_floor(windows) == -30
+    assert parse_noise_floor("lavfi.astats.Overall.RMS_level=-inf\n") is None
+    assert parse_noise_floor("lavfi.astats.Overall.RMS_level=-95\n") == -80
+
+
+def test_denoise_job_records_noise_floor(client: TestClient, samples: dict[str, Path]) -> None:
+    video = upload_ready(client, samples["a"])
+    edit = {"op": "audio", "denoise": 12, "normalize": True}
+    r = client.post(f"/api/videos/{video['id']}/edit", json={"edit": edit})
+    job = wait_job(client, r.json()["id"])
+    assert job["status"] == "succeeded", job["error"]
+    assert -80 <= job["params"]["noise_floor"] <= -20
+    assert "input_i" in job["params"]["loudness"]
