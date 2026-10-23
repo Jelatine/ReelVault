@@ -94,14 +94,14 @@ export type JobStatus = 'queued' | 'running' | 'paused' | 'succeeded' | 'failed'
 
 export interface Job {
   id: string
-  kind: 'ingest' | 'edit' | 'scenes' | 'hls' | 'duplicates' | 'link_import' | 'playable' | 'sprite' | 'probe' | 'original_cache' | 'transcribe' | 'vision_index' | 'ai_analyze'
+  kind: 'ingest' | 'edit' | 'scenes' | 'analysis' | 'hls' | 'duplicates' | 'link_import' | 'playable' | 'sprite' | 'probe' | 'original_cache' | 'transcribe' | 'vision_index' | 'ai_analyze'
   status: JobStatus
   priority?: number
   eta_seconds?: number | null
   retry_of?: string | null
   conflicting_jobs?: string[]
   params: { edit?: { op: string; [k: string]: unknown }; output?: { mode: string }; name?: string
-    url?: string; title?: string; imported_title?: string; storage_id?: string
+    url?: string; title?: string; imported_title?: string; storage_id?: string; result?: unknown
     encoding?: { requested: string; encoder: string; decoder?: string | null; fallback: string | null }
     summary?: { total: number; scanned: number; cached: number; visual_failed: number; similar_pairs: number; errors: { video_id: string; error: string }[] } }
   video_ids: string[]

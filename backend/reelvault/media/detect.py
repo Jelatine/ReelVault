@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .ffmpeg import ProcessHandle, run_command
+from .ffmpeg import ProcessHandle, ProgressCallback, run_command
 from .probe import MediaInfo
 
 CROP_SAMPLES = 8
@@ -25,7 +25,11 @@ def _analysis(ffmpeg: str, args: list[str]) -> list[str]:
 
 
 async def detect_crop(
-    ffmpeg: str, source: Path, info: MediaInfo, handle: ProcessHandle | None = None
+    ffmpeg: str,
+    source: Path,
+    info: MediaInfo,
+    handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> dict[str, int] | None:
     """Union of the content found at evenly spaced samples; None without black bars.
 
@@ -49,6 +53,8 @@ async def detect_crop(
             handle=handle,
             timeout=60,
         )  # fmt: skip
+        if on_progress:
+            on_progress((i + 1) / CROP_SAMPLES)
         crops = re.findall(r"crop=(\d+):(\d+):(\d+):(\d+)", result.stderr)
         if not crops:
             continue
@@ -75,6 +81,7 @@ async def detect_silence(
     noise_db: float,
     min_duration: float,
     handle: ProcessHandle | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> list[tuple[float, float]]:
     """Silent intervals of the primary audio track on the container timeline."""
     if info.audio_index is None:
@@ -89,7 +96,8 @@ async def detect_silence(
             ],
         ),
         handle=handle,
-        timeout=600,
+        duration=info.duration,
+        on_progress=on_progress,
     )  # fmt: skip
     silences: list[tuple[float, float]] = []
     start: float | None = None

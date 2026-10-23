@@ -23,6 +23,7 @@ from ..media.animation import plan_animation
 from ..media.assets import audio_asset, image_asset, lut_asset, subtitle_asset
 from ..media.color import needs_tone_mapping, reencodes_video, sdr_commands
 from ..media.composite import plan_composite
+from ..media.detect import MAX_SEGMENTS, detect_crop, detect_silence, keep_segments
 from ..media.effects import plan_effect
 from ..media.loudness import measure_loudness, measure_noise_floor
 from ..media.probe import MediaInfo, probe
@@ -1017,7 +1018,44 @@ async def original_cache(ctx: JobContext, job: Job) -> None:
     ctx.set_progress(1, "原视频已保存到本地")
 
 
+async def analyse_media(ctx: JobContext, job: Job) -> None:
+    """Black bar or silence detection; the result is stored in the job parameters."""
+    source, info, video = (await _load_sources(ctx, job.video_ids))[0]
+    if source_signature(source) != job.params["signature"]:
+        raise RuntimeError("源视频已变化，请重新检测")
+    kind = job.params["analysis"]
+    result: dict[str, Any]
+    if kind == "crop":
+        progress = ctx.stage(0, 1, "检测黑边")
+        crop = await detect_crop(ctx.settings.ffmpeg, source, info, ctx.handle, progress)
+        result = {"crop": crop, "width": info.width, "height": info.height}
+    else:
+        if info.audio_index is None:
+            raise ops.OpError("该视频没有音轨")
+        silences = await detect_silence(
+            ctx.settings.ffmpeg,
+            source,
+            info,
+            noise_db=job.params["noise_db"],
+            min_duration=job.params["min_duration"],
+            handle=ctx.handle,
+            on_progress=ctx.stage(0, 1, "检测静音"),
+        )
+        segments = keep_segments(silences, info.duration, job.params["padding"])
+        if len(segments) > MAX_SEGMENTS:
+            raise ops.OpError(f"保留片段超过 {MAX_SEGMENTS} 个，请增大最短静音时长或降低静音阈值")
+        result = {
+            "silences": [{"start": round(s, 3), "end": round(e, 3)} for s, e in silences],
+            "segments": segments,
+            "duration": info.duration,
+        }
+    ctx.check_canceled()
+    _set_job(ctx, job.id, params={**job.params, "result": result})
+    ctx.set_progress(1, "检测完成")
+
+
 HANDLERS: dict[str, Handler] = {
+    "analysis": analyse_media,
     "original_cache": original_cache,
     "link_import": link_import,
     "ingest": ingest,

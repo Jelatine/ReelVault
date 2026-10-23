@@ -20,6 +20,7 @@ KINDS = (
     "edit",
     "hls",
     "scenes",
+    "analysis",
     "duplicates",
     "link_import",
     "playable",

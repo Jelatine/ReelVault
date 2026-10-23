@@ -11,6 +11,7 @@ beforeAll(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
 })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
+const done = (result: unknown) => ({ id: 'job', status: 'succeeded', progress: 1, message: '', params: { result } })
 
 function show(video: Partial<Video> = {}) {
   const onSegments = vi.fn()
@@ -22,7 +23,7 @@ function show(video: Partial<Video> = {}) {
 
 test('detected speech segments replace the trim segments with the chosen thresholds', async () => {
   const segments = [{ start: 0, end: 1.25 }, { start: 2.75, end: 4.25 }]
-  vi.mocked(api.get).mockResolvedValue({ silences: [{ start: 1, end: 3 }, { start: 4, end: 6 }], segments, duration: 6 })
+  vi.mocked(api.post).mockResolvedValue(done({ silences: [{ start: 1, end: 3 }, { start: 4, end: 6 }], segments, duration: 6 }))
   const onSegments = show()
   fireEvent.click(screen.getByRole('button', { name: '剪除静音' }))
   const detect = await screen.findByRole('button', { name: '检测静音' })
@@ -30,11 +31,11 @@ test('detected speech segments replace the trim segments with the chosen thresho
   fireEvent.click(detect)
   await screen.findByText('已保留 2 个有声片段，剪除约 3.3 秒静音')
   expect(onSegments).toHaveBeenCalledWith(segments)
-  expect(vi.mocked(api.get).mock.calls[0][0]).toBe('/api/videos/one/silence?noise_db=-50&min_duration=0.8')
+  expect(api.post).toHaveBeenCalledWith('/api/videos/one/silence', { noise_db: -50, min_duration: 0.8 })
 })
 
 test('no silence keeps segments; invalid thresholds and silent videos are handled', async () => {
-  vi.mocked(api.get).mockResolvedValue({ silences: [], segments: [{ start: 0, end: 6 }], duration: 6 })
+  vi.mocked(api.post).mockResolvedValue(done({ silences: [], segments: [{ start: 0, end: 6 }], duration: 6 }))
   const onSegments = show()
   fireEvent.click(screen.getByRole('button', { name: '剪除静音' }))
   fireEvent.click(await screen.findByRole('button', { name: '检测静音' }))

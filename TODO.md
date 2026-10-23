@@ -47,7 +47,7 @@ AV1 兼容性收尾验证：后端完整回归 710 项通过、20 项跳过，�
 - [x] HDR 色调映射提速：检测 `libplacebo`／`tonemap_vaapi`／`tonemap_opencl` 后优先使用；识别 Dolby Vision（Profile 5 无 transfer 标签）并提示。启动时按 libplacebo、OpenCL、VAAPI 顺序对一帧合成 PQ 画面实际转换，成功者用于全部 HDR 转换（含 HLS），所需 `-init_hw_device` 插在输入前；都失败时用 zscale。探测读取 DOVI 配置记录的 Profile 与基础层兼容 ID，兼容 ID 为 0（Profile 5）时仅 libplacebo 做转换，否则编辑任务记录偏色警告，HEVC 原流播放与 HLS 复制档排除此类视频。本机无 Vulkan／OpenCL 设备，只验证了回退与命令构造，GPU 路径未在硬件上运行。
 
 分析与质量
-- [ ] 静音检测与黑边检测目前是同步 HTTP 请求（静音超时 600 秒、客户端断开不取消）；长视频应改为可取消、带进度的任务，可参照场景检测。
+- [x] 静音检测与黑边检测目前是同步 HTTP 请求（静音超时 600 秒、客户端断开不取消）；长视频应改为可取消、带进度的任务，可参照场景检测。新任务类型 `analysis`：提交时检查组件、音轨与源文件签名，相同参数的未完成任务复用；黑边按 8 个采样点、静音按 `-progress` 报告进度，去掉固定 600 秒超时（由停滞检测兜底），可暂停／取消，S3 原文件由任务队列自动取回。原 GET 接口改为 POST 并以任务返回结果；前端面板显示进度条与「取消检测」。
 - [ ] 导入时完整解码检查（`-v error -f null -`）标记损坏文件，提供 `-err_detect ignore_err` 重新封装修复。
 - [ ] 画质评估：`libvmaf`／`ssim` 报告压缩质量，或实现目标质量压缩。
 - [ ] 剪辑时间轴音频波形（`showwavespic`）。

@@ -1810,5 +1810,14 @@
   "zscale（CPU）": "zscale (CPU)",
   "杜比视界 Profile {{v0}}": "Dolby Vision Profile {{v0}}",
   "{{v0}}（GPU）": "{{v0}} (GPU)",
-  "杜比视界 Profile 5 视频没有 HDR10 基础层，当前 FFmpeg 无法正确转换颜色（需要可用的 libplacebo），重新编码的画面会偏色": "Dolby Vision Profile 5 video has no HDR10 base layer; this FFmpeg cannot convert its colours (a working libplacebo is required), so re-encoded pictures will have wrong colours"
+  "杜比视界 Profile 5 视频没有 HDR10 基础层，当前 FFmpeg 无法正确转换颜色（需要可用的 libplacebo），重新编码的画面会偏色": "Dolby Vision Profile 5 video has no HDR10 base layer; this FFmpeg cannot convert its colours (a working libplacebo is required), so re-encoded pictures will have wrong colours",
+  "黑边与静音检测": "Black bar and silence detection",
+  "检测已取消": "Detection canceled",
+  "检测失败": "Detection failed",
+  "检测进度": "Detection progress",
+  "取消检测": "Cancel detection",
+  "检测黑边": "Detecting black bars",
+  "检测完成": "Detection complete",
+  "源视频已变化，请重新检测": "The source video changed; run the detection again",
+  "保留片段超过 {{max}} 个，请增大最短静音时长或降低静音阈值": "More than {{max}} segments would be kept; increase the minimum silence duration or lower the threshold"
 }

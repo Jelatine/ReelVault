@@ -10,6 +10,7 @@ const operationLabels = (): Record<string, string> => ({
   ingest: tr("处理新视频"),
   link_import: tr('链接导入'),
   scenes: tr("场景检测"),
+  analysis: tr("黑边与静音检测"),
   duplicates: tr("重复视频检测"),
   playable: tr('生成兼容播放缓存'),
   sprite: tr('重新生成缩略图'),
