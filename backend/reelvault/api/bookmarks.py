@@ -113,7 +113,7 @@ def chapter_snapshot(
 async def list_bookmarks(
     video_id: str,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     video = ready_video(db, video_id)
@@ -132,7 +132,7 @@ async def list_bookmarks(
 async def import_chapters(
     video_id: str,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, int]:
     """Copy the file's chapters into editable chapters, skipping starts already named."""
@@ -190,7 +190,7 @@ def create_bookmark(
     video_id: str,
     body: BookmarkBody,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     video = ready_video(db, video_id)
@@ -212,7 +212,7 @@ def update_bookmark(
     bookmark_id: str,
     body: BookmarkBody,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     video = ready_video(db, video_id)
@@ -224,7 +224,7 @@ def delete_bookmark(
     video_id: str,
     bookmark_id: str,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, bool]:
     ready_video(db, video_id)
     db.delete(owned(db, video_id, bookmark_id, auth.user_id))

@@ -28,7 +28,7 @@ def asset_dict(asset: MediaAsset) -> dict[str, Any]:
 
 
 @router.get("")
-def list_luts(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_luts(db: Session = Depends(get_db, scope="function")) -> list[dict[str, Any]]:
     return [
         asset_dict(a)
         for a in db.scalars(
@@ -42,7 +42,7 @@ def list_luts(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 @router.post("")
 async def upload_lut(
     file: UploadFile,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     name = Path((file.filename or "").replace("\\", "/")).name[:255]
@@ -118,7 +118,7 @@ async def upload_lut(
 @router.delete("/{asset_id}")
 def delete_lut(
     asset_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, bool]:
     asset = db.get(MediaAsset, asset_id)

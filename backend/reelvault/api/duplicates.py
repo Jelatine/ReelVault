@@ -52,7 +52,7 @@ def results(
     page: int = Query(1, ge=1),
     page_size: int = Query(24, ge=1, le=100),
     kind: Literal["all", "exact", "similar"] = "all",
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -140,7 +140,9 @@ def results(
 
 
 @router.post("/scan")
-def scan(db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)) -> dict[str, Any]:
+def scan(
+    db: Session = Depends(get_db, scope="function"), jobs: JobManager = Depends(get_jobs)
+) -> dict[str, Any]:
     db.connection().exec_driver_sql("BEGIN IMMEDIATE")
     active = db.scalar(
         select(Job).where(Job.kind == "duplicates", Job.status.in_(["queued", "running", "paused"]))
@@ -215,7 +217,7 @@ def merge_information(db: Session, target: Video, sources: list[Video]) -> list[
 async def resolve(
     body: ResolveBody,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     ids = {body.keep_id, *body.remove_ids}

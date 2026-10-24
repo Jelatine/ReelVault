@@ -92,7 +92,7 @@ def status(response: Response, settings: Settings = Depends(get_settings)) -> di
 def analysis_status(
     video_id: str,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict:
@@ -144,7 +144,7 @@ def analysis_status(
 def submit(
     video_id: str,
     body: AiParams,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict:
@@ -165,7 +165,7 @@ def submit(
 @router.delete("/videos/{video_id}/ai-analysis")
 def clear(
     video_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict:
@@ -193,7 +193,7 @@ class Accept(BaseModel):
 def accept(
     video_id: str,
     body: Accept,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings)
@@ -296,7 +296,7 @@ def list_faces(
     ignored: bool = False,
     page: int = Query(1, ge=1, le=100000),
     page_size: int = Query(30, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings, faces=True)
@@ -317,7 +317,7 @@ def list_groups(
     q: str = Query("", max_length=64),
     page: int = Query(1, ge=1, le=100000),
     page_size: int = Query(30, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings, faces=True)
@@ -371,7 +371,7 @@ def group(db, group_id):
 def group_detail(
     group_id: str,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings, faces=True)
@@ -387,7 +387,9 @@ def group_detail(
 
 @router.post("/ai/face-groups")
 def create_group(
-    body: Name, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    body: Name,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings, faces=True)
     with budget_transaction(db):
@@ -403,7 +405,7 @@ def create_group(
 def rename_group(
     group_id: str,
     body: Name,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings, faces=True)
@@ -423,7 +425,7 @@ class Target(BaseModel):
 def merge_group(
     group_id: str,
     body: Target,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings, faces=True)
@@ -444,7 +446,9 @@ def merge_group(
 
 @router.delete("/ai/face-groups/{group_id}")
 def delete_group(
-    group_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    group_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings, faces=True)
     with budget_transaction(db):
@@ -485,7 +489,9 @@ class Assignment(BaseModel):
 
 @router.post("/ai/faces/assign")
 def assign(
-    body: Assignment, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    body: Assignment,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict:
     check_ai(settings, faces=True)
     with budget_transaction(db):

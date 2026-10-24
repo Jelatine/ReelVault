@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -1929,7 +1929,7 @@ requires-dist = [
     { name = "boto3", marker = "extra == 's3'", specifier = ">=1.40,<2" },
     { name = "cryptography", specifier = ">=50.0.2" },
     { name = "defusedxml", specifier = "==0.7.1" },
-    { name = "fastapi", specifier = ">=0.115" },
+    { name = "fastapi", specifier = ">=0.121" },
     { name = "faster-whisper", marker = "extra == 'transcription'", specifier = "==1.2.1" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.3" },

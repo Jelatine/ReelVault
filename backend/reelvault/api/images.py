@@ -38,7 +38,7 @@ def asset_dict(asset: MediaAsset) -> dict[str, Any]:
 
 
 @router.get("")
-def list_images(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_images(db: Session = Depends(get_db, scope="function")) -> list[dict[str, Any]]:
     return [
         asset_dict(a)
         for a in db.scalars(
@@ -60,7 +60,9 @@ def bundled_font() -> FileResponse:
 
 @router.post("")
 async def upload_image(
-    file: UploadFile, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    file: UploadFile,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     name = Path((file.filename or "").replace("\\", "/")).name[:255]
     ext = Path(name).suffix.lower()
@@ -158,7 +160,9 @@ async def upload_image(
 
 @router.get("/{asset_id}/stream")
 def stream_image(
-    asset_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    asset_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> FileResponse:
     try:
         asset = checked_asset(db, settings, asset_id, "image")
@@ -174,7 +178,9 @@ def stream_image(
 
 @router.delete("/{asset_id}")
 def delete_image(
-    asset_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    asset_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, bool]:
     asset = db.get(MediaAsset, asset_id)
     if asset is None or asset.kind != "image":

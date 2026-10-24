@@ -125,7 +125,7 @@ def describe_s3(db: Session, settings: Settings) -> dict[str, Any]:
 
 @router.get("")
 def list_locations(
-    db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    db: Session = Depends(get_db, scope="function"), settings: Settings = Depends(get_settings)
 ) -> dict[str, Any]:
     return describe_locations(db, settings)
 
@@ -137,7 +137,9 @@ class NewLocation(BaseModel):
 
 @router.post("")
 def add_location(
-    body: NewLocation, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    body: NewLocation,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     lock_budget(db)
     updated = load_locations(db, settings)
@@ -156,7 +158,7 @@ def add_location(
 def update_location(
     location_id: str,
     body: NewLocation,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     lock_budget(db)
@@ -196,7 +198,9 @@ class DefaultLocation(BaseModel):
 
 @router.put("/default")
 def set_default(
-    body: DefaultLocation, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    body: DefaultLocation,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     lock_budget(db)
     updated = load_locations(db, settings)
@@ -208,7 +212,9 @@ def set_default(
 
 @router.delete("/{location_id}")
 def remove_location(
-    location_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    location_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     lock_budget(db)
     updated = load_locations(db, settings)

@@ -27,7 +27,7 @@ def playback_dict(row: Playback | None) -> dict[str, Any]:
 
 @router.get("/playback")
 def history(
-    auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db)
+    auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db, scope="function")
 ) -> list[dict[str, Any]]:
     rows = db.scalars(
         select(Playback)
@@ -43,7 +43,7 @@ def history(
 def get_playback(
     video_id: str,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     get_video(db, video_id)
     return playback_dict(db.get(Playback, (auth.user_id, video_id)))
@@ -79,7 +79,7 @@ def record(
 def start_playback(
     video_id: str,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     return record(db, auth.user_id, video_id, start=True)
 
@@ -89,6 +89,6 @@ def save_playback(
     video_id: str,
     body: PositionBody,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     return record(db, auth.user_id, video_id, position=body.position)

@@ -53,7 +53,7 @@ def status(settings: Settings = Depends(get_settings)) -> dict[str, Any]:
 @router.put("/api/system/link-import")
 def preferences(
     body: LinkPreferences,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     if body.link_import_enabled and not downloader_command(settings):
@@ -73,7 +73,7 @@ def preferences(
 @router.post("/api/import-links")
 async def import_link(
     body: LinkBody,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:

@@ -95,7 +95,7 @@ class PresetBody(BaseModel):
 
 
 @router.get("/edit-presets")
-def list_presets(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_presets(db: Session = Depends(get_db, scope="function")) -> list[dict[str, Any]]:
     return [preset_dict(p) for p in db.scalars(select(EditPreset).order_by(EditPreset.name))]
 
 
@@ -114,7 +114,9 @@ def save_preset(db: Session, body: PresetBody, preset: EditPreset | None = None)
 
 @router.post("/edit-presets")
 def create_preset(
-    body: PresetBody, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    body: PresetBody,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     asset_params(db, settings, body.edit)
     return preset_dict(save_preset(db, body))
@@ -124,7 +126,7 @@ def create_preset(
 def update_preset(
     preset_id: int,
     body: PresetBody,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     preset = db.get(EditPreset, preset_id)
@@ -135,7 +137,9 @@ def update_preset(
 
 
 @router.delete("/edit-presets/{preset_id}")
-def delete_preset(preset_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
+def delete_preset(
+    preset_id: int, db: Session = Depends(get_db, scope="function")
+) -> dict[str, bool]:
     preset = db.get(EditPreset, preset_id)
     if preset is None:
         raise APIError(404, "预设不存在", code="preset_not_found")
@@ -179,7 +183,7 @@ def require_components(jobs: JobManager, edit: ops.EditParams) -> None:
 def batch_edit(
     body: BatchEditBody,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     jobs: JobManager = Depends(get_jobs),
 ) -> list[dict[str, Any]]:
     edit = body.edit
@@ -217,7 +221,7 @@ def submit_edit(
     video_id: str,
     body: EditBody,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     ids = (
@@ -253,7 +257,7 @@ def list_jobs(
     status_filter: str | None = Query(None, alias="status"),
     video_id: str | None = None,
     limit: int = Query(100, ge=1, le=500),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     jobs: JobManager = Depends(get_jobs),
 ) -> list[dict[str, Any]]:
     stmt = select(Job).order_by(Job.created_at.desc()).limit(limit)
@@ -299,13 +303,15 @@ def _get(db: Session, job_id: str) -> Job:
 
 @router.get("/jobs/{job_id}")
 def job_detail(
-    job_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+    job_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     return jobs.describe(db, _get(db, job_id))
 
 
 @router.get("/jobs/{job_id}/logs")
-def job_logs(job_id: str, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def job_logs(job_id: str, db: Session = Depends(get_db, scope="function")) -> list[dict[str, Any]]:
     _get(db, job_id)
     rows = db.scalars(select(JobLog).where(JobLog.job_id == job_id).order_by(JobLog.id))
     return [
@@ -316,7 +322,9 @@ def job_logs(job_id: str, db: Session = Depends(get_db)) -> list[dict[str, Any]]
 
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(
-    job_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+    job_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     job = _get(db, job_id)
     jobs.cancel(db, job)
@@ -325,7 +333,9 @@ async def cancel_job(
 
 @router.post("/jobs/{job_id}/pause")
 async def pause_job(
-    job_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+    job_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     job = _get(db, job_id)
     try:
@@ -337,7 +347,9 @@ async def pause_job(
 
 @router.post("/jobs/{job_id}/resume")
 async def resume_job(
-    job_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+    job_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     job = _get(db, job_id)
     try:
@@ -355,7 +367,7 @@ class PriorityBody(BaseModel):
 async def set_priority(
     job_id: str,
     body: PriorityBody,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     job = _get(db, job_id)
@@ -371,7 +383,7 @@ async def set_priority(
 @router.post("/jobs/{job_id}/retry")
 async def retry_job(
     job_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     with budget_transaction(db):
@@ -501,7 +513,9 @@ async def retry_job(
 
 @router.get("/jobs/{job_id}/download")
 def job_download(
-    job_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    job_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> FileResponse:
     job = _get(db, job_id)
     if not job.result_file:
@@ -516,7 +530,7 @@ def job_download(
 
 @router.delete("/jobs")
 def clear_finished(
-    db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    db: Session = Depends(get_db, scope="function"), settings: Settings = Depends(get_settings)
 ) -> dict[str, int]:
     finished = ("succeeded", "failed", "canceled")
     for job in db.scalars(

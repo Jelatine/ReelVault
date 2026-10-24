@@ -24,7 +24,7 @@ def history_dict(record: RecentSearch) -> dict[str, Any]:
 
 @router.get("/recent")
 def recent(
-    auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db)
+    auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db, scope="function")
 ) -> list[dict[str, Any]]:
     return [
         history_dict(row)
@@ -53,7 +53,9 @@ class SearchBody(BaseModel):
 
 @router.post("/recent")
 def remember(
-    body: SearchBody, auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db)
+    body: SearchBody,
+    auth: CurrentAuth = Depends(require_auth),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     db.execute(text("BEGIN IMMEDIATE"))
     row = db.scalar(
@@ -79,7 +81,7 @@ def remember(
 
 @router.delete("/recent")
 def clear(
-    auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db)
+    auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db, scope="function")
 ) -> dict[str, bool]:
     db.execute(text("BEGIN IMMEDIATE"))
     db.execute(delete(RecentSearch).where(RecentSearch.user_id == auth.user_id))
@@ -89,7 +91,9 @@ def clear(
 
 @router.delete("/recent/{search_id}")
 def forget(
-    search_id: SearchID, auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db)
+    search_id: SearchID,
+    auth: CurrentAuth = Depends(require_auth),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, bool]:
     db.execute(text("BEGIN IMMEDIATE"))
     row = db.scalar(
@@ -112,7 +116,7 @@ def escaped_like(value: str) -> str:
 def suggestions(
     q: str = Query("", max_length=512),
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     term = q.strip()
     if not term:

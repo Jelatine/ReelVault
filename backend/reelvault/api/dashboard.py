@@ -22,7 +22,7 @@ def dashboard(
     response: Response,
     limit: int = Query(8, ge=1, le=24),
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"

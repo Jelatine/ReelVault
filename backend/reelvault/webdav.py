@@ -451,7 +451,7 @@ def persist(db: Session, settings: Settings, enabled: bool, token_hash: str) -> 
 
 
 @settings_router.get("")
-def get_status(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+def get_status(request: Request, db: Session = Depends(get_db, scope="function")) -> dict[str, Any]:
     return status(request.app.state.settings, db)
 
 
@@ -460,7 +460,9 @@ class EnabledBody(BaseModel):
 
 
 @settings_router.put("")
-def configure(body: EnabledBody, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+def configure(
+    body: EnabledBody, request: Request, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     settings = request.app.state.settings
     with budget_transaction(db):
         _, token_hash = credentials(db, settings)
@@ -471,7 +473,9 @@ def configure(body: EnabledBody, request: Request, db: Session = Depends(get_db)
 
 
 @settings_router.post("/credential")
-def rotate(request: Request, response: Response, db: Session = Depends(get_db)) -> dict[str, Any]:
+def rotate(
+    request: Request, response: Response, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
     settings = request.app.state.settings
     password = secrets.token_urlsafe(32)
@@ -482,7 +486,7 @@ def rotate(request: Request, response: Response, db: Session = Depends(get_db)) 
 
 
 @settings_router.delete("/credential")
-def revoke(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+def revoke(request: Request, db: Session = Depends(get_db, scope="function")) -> dict[str, Any]:
     settings = request.app.state.settings
     with budget_transaction(db):
         persist(db, settings, False, "")

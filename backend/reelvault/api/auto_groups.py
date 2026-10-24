@@ -28,7 +28,7 @@ def group_dict(key: str, count: int, video: Video | None = None) -> dict[str, An
 
 
 @router.get("")
-def groups(db: Session = Depends(get_db)) -> dict[str, Any]:
+def groups(db: Session = Depends(get_db, scope="function")) -> dict[str, Any]:
     month = func.strftime("%Y-%m", Video.captured_at)
     years: dict[str, dict[str, Any]] = {}
     for value, count in db.execute(
@@ -92,7 +92,7 @@ def groups(db: Session = Depends(get_db)) -> dict[str, Any]:
 
 
 @router.get("/{key}")
-def group_detail(key: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+def group_detail(key: str, db: Session = Depends(get_db, scope="function")) -> dict[str, Any]:
     condition = group_condition(key)
     count = db.scalar(select(func.count()).select_from(Video).where(*ACTIVE, condition)) or 0
     video = db.scalar(select(Video).where(*ACTIVE, condition).order_by(Video.id).limit(1))

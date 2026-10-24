@@ -68,7 +68,7 @@ def revoke_others(db: Session, auth: A.CurrentAuth) -> None:
 def factor_status(
     response: Response,
     auth: A.CurrentAuth = Depends(A.require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
     record = db.get(TwoFactor, auth.user_id)
@@ -86,7 +86,7 @@ def enroll(
     request: Request,
     response: Response,
     auth: A.CurrentAuth = Depends(A.require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
@@ -134,7 +134,7 @@ def confirm(
     request: Request,
     response: Response,
     auth: A.CurrentAuth = Depends(A.require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
@@ -172,7 +172,7 @@ def regenerate(
     request: Request,
     response: Response,
     auth: A.CurrentAuth = Depends(A.require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
@@ -192,7 +192,7 @@ def disable(
     request: Request,
     response: Response,
     auth: A.CurrentAuth = Depends(A.require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, bool]:
     response.headers["Cache-Control"] = "no-store"

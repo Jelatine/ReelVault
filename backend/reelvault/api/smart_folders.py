@@ -142,7 +142,7 @@ def commit(db: Session) -> None:
 
 @router.get("")
 def list_folders(
-    auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db)
+    auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db, scope="function")
 ) -> list[dict[str, Any]]:
     return [
         as_dict(folder)
@@ -156,7 +156,9 @@ def list_folders(
 
 @router.post("")
 def create_folder(
-    body: FolderBody, auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db)
+    body: FolderBody,
+    auth: CurrentAuth = Depends(require_auth),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     folder = SmartFolder(
         user_id=auth.user_id, name=body.name, filters=body.filters.model_dump(mode="json")
@@ -171,7 +173,7 @@ def update_folder(
     folder_id: FolderID,
     body: FolderPatch,
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     folder = get_folder(db, folder_id, auth)
     if body.name is not None:
@@ -184,7 +186,9 @@ def update_folder(
 
 @router.delete("/{folder_id}")
 def delete_folder(
-    folder_id: FolderID, auth: CurrentAuth = Depends(require_auth), db: Session = Depends(get_db)
+    folder_id: FolderID,
+    auth: CurrentAuth = Depends(require_auth),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, bool]:
     db.delete(get_folder(db, folder_id, auth))
     db.commit()
@@ -197,7 +201,7 @@ def folder_videos(
     page: int = Query(1, ge=1),
     page_size: int = Query(48, ge=1, le=500),
     auth: CurrentAuth = Depends(require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     filters = SavedFilters.model_validate(get_folder(db, folder_id, auth).filters)
     # One evaluator for normal and saved searches; never persist membership.

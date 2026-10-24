@@ -75,7 +75,9 @@ def source_state(source: dict[str, Any], db: Session, settings: Settings) -> dic
 
 @router.get("/{video_id}/history")
 def history(
-    video_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    video_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     first = get_video(db, video_id, allow_deleted=True)
     pending = [first]
@@ -134,7 +136,7 @@ def history(
 @router.post("/{video_id}/recreate")
 def recreate(
     video_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:

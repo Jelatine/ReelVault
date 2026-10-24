@@ -25,7 +25,7 @@ def history(
     event: str | None = None,
     before: int | None = Query(None, gt=0),
     limit: int = Query(50, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
@@ -65,7 +65,7 @@ def history(
 @router.get("/api/system/metrics")
 def scrape(
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> Response:
     if not settings.metrics_token:

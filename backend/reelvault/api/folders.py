@@ -48,7 +48,7 @@ def _dict(f: Folder, counts: dict[int | None, int]) -> dict[str, Any]:
 
 
 @router.get("")
-def list_folders(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_folders(db: Session = Depends(get_db, scope="function")) -> list[dict[str, Any]]:
     counts: dict[int | None, int] = dict(
         db.execute(  # type: ignore[arg-type]
             select(Video.folder_id, func.count())
@@ -61,7 +61,9 @@ def list_folders(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 
 
 @router.post("")
-def create_folder(body: FolderBody, db: Session = Depends(get_db)) -> dict[str, Any]:
+def create_folder(
+    body: FolderBody, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     name = body.name.strip()
     if body.parent_id is not None:
         _get(db, body.parent_id)
@@ -74,7 +76,7 @@ def create_folder(body: FolderBody, db: Session = Depends(get_db)) -> dict[str, 
 
 @router.patch("/{folder_id}")
 def update_folder(
-    folder_id: int, body: FolderPatch, db: Session = Depends(get_db)
+    folder_id: int, body: FolderPatch, db: Session = Depends(get_db, scope="function")
 ) -> dict[str, Any]:
     folder = _get(db, folder_id)
     parent_id = folder.parent_id
@@ -97,7 +99,9 @@ def update_folder(
 
 
 @router.delete("/{folder_id}")
-def delete_folder(folder_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
+def delete_folder(
+    folder_id: int, db: Session = Depends(get_db, scope="function")
+) -> dict[str, bool]:
     """Delete a folder; its videos and sub-folders move up to the parent."""
     folder = _get(db, folder_id)
     for child in db.scalars(select(Folder).where(Folder.parent_id == folder.id)):

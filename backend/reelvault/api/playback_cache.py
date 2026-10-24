@@ -48,7 +48,7 @@ def status(
     video_id: str,
     response: Response,
     hevc: bool = Query(False),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -87,7 +87,7 @@ def status(
 def submit(
     video_id: str,
     hevc: bool = Query(False),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -117,7 +117,7 @@ def submit(
 @router.delete("/{video_id}/playback-cache")
 def clear(
     video_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, bool]:

@@ -122,7 +122,7 @@ def rewrite_uploads(db: Session, old: str, new: str | None) -> None:
 
 
 @router.get("")
-def list_tags(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_tags(db: Session = Depends(get_db, scope="function")) -> list[dict[str, Any]]:
     counts: dict[int, dict[bool, int]] = {}
     for tag_id, trash, count in db.execute(
         select(video_tags.c.tag_id, Video.deleted_at.is_not(None), func.count())
@@ -137,7 +137,7 @@ def list_tags(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 
 
 @router.get("/groups")
-def list_groups(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_groups(db: Session = Depends(get_db, scope="function")) -> list[dict[str, Any]]:
     counts = dict(db.execute(select(Tag.group_id, func.count()).group_by(Tag.group_id)).all())
     return [
         {"id": group.id, "name": group.name, "count": counts.get(group.id, 0)}
@@ -146,7 +146,9 @@ def list_groups(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 
 
 @router.post("/groups")
-def create_group(body: NamedBody, db: Session = Depends(get_db)) -> dict[str, Any]:
+def create_group(
+    body: NamedBody, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     lock(db)
     group = TagGroup(name=body.name)
     db.add(group)
@@ -155,7 +157,9 @@ def create_group(body: NamedBody, db: Session = Depends(get_db)) -> dict[str, An
 
 
 @router.patch("/groups/{group_id}")
-def rename_group(group_id: int, body: NamedBody, db: Session = Depends(get_db)) -> dict[str, Any]:
+def rename_group(
+    group_id: int, body: NamedBody, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     lock(db)
     group = get_group(db, group_id)
     group.name = body.name
@@ -164,7 +168,7 @@ def rename_group(group_id: int, body: NamedBody, db: Session = Depends(get_db)) 
 
 
 @router.delete("/groups/{group_id}")
-def delete_group(group_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
+def delete_group(group_id: int, db: Session = Depends(get_db, scope="function")) -> dict[str, bool]:
     lock(db)
     db.delete(get_group(db, group_id))
     commit(db, group=True)
@@ -172,7 +176,7 @@ def delete_group(group_id: int, db: Session = Depends(get_db)) -> dict[str, bool
 
 
 @router.post("")
-def create_tag(body: TagBody, db: Session = Depends(get_db)) -> dict[str, Any]:
+def create_tag(body: TagBody, db: Session = Depends(get_db, scope="function")) -> dict[str, Any]:
     lock(db)
     group = get_group(db, body.group_id) if body.group_id else None
     tag = Tag(name=body.name, color=body.color, group=group)
@@ -200,7 +204,9 @@ class TagPatch(BaseModel):
 
 
 @router.patch("/{tag_id}")
-def update_tag(tag_id: int, body: TagPatch, db: Session = Depends(get_db)) -> dict[str, Any]:
+def update_tag(
+    tag_id: int, body: TagPatch, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     lock(db)
     tag = get_tag(db, tag_id)
     group = get_group(db, body.group_id) if body.group_id else None
@@ -221,7 +227,9 @@ class MergeBody(BaseModel):
 
 
 @router.post("/{tag_id}/merge")
-def merge_tag(tag_id: int, body: MergeBody, db: Session = Depends(get_db)) -> dict[str, Any]:
+def merge_tag(
+    tag_id: int, body: MergeBody, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     lock(db)
     if tag_id == body.target_id:
         raise APIError(400, "不能将标签合并到自身", code="tag_self_merge")
@@ -250,7 +258,7 @@ def merge_tag(tag_id: int, body: MergeBody, db: Session = Depends(get_db)) -> di
 
 
 @router.delete("/{tag_id}")
-def delete_tag(tag_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
+def delete_tag(tag_id: int, db: Session = Depends(get_db, scope="function")) -> dict[str, bool]:
     lock(db)
     tag = get_tag(db, tag_id)
     rewrite_uploads(db, tag.name, None)
