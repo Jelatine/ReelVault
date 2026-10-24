@@ -72,7 +72,7 @@ def preferences(db: Session, settings: Settings) -> dict[str, Any]:
 
 @router.get("/api/system/hls")
 def hls_settings(
-    db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    db: Session = Depends(get_db, scope="function"), settings: Settings = Depends(get_settings)
 ) -> dict[str, Any]:
     return preferences(db, settings)
 
@@ -86,7 +86,7 @@ class HlsPreferences(BaseModel):
 @router.put("/api/system/hls")
 def set_hls_settings(
     body: HlsPreferences,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -129,7 +129,7 @@ def clear(db: Session, settings: Settings, jobs: JobManager, video_id: str | Non
 
 @router.delete("/api/system/hls/cache")
 def clear_all(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, int]:
@@ -176,7 +176,7 @@ def status_data(db: Session, settings: Settings, jobs: JobManager, video: Video)
 @router.get("/api/videos/{video_id}/hls")
 def get_hls(
     video_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -191,7 +191,7 @@ class HlsRequest(BaseModel):
 def submit_hls(
     video_id: str,
     body: HlsRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -227,7 +227,7 @@ def submit_hls(
 @router.delete("/api/videos/{video_id}/hls")
 def clear_video(
     video_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, int]:
@@ -240,7 +240,7 @@ def serve_hls(
     video_id: str,
     generation: str,
     asset: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> FileResponse:
     video = ready_video(db, video_id)

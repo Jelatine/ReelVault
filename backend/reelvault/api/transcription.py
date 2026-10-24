@@ -34,7 +34,7 @@ def active(db: Session, jobs: JobManager, video_id: str) -> list[Job]:
 def status(
     video_id: str,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -84,7 +84,7 @@ def status(
 def submit(
     video_id: str,
     body: TranscriptionParams,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -110,7 +110,9 @@ def submit(
 
 @router.delete("/videos/{video_id}/transcription")
 def clear(
-    video_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+    video_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, bool]:
     with budget_transaction(db):
         ready_video(db, video_id)
@@ -133,7 +135,7 @@ def content_search(
     video_id: str | None = Query(None, pattern=r"^[a-f0-9]{32}$"),
     page: int = Query(1, ge=1),
     page_size: int = Query(30, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"

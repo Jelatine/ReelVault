@@ -56,7 +56,9 @@ def get_video(db: Session, video_id: str, *, allow_deleted: bool = False) -> Vid
 
 
 @router.get("/videos/{video_id}/playlist")
-def folder_playlist(video_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+def folder_playlist(
+    video_id: str, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     video = get_video(db, video_id)
     folder = db.get(Folder, video.folder_id) if video.folder_id is not None else None
     items = db.scalars(
@@ -133,7 +135,7 @@ def _upload_path(settings: Settings, upload_id: str) -> Path:
 @router.post("/uploads")
 def init_upload(
     body: UploadInit,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     if Path(body.filename).suffix.lower() not in VIDEO_EXTENSIONS:
@@ -167,7 +169,9 @@ def init_upload(
 
 @router.get("/uploads/{upload_id}")
 def get_upload(
-    upload_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    upload_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     upload = db.get(Upload, upload_id)
     if upload is None:
@@ -180,7 +184,7 @@ async def upload_chunk(
     upload_id: str,
     request: Request,
     offset: int = Query(ge=0),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     upload = db.get(Upload, upload_id)
@@ -218,7 +222,7 @@ async def upload_chunk(
 @router.post("/uploads/{upload_id}/complete")
 def complete_upload(
     upload_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -270,7 +274,9 @@ def complete_upload(
 
 @router.delete("/uploads/{upload_id}")
 def abort_upload(
-    upload_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    upload_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, bool]:
     upload = db.get(Upload, upload_id)
     if upload is not None:
@@ -323,7 +329,7 @@ def list_videos(
     order: Literal["asc", "desc"] = "desc",
     page: int = Query(1, ge=1),
     page_size: int = Query(48, ge=1, le=500),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     sort = sort or ("relevance" if q.strip() else "captured")
     parsed_search = parse_search(q)
@@ -508,7 +514,7 @@ def list_videos(
 
 
 @router.get("/videos/{video_id}")
-def video_detail(video_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+def video_detail(video_id: str, db: Session = Depends(get_db, scope="function")) -> dict[str, Any]:
     return video_to_dict(get_video(db, video_id, allow_deleted=True))
 
 
@@ -524,7 +530,7 @@ class VideoPatch(BaseModel):
 
 @router.patch("/videos/{video_id}/metadata")
 def edit_metadata(
-    video_id: str, body: MetadataPatch, db: Session = Depends(get_db)
+    video_id: str, body: MetadataPatch, db: Session = Depends(get_db, scope="function")
 ) -> dict[str, Any]:
     db.connection().exec_driver_sql("BEGIN IMMEDIATE")
     video = get_video(db, video_id)
@@ -535,7 +541,9 @@ def edit_metadata(
 
 
 @router.patch("/videos/{video_id}")
-def update_video(video_id: str, body: VideoPatch, db: Session = Depends(get_db)) -> dict[str, Any]:
+def update_video(
+    video_id: str, body: VideoPatch, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     video = get_video(db, video_id)
     if body.rating is not None:
         video.rating = body.rating
@@ -584,7 +592,7 @@ def delete_video(
     video_id: str,
     request: Request,
     permanent: bool = False,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, bool]:
     video = get_video(db, video_id, allow_deleted=True)
@@ -600,7 +608,9 @@ def delete_video(
 
 
 @router.post("/videos/{video_id}/restore")
-def restore_video(video_id: str, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+def restore_video(
+    video_id: str, request: Request, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     video = get_video(db, video_id, allow_deleted=True)
     audit_request(db, request, "video_restore", video.id)
     video.deleted_at = None
@@ -612,7 +622,9 @@ def restore_video(video_id: str, request: Request, db: Session = Depends(get_db)
 
 @router.post("/trash/empty")
 def empty_trash(
-    request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    request: Request,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, int]:
     videos = db.scalars(select(Video).where(Video.deleted_at.is_not(None))).all()
     _release(db, settings, list(videos))
@@ -634,7 +646,7 @@ class BatchBody(BaseModel):
 def batch(
     body: BatchBody,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, int]:
     if body.action == "move" and not folder_exists(db, body.folder_id):
@@ -673,7 +685,7 @@ def batch(
 async def video_timing(
     video_id: str,
     keyframes_only: bool = False,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, list[float]]:
     video = get_video(db, video_id)
@@ -733,7 +745,7 @@ def _submit_analysis(
 @router.post("/videos/{video_id}/crop-detect")
 def crop_detect(
     video_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -744,7 +756,9 @@ def crop_detect(
 
 @router.post("/videos/{video_id}/integrity")
 def integrity_check(
-    video_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+    video_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     """Fully decode the video; the result appears as ``integrity`` on the video."""
     video = get_video(db, video_id)
@@ -762,7 +776,7 @@ def integrity_check(
 def silence_detect(
     video_id: str,
     body: SilenceBody,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -782,7 +796,7 @@ def stream(
     video_id: str,
     request: Request,
     codec: Literal["hevc"] | None = None,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> Response:
     video = get_video(db, video_id, allow_deleted=True)
@@ -805,7 +819,7 @@ def stream(
 def download(
     video_id: str,
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> Response:
     video = get_video(db, video_id, allow_deleted=True)
@@ -819,7 +833,7 @@ def download(
 async def frame(
     video_id: str,
     t: float = Query(ge=0),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> Response:
     """Full-resolution screenshot at time `t`."""
@@ -852,7 +866,7 @@ class CoverTimeBody(BaseModel):
 async def set_cover_from_time(
     video_id: str,
     body: CoverTimeBody,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     video = get_video(db, video_id)
@@ -879,7 +893,7 @@ async def set_cover_from_time(
 async def upload_cover(
     video_id: str,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     video = get_video(db, video_id)
@@ -908,7 +922,9 @@ async def upload_cover(
 
 @router.post("/videos/{video_id}/reprocess")
 def reprocess(
-    video_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+    video_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     video = get_video(db, video_id)
     video.status = "processing"

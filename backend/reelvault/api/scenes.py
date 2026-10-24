@@ -38,7 +38,7 @@ def signature(settings: Settings, video: Video) -> list[Any]:
 @router.get("/{video_id}/scenes")
 def get_scenes(
     video_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -80,7 +80,7 @@ def get_scenes(
 def submit_scenes(
     video_id: str,
     body: SceneParams,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     video = ready_video(db, video_id)

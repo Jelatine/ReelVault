@@ -50,7 +50,7 @@ def detail(db: Session, collection: Collection) -> dict[str, Any]:
 
 
 @router.get("")
-def list_collections(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_collections(db: Session = Depends(get_db, scope="function")) -> list[dict[str, Any]]:
     counts = dict(
         db.execute(
             select(CollectionItem.collection_id, func.count())
@@ -92,7 +92,9 @@ class CollectionCreate(CollectionBody):
 
 
 @router.post("")
-def create_collection(body: CollectionCreate, db: Session = Depends(get_db)) -> dict[str, Any]:
+def create_collection(
+    body: CollectionCreate, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     ids = list(dict.fromkeys(body.video_ids))
     if ids:
         existing = db.scalars(
@@ -118,13 +120,15 @@ def create_collection(body: CollectionCreate, db: Session = Depends(get_db)) -> 
 
 
 @router.get("/{collection_id}")
-def collection_detail(collection_id: int, db: Session = Depends(get_db)) -> dict[str, Any]:
+def collection_detail(
+    collection_id: int, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     return detail(db, get_collection(db, collection_id))
 
 
 @router.put("/{collection_id}")
 def update_collection(
-    collection_id: int, body: CollectionBody, db: Session = Depends(get_db)
+    collection_id: int, body: CollectionBody, db: Session = Depends(get_db, scope="function")
 ) -> dict[str, Any]:
     collection = get_collection(db, collection_id)
     collection.name, collection.description = body.name, body.description
@@ -133,7 +137,9 @@ def update_collection(
 
 
 @router.delete("/{collection_id}")
-def delete_collection(collection_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
+def delete_collection(
+    collection_id: int, db: Session = Depends(get_db, scope="function")
+) -> dict[str, bool]:
     db.delete(get_collection(db, collection_id))
     db.commit()
     return {"ok": True}
@@ -145,7 +151,7 @@ class MembersBody(BaseModel):
 
 @router.post("/{collection_id}/items")
 def add_items(
-    collection_id: int, body: MembersBody, db: Session = Depends(get_db)
+    collection_id: int, body: MembersBody, db: Session = Depends(get_db, scope="function")
 ) -> dict[str, Any]:
     collection = get_collection(db, collection_id)
     ids = list(dict.fromkeys(body.video_ids))
@@ -169,7 +175,9 @@ def add_items(
 
 
 @router.delete("/{collection_id}/items/{video_id}")
-def remove_item(collection_id: int, video_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+def remove_item(
+    collection_id: int, video_id: str, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     collection = get_collection(db, collection_id)
     item = db.get(CollectionItem, (collection_id, video_id))
     if item is not None:
@@ -183,7 +191,9 @@ class OrderBody(BaseModel):
 
 
 @router.put("/{collection_id}/order")
-def reorder(collection_id: int, body: OrderBody, db: Session = Depends(get_db)) -> dict[str, Any]:
+def reorder(
+    collection_id: int, body: OrderBody, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     collection = get_collection(db, collection_id)
     items = db.scalars(
         select(CollectionItem)

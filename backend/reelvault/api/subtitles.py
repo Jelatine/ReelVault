@@ -35,7 +35,7 @@ def asset_dict(asset: MediaAsset) -> dict[str, Any]:
 
 
 @router.get("/subtitle-assets")
-def list_assets(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_assets(db: Session = Depends(get_db, scope="function")) -> list[dict[str, Any]]:
     return [
         asset_dict(asset)
         for asset in db.scalars(
@@ -50,7 +50,7 @@ def list_assets(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 async def upload_subtitle(
     file: UploadFile,
     encoding: Literal["utf-8", "utf-16", "gb18030"] = Form("utf-8"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     name = Path((file.filename or "").replace("\\", "/")).name[:255]
@@ -99,7 +99,9 @@ async def upload_subtitle(
 
 @router.get("/subtitle-assets/{asset_id}/vtt")
 async def asset_vtt(
-    asset_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    asset_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> Response:
     try:
         asset = checked_asset(db, settings, asset_id, "subtitle")
@@ -134,7 +136,7 @@ class TrackBody(BaseModel):
 async def attach(
     video_id: str,
     body: TrackBody,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, str]:
     video = get_video(db, video_id)
@@ -175,7 +177,9 @@ async def attach(
 
 
 @router.delete("/videos/{video_id}/subtitles/{track_id}")
-async def detach(video_id: str, track_id: str, db: Session = Depends(get_db)) -> dict[str, bool]:
+async def detach(
+    video_id: str, track_id: str, db: Session = Depends(get_db, scope="function")
+) -> dict[str, bool]:
     get_video(db, video_id, allow_deleted=True)
     track = db.get(SubtitleTrack, track_id)
     if track is None or track.video_id != video_id:
@@ -206,7 +210,9 @@ async def embedded_tracks(db: Session, settings: Settings, video: Video) -> list
 
 @router.get("/videos/{video_id}/subtitles")
 async def tracks(
-    video_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    video_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> list[dict[str, Any]]:
     video = get_video(db, video_id, allow_deleted=True)
     result = [
@@ -247,7 +253,7 @@ async def tracks(
 async def embedded_vtt(
     video_id: str,
     index: int,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> Response:
     video = get_video(db, video_id, allow_deleted=True)
@@ -268,7 +274,9 @@ async def embedded_vtt(
 
 @router.delete("/subtitle-assets/{asset_id}")
 async def delete_asset(
-    asset_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    asset_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, bool]:
     asset = db.get(MediaAsset, asset_id)
     if asset is None or asset.kind != "subtitle":

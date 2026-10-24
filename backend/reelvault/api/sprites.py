@@ -37,7 +37,9 @@ def _request(video_id: str) -> tuple[str, dict[str, Any], list[str]]:
 
 @router.post("/{video_id}/sprite")
 def regenerate(
-    video_id: str, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+    video_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
     with budget_transaction(db):
         video = ready_video(db, video_id)
@@ -54,7 +56,9 @@ class BatchSpriteBody(BaseModel):
 
 @router.post("/sprites")
 def regenerate_many(
-    body: BatchSpriteBody, db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)
+    body: BatchSpriteBody,
+    db: Session = Depends(get_db, scope="function"),
+    jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, int]:
     with budget_transaction(db):
         query = select(Video.id).where(Video.deleted_at.is_(None), Video.status == "ready")

@@ -42,7 +42,7 @@ def worker_status(settings: Settings = Depends(get_settings)) -> dict[str, int]:
 @router.put("/api/system/workers", dependencies=[Depends(require_auth)])
 async def select_workers(
     body: WorkerPreference,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, int]:
@@ -70,7 +70,7 @@ class EncodingPreference(BaseModel):
 @router.put("/api/system/encoding", dependencies=[Depends(require_auth)])
 def select_encoding(
     body: EncodingPreference,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -115,7 +115,7 @@ def healthz() -> dict[str, str]:
 @router.get("/api/system/info", dependencies=[Depends(require_auth)])
 def info(
     request: Request,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -174,7 +174,7 @@ class ImportWatchPreference(BaseModel):
 
 @router.put("/api/system/import-watch", dependencies=[Depends(require_auth)])
 def configure_import_watch(
-    body: ImportWatchPreference, request: Request, db: Session = Depends(get_db)
+    body: ImportWatchPreference, request: Request, db: Session = Depends(get_db, scope="function")
 ) -> dict[str, Any]:
     importer: Importer = request.app.state.importer
     if body.enabled and not importer.status()["available"]:
@@ -240,7 +240,7 @@ class StoragePreference(BaseModel):
 
 @router.get("/api/system/storage", dependencies=[Depends(require_auth)])
 def storage_status(
-    db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    db: Session = Depends(get_db, scope="function"), settings: Settings = Depends(get_settings)
 ) -> dict[str, Any]:
     return snapshot(db, settings)
 
@@ -248,7 +248,7 @@ def storage_status(
 @router.put("/api/system/storage", dependencies=[Depends(require_auth)])
 def storage_preferences(
     body: StoragePreference,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     values = {
@@ -277,7 +277,9 @@ class StorageEstimate(BaseModel):
 
 @router.post("/api/system/storage/estimate", dependencies=[Depends(require_auth)])
 def storage_estimate(
-    body: StorageEstimate, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    body: StorageEstimate,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     if any(size <= 0 or size > 2**63 - 1 for size in body.upload_sizes):
         raise APIError(400, "文件大小无效", code="upload_size_invalid")

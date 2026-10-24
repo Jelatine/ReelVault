@@ -46,7 +46,7 @@ def asset_dict(asset: MediaAsset) -> dict[str, Any]:
 
 
 @router.get("")
-def list_audio(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+def list_audio(db: Session = Depends(get_db, scope="function")) -> list[dict[str, Any]]:
     return [
         asset_dict(a)
         for a in db.scalars(
@@ -60,7 +60,7 @@ def list_audio(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 @router.post("")
 async def upload_audio(
     file: UploadFile,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     name = Path((file.filename or "").replace("\\", "/")).name[:255]
@@ -156,7 +156,9 @@ def get_asset(db: Session, asset_id: str) -> MediaAsset:
 
 @router.get("/{asset_id}/stream")
 def stream_audio(
-    asset_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    asset_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> FileResponse:
     asset = get_asset(db, asset_id)
     path = abs_path(settings, asset.file_path)
@@ -167,7 +169,9 @@ def stream_audio(
 
 @router.delete("/{asset_id}")
 async def delete_audio(
-    asset_id: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+    asset_id: str,
+    db: Session = Depends(get_db, scope="function"),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, bool]:
     asset = get_asset(db, asset_id)
     for field in (Job.params, Video.edit_params, EditPreset.edit):

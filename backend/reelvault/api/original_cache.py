@@ -42,7 +42,7 @@ def _jobs(db: Session, jobs: JobManager, video_id: str, kind: str | None = None)
 def status(
     video_id: str,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -81,7 +81,7 @@ def status(
 @router.post("/{video_id}/original-cache")
 def fetch(
     video_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -102,7 +102,7 @@ def fetch(
 @router.delete("/{video_id}/original-cache")
 def release(
     video_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, bool]:

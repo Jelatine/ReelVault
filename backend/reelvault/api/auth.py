@@ -63,7 +63,9 @@ def _session_dict(s: AuthSession, current_id: str) -> dict[str, Any]:
 
 
 @router.get("/status")
-def auth_status(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
+def auth_status(
+    request: Request, db: Session = Depends(get_db, scope="function")
+) -> dict[str, Any]:
     sess = A.lookup_session(db, request.cookies.get(A.COOKIE_NAME))
     return {"setup_required": _user_count(db) == 0, "authenticated": sess is not None}
 
@@ -73,7 +75,7 @@ def setup(
     body: SetupBody,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     if _user_count(db) > 0:
@@ -98,7 +100,7 @@ def login(
     body: LoginBody,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     limiter: A.LoginLimiter = request.app.state.login_limiter
@@ -149,7 +151,7 @@ def login(
 def logout(
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, bool]:
     sess = A.lookup_session(db, request.cookies.get(A.COOKIE_NAME))
@@ -173,7 +175,7 @@ def me(
     request: Request,
     response: Response,
     auth: A.CurrentAuth = Depends(A.require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     sess = db.get(AuthSession, auth.session_id)
@@ -187,7 +189,7 @@ def change_password(
     body: PasswordBody,
     request: Request,
     auth: A.CurrentAuth = Depends(A.require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     lock_budget(db)
@@ -227,7 +229,7 @@ def change_password(
 
 @router.get("/sessions")
 def list_sessions(
-    auth: A.CurrentAuth = Depends(A.require_auth), db: Session = Depends(get_db)
+    auth: A.CurrentAuth = Depends(A.require_auth), db: Session = Depends(get_db, scope="function")
 ) -> list[dict[str, Any]]:
     A.purge_expired_sessions(db)
     rows = db.scalars(
@@ -243,7 +245,7 @@ def rename_session(
     session_id: str,
     body: RenameBody,
     auth: A.CurrentAuth = Depends(A.require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> dict[str, Any]:
     sess = db.get(AuthSession, session_id)
     if sess is None or sess.user_id != auth.user_id:
@@ -258,7 +260,7 @@ def revoke_session(
     session_id: str,
     response: Response,
     auth: A.CurrentAuth = Depends(A.require_auth),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, bool]:
     sess = db.get(AuthSession, session_id)
@@ -273,7 +275,7 @@ def revoke_session(
 
 @router.post("/sessions/revoke-others")
 def revoke_others(
-    auth: A.CurrentAuth = Depends(A.require_auth), db: Session = Depends(get_db)
+    auth: A.CurrentAuth = Depends(A.require_auth), db: Session = Depends(get_db, scope="function")
 ) -> dict[str, int]:
     others = db.scalars(
         select(AuthSession).where(

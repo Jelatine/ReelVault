@@ -73,7 +73,7 @@ def service_status(
 def index_status(
     video_id: str,
     response: Response,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -106,7 +106,7 @@ def index_status(
 def submit(
     video_id: str,
     body: VisionParams,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, Any]:
@@ -135,7 +135,7 @@ def submit(
 @router.delete("/videos/{video_id}/visual-index")
 async def clear(
     video_id: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
 ) -> dict[str, bool]:
@@ -168,7 +168,7 @@ def text_search(
     video_id: str | None = Query(None, pattern=r"^[a-f0-9]{32}$"),
     page: int = Query(1, ge=1, le=100000),
     page_size: int = Query(30, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
@@ -185,7 +185,7 @@ async def image_search(
     video_id: str | None = Form(None, pattern=r"^[a-f0-9]{32}$"),
     page: int = Form(1, ge=1, le=100000),
     page_size: int = Form(30, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "no-store"
@@ -272,7 +272,7 @@ async def image_search(
 def frame_image(
     frame_id: int,
     generation: str = Query(pattern=r"^[a-f0-9]{32}$"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> FileResponse:
     frame = db.get(VectorFrame, frame_id)

@@ -39,12 +39,16 @@ def active(db: Session, jobs: JobManager) -> list[Job]:
 
 
 @router.get("")
-def status(db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)) -> dict[str, int]:
+def status(
+    db: Session = Depends(get_db, scope="function"), jobs: JobManager = Depends(get_jobs)
+) -> dict[str, int]:
     return {"missing": len(missing(db)), "active": len(active(db, jobs))}
 
 
 @router.post("")
-def backfill(db: Session = Depends(get_db), jobs: JobManager = Depends(get_jobs)) -> dict[str, Any]:
+def backfill(
+    db: Session = Depends(get_db, scope="function"), jobs: JobManager = Depends(get_jobs)
+) -> dict[str, Any]:
     with budget_transaction(db):
         busy = {vid for j in active(db, jobs) for vid in j.video_ids}
         ids = [vid for vid in missing(db) if vid not in busy]
