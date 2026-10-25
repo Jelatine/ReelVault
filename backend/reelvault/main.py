@@ -79,6 +79,25 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 CSRF_HEADER = b"x-requested-with"
 
 
+def ignore_client_resets(loop: asyncio.AbstractEventLoop) -> None:
+    """Windows' proactor loop logs a traceback when a browser drops a connection it
+    was still streaming (leaving a playing video); the connection is already gone."""
+    fallback = loop.get_exception_handler()
+
+    def handle(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        callback = getattr(context.get("handle"), "_callback", None)
+        if isinstance(context.get("exception"), ConnectionResetError) and (
+            getattr(callback, "__name__", "") == "_call_connection_lost"
+        ):
+            return
+        if fallback is None:
+            loop.default_exception_handler(context)
+        else:
+            fallback(loop, context)
+
+    loop.set_exception_handler(handle)
+
+
 class CSRFMiddleware:
     """State-changing API calls must carry X-Requested-With, which browsers never add
     to cross-site form posts. Together with SameSite cookies this blocks CSRF."""
@@ -188,6 +207,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        ignore_client_resets(asyncio.get_running_loop())
         settings.data_dir = settings.data_dir.resolve()
         settings.ensure_dirs()
         with library_lock(settings.data_dir):
