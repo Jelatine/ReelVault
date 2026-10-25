@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import case, column, func, literal, literal_column, or_, select, table, text
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from ..auth import require_auth
 from ..config import Settings
@@ -187,22 +188,28 @@ async def upload_chunk(
     db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    upload = db.get(Upload, upload_id)
-    if upload is None:
-        raise APIError(status.HTTP_404_NOT_FOUND, "上传不存在", code="upload_not_found")
-    # Re-sending from an earlier offset is fine (e.g. the response to a chunk was lost).
-    if offset > upload.received:
-        raise APIError(
-            status.HTTP_409_CONFLICT,
-            {"message": "偏移量不匹配", "received": upload.received},
-            code="upload_offset_mismatch",
-            params={"received": upload.received},
-        )
-    path = _upload_path(settings, upload_id)
-    received_bytes = path.stat().st_size if path.exists() else 0
-    plan = upload_requirements(upload.size, upload.storage_id, settings)
-    plan["local"] = max(0, plan["local"] - received_bytes)
-    check_budget(db, settings, plan["local"], exclude_upload=upload.id, requirements=plan)
+    # SQLite waits up to 30 s for the writer lock; off the event loop, that wait
+    # stalls only this chunk instead of every request and video stream.
+    def prepare() -> tuple[Upload, Path]:
+        upload = db.get(Upload, upload_id)
+        if upload is None:
+            raise APIError(status.HTTP_404_NOT_FOUND, "上传不存在", code="upload_not_found")
+        # Re-sending from an earlier offset is fine (e.g. the response to a chunk was lost).
+        if offset > upload.received:
+            raise APIError(
+                status.HTTP_409_CONFLICT,
+                {"message": "偏移量不匹配", "received": upload.received},
+                code="upload_offset_mismatch",
+                params={"received": upload.received},
+            )
+        path = _upload_path(settings, upload_id)
+        received_bytes = path.stat().st_size if path.exists() else 0
+        plan = upload_requirements(upload.size, upload.storage_id, settings)
+        plan["local"] = max(0, plan["local"] - received_bytes)
+        check_budget(db, settings, plan["local"], exclude_upload=upload.id, requirements=plan)
+        return upload, path
+
+    upload, path = await run_in_threadpool(prepare)
     written = 0
     async with aiofiles.open(path, "r+b" if path.exists() else "wb") as f:
         await f.seek(offset)
@@ -214,9 +221,13 @@ async def upload_chunk(
             await f.write(chunk)
             written += len(chunk)
         await f.truncate(offset + written)
-    upload.received = offset + written
-    db.commit()
-    return _upload_dict(upload, settings)
+
+    def finish() -> dict[str, Any]:
+        upload.received = offset + written
+        db.commit()
+        return _upload_dict(upload, settings)
+
+    return await run_in_threadpool(finish)
 
 
 @router.post("/uploads/{upload_id}/complete")
