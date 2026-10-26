@@ -606,12 +606,20 @@ async def edit(ctx: JobContext, job: Job) -> None:
         if isinstance(params, ops.EmbedCoverParams):
             provenance[0]["cover_sha256"] = hashlib.sha256(cover.read_bytes()).hexdigest()
         # Replays always create a new output, including embedded covers.
+        # A cover chosen from a frame follows that frame through the edit.
+        cover_time = (
+            chapters.map_time(params, first_video.cover_time, [i.duration for _, i in sources])
+            if first_video.cover_time is not None
+            else None
+        )
         if (
             (replace or isinstance(params, ops.EmbedCoverParams))
             and not isinstance(params, (ops.MergeParams, ops.CompositeParams))
             and not job.params.get("history_replay")
         ):
-            new_id_ = await _replace_with_backup(ctx, first_video, result, params, provenance)
+            new_id_ = await _replace_with_backup(
+                ctx, first_video, result, params, provenance, cover_time
+            )
         else:
             new_id_ = await _store_new(
                 ctx,
@@ -621,6 +629,7 @@ async def edit(ctx: JobContext, job: Job) -> None:
                 output.get("title"),
                 provenance,
                 output.get("storage_id"),
+                cover_time,
             )
         _set_job(ctx, job.id, result_video_id=new_id_)
         ingest_params: dict[str, Any] = {}
@@ -653,6 +662,7 @@ async def _store_new(
     title: str | None,
     provenance: list[dict[str, Any]],
     storage_id: str | None = None,
+    cover_time: float | None = None,
 ) -> str:
     s = ctx.settings
     vid = new_id()
@@ -681,12 +691,18 @@ async def _store_new(
             edit_params=params.model_dump(),
             edited_at=utcnow(),
             edit_sources=provenance,
+            cover_time=cover_time,
         )
         if src is not None:
             video.tags = list(src.tags)
         metadata_source = src or source
         video.captured_at = metadata_source.captured_at
-        video.meta = {**(metadata_source.meta or {}), "custom_cover": False}
+        # An uploaded cover image is kept as is; ingest then leaves it in place.
+        poster = derived_dir(s, source.id) / derive.POSTER
+        custom_cover = bool((metadata_source.meta or {}).get("custom_cover")) and poster.is_file()
+        if custom_cover:
+            shutil.copy2(poster, derived_dir(s, vid) / derive.POSTER)
+        video.meta = {**(metadata_source.meta or {}), "custom_cover": custom_cover}
         video.metadata_overrides = dict(metadata_source.metadata_overrides or {})
         video.custom_fields = dict(metadata_source.custom_fields or {})
         if location_of(video.file_path) == "s3":
@@ -704,6 +720,7 @@ async def _replace_with_backup(
     result: Path,
     params: ops.EditParams,
     provenance: list[dict[str, Any]],
+    cover_time: float | None = None,
 ) -> str:
     """Swap the edited file into the existing video; the old file goes to the trash
     as a separate video so it can still be restored."""
@@ -794,6 +811,7 @@ async def _replace_with_backup(
         video.edit_params = params.model_dump()
         video.edited_at = utcnow()
         video.edit_sources = [{**provenance[0], "id": backup.id}]
+        video.cover_time = cover_time
         old_playable = video.playable_path
         video.file_path = rel_path(s, new_file)
         if location_id == "s3":
