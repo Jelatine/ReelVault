@@ -9,7 +9,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Optional JavaScript solver runtime; only copied into the opt-in image.
-FROM denoland/deno:bin-2.9.7 AS deno
+FROM denoland/deno:bin-2.9.8 AS deno
 
 # ---- runtime ----
 FROM python:3.12-slim
