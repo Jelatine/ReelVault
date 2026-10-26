@@ -97,6 +97,17 @@ def map_chapters(
     return None
 
 
+def map_time(edit: ops.EditParams, time: float, durations: list[float]) -> float | None:
+    """Where ``time`` in the first source lands in the output, or None when that moment
+    is cut out or the edit's timeline is not mapped."""
+    marker = "\0"
+    point: Chapter = {"start": time, "end": time + 2 * MIN_CHAPTER, "title": marker}
+    others: list[list[Chapter]] = [[] for _ in durations[1:]]
+    mapped = map_chapters(edit, [[point], *others], durations, [""] * len(durations))
+    hit = next((c for c in mapped or [] if c["title"] == marker), None)
+    return float(hit["start"]) if hit else None
+
+
 def _escape(value: str) -> str:
     for char in ("\\", "=", ";", "#", "\n"):
         value = value.replace(char, "\\" + char)
