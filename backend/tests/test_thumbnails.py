@@ -354,13 +354,115 @@ def test_preview_skips_segments_that_cannot_be_decoded(tmp_path):
             ["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", str(out)]
         )
     )
-    assert 4.5 < float(result["format"]["duration"]) < 5.5
+    # FFmpeg 9 rejects the damaged segment (decode error rate) and it is skipped; older
+    # releases decode it from the next keyframe. Either way no segment may exceed 1 s
+    # (the resumed frames used to leave a 3 s gap on Ubuntu's FFmpeg 6.1).
+    assert 4.5 < float(result["format"]["duration"]) < 6.1
     assert [s["codec_type"] for s in result["streams"]] == ["video"]
     subprocess.run(
         ["ffmpeg", "-v", "error", "-xerror", "-i", str(out), "-f", "null", "-"], check=True
     )
-    assert [level for message, level in logs if "预览片段 5/6" in message] == ["warning"]
+    skipped = [message for message, _ in logs if message.startswith("预览片段")]
+    assert all(message.startswith("预览片段 5/6") for message in skipped)
     assert not list(tmp_path.glob("tmp*"))
+
+
+@pytest.mark.parametrize("starts", [0.0, 3.0])
+def test_preview_segment_filter_starts_at_zero_and_caps_length(tmp_path, starts):
+    # A segment whose first decodable frame comes late (here: 3 s in) must not stretch.
+    source = tmp_path / "late.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=10:duration=4",
+            "-vf", f"setpts=PTS+{starts}/TB", "-c:v", "libx264", str(source),
+        ],
+        check=True,
+    )  # fmt: skip
+    out = tmp_path / "part.mp4"
+    vf = derive.preview_segment_filter("scale=160:90,setsar=1,fps=24,format=yuv420p")
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(source), "-vf", vf, *derive.PREVIEW_ENCODE, str(out)],
+        check=True,
+    )
+    stream = json.loads(
+        subprocess.check_output(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-count_frames",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=start_time,nb_read_frames",
+                "-of",
+                "json",
+                str(out),
+            ]
+        )  # fmt: skip
+    )["streams"][0]
+    assert float(stream["start_time"]) == 0
+    assert int(stream["nb_read_frames"]) == 24
+
+
+@pytest.mark.parametrize("bad", [{4}, {0, 5}])
+def test_preview_by_segments_skips_failed_parts(tmp_path, monkeypatch, bad):
+    from pathlib import Path
+
+    from reelvault.media.ffmpeg import ProcessHandle
+    from reelvault.media.probe import MediaInfo
+
+    joined = []
+
+    async def run(args, **kwargs):
+        if "concat" in args:
+            listing = Path(args[args.index("-i") + 1])
+            joined.extend(line.split("'")[1] for line in listing.read_text().splitlines())
+            Path(args[-1]).write_bytes(b"preview")
+            return
+        part = Path(args[-1])
+        if int(part.stem) in bad:
+            part.write_bytes(b"partial")
+            raise derive.FFmpegError("Error while decoding stream #0:0")
+        part.write_bytes(b"segment")
+
+    monkeypatch.setattr(derive, "run_command", run)
+    logs = []
+    asyncio.run(
+        derive._preview_by_segments(
+            "ffmpeg",
+            tmp_path / "source.mp4",
+            MediaInfo(duration=60),
+            tmp_path / derive.PREVIEW,
+            "null",
+            ProcessHandle(on_log=lambda message, level: logs.append(message)),
+        )
+    )
+    assert joined == [f"{i}.mp4" for i in range(6) if i not in bad]
+    skipped = [m.split("（")[0] for m in logs if m.startswith("预览片段")]
+    assert skipped == [f"预览片段 {i + 1}/6" for i in sorted(bad)]
+    assert (tmp_path / derive.PREVIEW).read_bytes() == b"preview"
+    assert not list(tmp_path.glob("tmp*"))
+
+
+def test_preview_by_segments_keeps_operational_errors(tmp_path, monkeypatch):
+    from reelvault.media.probe import MediaInfo
+
+    async def run(args, **kwargs):
+        raise derive.FFmpegError("No space left on device")
+
+    monkeypatch.setattr(derive, "run_command", run)
+    with pytest.raises(derive.FFmpegError, match="No space"):
+        asyncio.run(
+            derive._preview_by_segments(
+                "ffmpeg",
+                tmp_path / "source.mp4",
+                MediaInfo(duration=60),
+                tmp_path / derive.PREVIEW,
+                "null",
+                None,
+            )
+        )
 
 
 def test_preview_fails_when_no_segment_decodes(tmp_path):

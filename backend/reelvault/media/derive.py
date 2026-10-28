@@ -226,7 +226,10 @@ async def make_preview(
         args = []
         for start in preview_starts(info.duration):
             args += ["-ss", f"{start:.3f}", "-t", f"{seg:.3f}", "-i", str(src)]
-        chains = [f"[{i}:{info.video_index}]{vf}[v{i}]" for i in range(PREVIEW_SEGMENTS)]
+        chains = [
+            f"[{i}:{info.video_index}]{preview_segment_filter(vf)}[v{i}]"
+            for i in range(PREVIEW_SEGMENTS)
+        ]
         inputs = "".join(f"[v{i}]" for i in range(PREVIEW_SEGMENTS))
         graph = ";".join(chains) + f";{inputs}concat=n={PREVIEW_SEGMENTS}:v=1:a=0[out]"
         args += ["-filter_complex", graph, "-map", "[out]"]
@@ -251,6 +254,13 @@ PREVIEW_ENCODE = [
 ]  # fmt: skip
 
 
+def preview_segment_filter(vf: str) -> str:
+    """Start each segment at zero and cap it at its length. After damage the decoder may
+    only resume at a later keyframe; without this, the gap becomes duplicated frames
+    or, when joining parts, a hole in the timeline."""
+    return f"setpts=PTS-STARTPTS,{vf},trim=duration={PREVIEW_SEGMENT_SECONDS:.3f}"
+
+
 def preview_starts(duration: float) -> list[float]:
     step = duration / PREVIEW_SEGMENTS
     return [step * i + (step - PREVIEW_SEGMENT_SECONDS) / 2 for i in range(PREVIEW_SEGMENTS)]
@@ -272,7 +282,8 @@ async def _preview_by_segments(
             part = Path(tmp) / f"{i}.mp4"
             args = [
                 "-ss", f"{start:.3f}", "-t", f"{PREVIEW_SEGMENT_SECONDS:.3f}", "-i", str(src),
-                "-map", f"0:{info.video_index}", "-vf", vf, *PREVIEW_ENCODE, str(part),
+                "-map", f"0:{info.video_index}", "-vf", preview_segment_filter(vf),
+                *PREVIEW_ENCODE, str(part),
             ]  # fmt: skip
             args = sdr_commands([args], [(src, info)])[0]
             try:
