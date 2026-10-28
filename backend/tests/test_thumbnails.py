@@ -292,3 +292,86 @@ def test_seeking_sprite_backfills_initial_frames(tmp_path, monkeypatch, failure)
     else:
         asyncio.run(generate())
         assert sum("将使用相邻有效帧" in message for message in logs) == 3
+
+
+def _damaged_video(path, duration, damaged_seconds, fill=b"\x00"):
+    subprocess.run(
+        [
+            "ffmpeg", "-v", "error", "-f", "lavfi",
+            "-i", f"testsrc=size=160x90:rate=10:duration={duration}",
+            "-c:v", "libx264", "-g", "10", "-keyint_min", "10", "-sc_threshold", "0",
+            str(path),
+        ],
+        check=True,
+    )  # fmt: skip
+    packets = json.loads(
+        subprocess.check_output(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_packets",
+                "-show_entries",
+                "packet=pts_time,pos,size",
+                "-of",
+                "json",
+                str(path),
+            ]
+        )  # fmt: skip
+    )["packets"]
+    # Zero-filled regions inside an intact MP4 index, as left by an interrupted upload.
+    with path.open("r+b") as stream:
+        for packet in packets:
+            if int(float(packet["pts_time"])) in damaged_seconds:
+                stream.seek(int(packet["pos"]))
+                stream.write(fill * int(packet["size"]))
+    return path
+
+
+def test_preview_skips_segments_that_cannot_be_decoded(tmp_path):
+    from reelvault.media.ffmpeg import ProcessHandle
+
+    # Six 1 s segments start at 2, 7, 12, 17, 22 and 27 s; destroy the one at 22 s.
+    source = _damaged_video(tmp_path / "damaged.mp4", 30, range(20, 25))
+    out = tmp_path / derive.PREVIEW
+    logs = []
+
+    async def generate():
+        info = await probe("ffprobe", str(source))
+        await derive.make_preview(
+            "ffmpeg",
+            source,
+            info,
+            out,
+            ProcessHandle(on_log=lambda message, level: logs.append((message, level))),
+        )
+
+    asyncio.run(generate())
+    result = json.loads(
+        subprocess.check_output(
+            ["ffprobe", "-v", "error", "-show_format", "-show_streams", "-of", "json", str(out)]
+        )
+    )
+    assert 4.5 < float(result["format"]["duration"]) < 5.5
+    assert [s["codec_type"] for s in result["streams"]] == ["video"]
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-xerror", "-i", str(out), "-f", "null", "-"], check=True
+    )
+    assert [level for message, level in logs if "预览片段 5/6" in message] == ["warning"]
+    assert not list(tmp_path.glob("tmp*"))
+
+
+def test_preview_fails_when_no_segment_decodes(tmp_path):
+    from reelvault.media.ffmpeg import FFmpegError
+
+    source = _damaged_video(tmp_path / "damaged.mp4", 30, range(1, 30))
+
+    async def generate():
+        info = await probe("ffprobe", str(source))
+        await derive.make_preview("ffmpeg", source, info, tmp_path / derive.PREVIEW)
+
+    with pytest.raises(FFmpegError, match="所有采样位置"):
+        asyncio.run(generate())
+    assert not list(tmp_path.glob("tmp*"))

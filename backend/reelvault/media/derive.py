@@ -33,6 +33,19 @@ WAVEFORM = "waveform.json"
 WAVEFORM_BINS = 1000
 PLAYABLE = "playable.mp4"
 
+# Decoder complaints about a damaged stream (e.g. a zero-filled region), as opposed to
+# operational failures such as a full disk or a missing filter.
+DECODE_ERRORS = (
+    "Error while decoding stream",
+    "Error splitting the input into NAL units",
+    "Invalid NAL unit size",
+)
+
+
+def is_decode_error(error: FFmpegError) -> bool:
+    return any(marker in str(error) for marker in DECODE_ERRORS)
+
+
 # mjpeg needs full-range YUV; newer ffmpeg refuses to encode limited range.
 JPEG = ["-pix_fmt", "yuvj420p", "-q:v", "4"]
 
@@ -211,23 +224,79 @@ async def make_preview(
         ]  # fmt: skip
     else:
         args = []
-        step = info.duration / PREVIEW_SEGMENTS
-        for i in range(PREVIEW_SEGMENTS):
-            start = step * i + (step - seg) / 2
+        for start in preview_starts(info.duration):
             args += ["-ss", f"{start:.3f}", "-t", f"{seg:.3f}", "-i", str(src)]
         chains = [f"[{i}:{info.video_index}]{vf}[v{i}]" for i in range(PREVIEW_SEGMENTS)]
         inputs = "".join(f"[v{i}]" for i in range(PREVIEW_SEGMENTS))
         graph = ";".join(chains) + f";{inputs}concat=n={PREVIEW_SEGMENTS}:v=1:a=0[out]"
         args += ["-filter_complex", graph, "-map", "[out]"]
-    args += [
-        "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "30",
-        "-movflags", "+faststart", str(out),
-    ]  # fmt: skip
+    args += [*PREVIEW_ENCODE, str(out)]
     args = sdr_commands([args], [(src, info)])[0]
-    if encoding:
-        return await encoding.run([args], encoder, handle=handle)
-    await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
+    try:
+        if encoding:
+            return await encoding.run([args], encoder, handle=handle)
+        await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
+    except FFmpegError as error:
+        # One damaged segment pushes the montage over FFmpeg's decode error rate
+        # (exit 69); rebuild it from the segments that still decode.
+        if info.duration <= PREVIEW_SEGMENTS * seg * 1.5 or not is_decode_error(error):
+            raise
+        out.unlink(missing_ok=True)
+        await _preview_by_segments(ffmpeg, src, info, out, vf, handle)
     return None
+
+
+PREVIEW_ENCODE = [
+    "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "30", "-movflags", "+faststart",
+]  # fmt: skip
+
+
+def preview_starts(duration: float) -> list[float]:
+    step = duration / PREVIEW_SEGMENTS
+    return [step * i + (step - PREVIEW_SEGMENT_SECONDS) / 2 for i in range(PREVIEW_SEGMENTS)]
+
+
+async def _preview_by_segments(
+    ffmpeg: str,
+    src: Path,
+    info: MediaInfo,
+    out: Path,
+    vf: str,
+    handle: ProcessHandle | None,
+) -> None:
+    """Encode each preview segment on its own, skip those that cannot be decoded and
+    join the rest without re-encoding (identical encoder settings)."""
+    with tempfile.TemporaryDirectory(dir=out.parent) as tmp:
+        parts: list[Path] = []
+        for i, start in enumerate(preview_starts(info.duration)):
+            part = Path(tmp) / f"{i}.mp4"
+            args = [
+                "-ss", f"{start:.3f}", "-t", f"{PREVIEW_SEGMENT_SECONDS:.3f}", "-i", str(src),
+                "-map", f"0:{info.video_index}", "-vf", vf, *PREVIEW_ENCODE, str(part),
+            ]  # fmt: skip
+            args = sdr_commands([args], [(src, info)])[0]
+            try:
+                await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
+            except FFmpegError as error:
+                if not is_decode_error(error):
+                    raise
+                part.unlink(missing_ok=True)
+            if part.is_file() and part.stat().st_size:
+                parts.append(part)
+            elif handle and handle.on_log:
+                handle.on_log(
+                    f"预览片段 {i + 1}/{PREVIEW_SEGMENTS}（{start:.3f} 秒）无法解码，已跳过",
+                    "warning",
+                )
+        if not parts:
+            raise FFmpegError("无法生成预览片段：所有采样位置均无法解码有效视频帧")
+        listing = Path(tmp) / "parts.txt"
+        listing.write_text("".join(f"file '{p.name}'\n" for p in parts))
+        args = [
+            "-f", "concat", "-safe", "0", "-i", str(listing),
+            "-c", "copy", "-movflags", "+faststart", str(out),
+        ]  # fmt: skip
+        await run_command(ffmpeg_args(ffmpeg, args, progress=False), handle=handle)
 
 
 def sprite_layout(duration: float) -> tuple[float, int]:
@@ -325,14 +394,7 @@ async def _sprite_by_seeking(
             except FFmpegError as error:
                 # A damaged GOP must not discard the other usable thumbnails.
                 # Keep cancellation and operational errors (disk, filters, etc.) fatal.
-                if not any(
-                    marker in str(error)
-                    for marker in (
-                        "Error while decoding stream",
-                        "Error splitting the input into NAL units",
-                        "Invalid NAL unit size",
-                    )
-                ):
+                if not is_decode_error(error):
                     raise
                 frame.unlink(missing_ok=True)
             if not frame.is_file() or not frame.stat().st_size:
