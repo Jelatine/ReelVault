@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import quote
+from weakref import WeakValueDictionary
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
@@ -133,6 +135,18 @@ def _upload_path(settings: Settings, upload_id: str) -> Path:
     return settings.tmp_dir / f"upload-{upload_id}.part"
 
 
+_upload_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
+
+
+def _upload_lock(upload_id: str) -> asyncio.Lock:
+    # A client retry can arrive while the original request for the same chunk is still
+    # running; interleaved writes and truncates would leave a zero-filled hole in the file.
+    lock = _upload_locks.get(upload_id)
+    if lock is None:
+        lock = _upload_locks[upload_id] = asyncio.Lock()
+    return lock
+
+
 @router.post("/uploads")
 def init_upload(
     body: UploadInit,
@@ -188,22 +202,35 @@ async def upload_chunk(
     db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
+    async with _upload_lock(upload_id):
+        return await _write_chunk(upload_id, request, offset, db, settings)
+
+
+async def _write_chunk(
+    upload_id: str, request: Request, offset: int, db: Session, settings: Settings
+) -> dict[str, Any]:
     # SQLite waits up to 30 s for the writer lock; off the event loop, that wait
     # stalls only this chunk instead of every request and video stream.
     def prepare() -> tuple[Upload, Path]:
         upload = db.get(Upload, upload_id)
         if upload is None:
             raise APIError(status.HTTP_404_NOT_FOUND, "上传不存在", code="upload_not_found")
-        # Re-sending from an earlier offset is fine (e.g. the response to a chunk was lost).
-        if offset > upload.received:
-            raise APIError(
-                status.HTTP_409_CONFLICT,
-                {"message": "偏移量不匹配", "received": upload.received},
-                code="upload_offset_mismatch",
-                params={"received": upload.received},
-            )
         path = _upload_path(settings, upload_id)
         received_bytes = path.stat().st_size if path.exists() else 0
+        # Never trust `received` past the bytes actually on disk: seeking beyond the end
+        # would fill the gap with zeros and corrupt the video.
+        received = min(upload.received, received_bytes)
+        # Re-sending from an earlier offset is fine (e.g. the response to a chunk was lost).
+        if offset > received:
+            if upload.received != received:
+                upload.received = received
+                db.commit()
+            raise APIError(
+                status.HTTP_409_CONFLICT,
+                {"message": "偏移量不匹配", "received": received},
+                code="upload_offset_mismatch",
+                params={"received": received},
+            )
         plan = upload_requirements(upload.size, upload.storage_id, settings)
         plan["local"] = max(0, plan["local"] - received_bytes)
         check_budget(db, settings, plan["local"], exclude_upload=upload.id, requirements=plan)
@@ -231,18 +258,30 @@ async def upload_chunk(
 
 
 @router.post("/uploads/{upload_id}/complete")
-def complete_upload(
+async def complete_upload(
     upload_id: str,
     db: Session = Depends(get_db, scope="function"),
     settings: Settings = Depends(get_settings),
     jobs: JobManager = Depends(get_jobs),
+) -> dict[str, Any]:
+    async with _upload_lock(upload_id):
+        return await run_in_threadpool(_complete_upload, upload_id, db, settings, jobs)
+
+
+def _complete_upload(
+    upload_id: str, db: Session, settings: Settings, jobs: JobManager
 ) -> dict[str, Any]:
     # Serialize folder creation and completion across worker threads/processes.
     db.execute(text("BEGIN IMMEDIATE"))
     upload = db.get(Upload, upload_id)
     if upload is None:
         raise APIError(status.HTTP_404_NOT_FOUND, "上传不存在", code="upload_not_found")
-    if upload.received != upload.size:
+    path = _upload_path(settings, upload_id)
+    on_disk = path.stat().st_size if path.exists() else 0
+    if upload.received != upload.size or on_disk != upload.size:
+        if upload.received != min(upload.received, on_disk):
+            upload.received = on_disk
+            db.commit()
         raise APIError(status.HTTP_400_BAD_REQUEST, "文件尚未上传完成", code="upload_incomplete")
     if not folder_exists(db, upload.folder_id):
         raise APIError(
@@ -259,7 +298,7 @@ def complete_upload(
     video = store_file(
         db,
         settings,
-        _upload_path(settings, upload_id),
+        path,
         title=stem_of(upload.filename),
         original_name=upload.filename,
         folder_id=folder_id,

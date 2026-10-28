@@ -4,6 +4,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from reelvault.config import Settings
+
 from .conftest import upload, upload_ready, wait_ready
 
 
@@ -60,6 +62,31 @@ def test_resumable_upload_rejects_wrong_offset(
     client.put(f"/api/uploads/{up['id']}?offset=1000", content=data[1000:])
     v = client.post(f"/api/uploads/{up['id']}/complete").json()
     wait_ready(client, v["id"])
+
+
+def test_upload_never_skips_past_bytes_on_disk(
+    client: TestClient, settings: Settings, samples: dict[str, Path]
+) -> None:
+    # A stale duplicate request can truncate the part file after a later chunk was
+    # acknowledged; the next chunk must not seek past the end and leave a zero-filled hole.
+    data = samples["b"].read_bytes()
+    up = client.post("/api/uploads", json={"filename": "b.mp4", "size": len(data)}).json()
+    client.put(f"/api/uploads/{up['id']}?offset=0", content=data[:2000])
+    part = settings.tmp_dir / f"upload-{up['id']}.part"
+    with part.open("r+b") as f:
+        f.truncate(1000)
+    r = client.put(f"/api/uploads/{up['id']}?offset=2000", content=data[2000:])
+    assert r.status_code == 409
+    assert r.json()["detail"]["received"] == 1000
+    client.put(f"/api/uploads/{up['id']}?offset=1000", content=data[1000:])
+    with part.open("r+b") as f:
+        f.truncate(len(data) - 10)
+    assert client.post(f"/api/uploads/{up['id']}/complete").status_code == 400
+    assert client.get(f"/api/uploads/{up['id']}").json()["received"] == len(data) - 10
+    client.put(f"/api/uploads/{up['id']}?offset={len(data) - 10}", content=data[-10:])
+    v = client.post(f"/api/uploads/{up['id']}/complete").json()
+    wait_ready(client, v["id"])
+    assert client.get(v["stream_url"]).content == data
 
 
 def test_rejects_non_video(client: TestClient) -> None:
