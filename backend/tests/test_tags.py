@@ -167,3 +167,11 @@ def test_tag_migration_preserves_associations_and_search_on_upgrade_and_downgrad
         )
         assert connection.execute(text("PRAGMA foreign_key_check")).all() == []
     engine.dispose()
+
+
+def test_tags_carry_an_index_letter(client):
+    names = ["旅行", "apple", "Zoo", "4K", "重庆", "Élan"]
+    for name in names:
+        assert client.post("/api/tags", json={"name": name}).status_code == 200
+    letters = {t["name"]: t["initial"] for t in client.get("/api/tags").json()}
+    assert letters == {"旅行": "L", "apple": "A", "Zoo": "Z", "4K": "#", "重庆": "C", "Élan": "E"}

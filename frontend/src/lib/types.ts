@@ -85,6 +85,8 @@ export interface Folder {
 export interface Tag {
   id: number
   name: string
+  /** A–Z from the English or pinyin first letter, "#" otherwise. */
+  initial: string
   count: number
   trash_count: number
   color: string | null

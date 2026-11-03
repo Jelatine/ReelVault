@@ -40,6 +40,18 @@ def title_pinyin(title: str | None) -> tuple[str, str]:
     return " ".join(dict.fromkeys(("".join(words), " ".join(words)))), initials
 
 
+@lru_cache(maxsize=4096)
+def index_letter(name: str) -> str:
+    """A–Z from the English or pinyin first letter, "#" for anything else."""
+    name = name.strip()
+    first = name[:1]
+    if HAN.match(first):
+        # The whole name picks the phrase reading (重庆 → chong).
+        first = lazy_pinyin(name, style=Style.FIRST_LETTER)[0]
+    letter = latin(first)
+    return letter.upper() if re.fullmatch(r"[a-z]", letter) else "#"
+
+
 def register_pinyin(connection: Any) -> None:
     connection.create_function(
         "reelvault_casefold", 1, lambda value: (value or "").casefold(), deterministic=True

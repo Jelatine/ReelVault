@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { tr } from '../lib/i18n'
-import { ActionIcon, Badge, Divider, Group, Menu, NavLink, ScrollArea, Text } from '@mantine/core'
+import { ActionIcon, Divider, Group, Menu, NavLink, ScrollArea, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -21,11 +21,12 @@ import { useState, type DragEvent } from 'react'
 import { CLEAR_SELECTION_EVENT, VIDEO_DRAG_TYPE, dragIds } from '../lib/selection'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
-import { buildTree, useFolders, useTags, type FolderNode } from '../lib/queries'
+import { buildTree, useFolders, type FolderNode } from '../lib/queries'
 import { useAiService } from '../lib/ai'
 import { useVisionService } from '../lib/visual-search'
 import CollectionNav from './CollectionNav'
 import SmartFolderNav from './SmartFolderNav'
+import TagNav from './TagNav'
 import { confirmAction, promptText } from './prompt'
 import ContextMenu from './ContextMenu'
 import { contextPosition, keyboardContext, type MenuPosition } from '../lib/context-menu'
@@ -37,7 +38,6 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   const [context, setContext] = useState<{ node: FolderNode; position: MenuPosition }>()
   const folders = useFolders()
-  const tags = useTags()
   const vision = useVisionService()
   const ai = useAiService()
   const qc = useQueryClient()
@@ -206,27 +206,7 @@ export default function FolderNav({ onNavigate }: { onNavigate: () => void }) {
         active={location.pathname === '/people'} aria-current={location.pathname === '/people' ? 'page' : undefined} onClick={onNavigate} />}
       <NavLink component={Link} to="/auto-groups" label={tr('自动分组')} leftSection={<IconFolder size={16} />}
         active={location.pathname === '/auto-groups' || (onLibrary && params.has('auto'))} aria-current={location.pathname === '/auto-groups' ? 'page' : undefined} onClick={onNavigate} />
-      {(tags.data?.some(tag => tag.count > 0) ?? false) && (
-        <>
-          <Text size="xs" c="dimmed" fw={600} mt="sm" px="sm">{tr("标签")}</Text>
-          <Group gap={6} p="sm">
-            {tags.data!.filter(tag => tag.count > 0).map((t) => (
-              <Badge
-                component="button" type="button"
-                key={t.name}
-                aria-pressed={tag === t.name}
-                color={t.color ?? 'violet'} autoContrast
-                variant={tag === t.name ? 'filled' : 'light'}
-                leftSection={<IconHash size={10} />}
-                style={{ cursor: 'pointer', textTransform: 'none' }}
-                onClick={() => go(tag === t.name ? { folder: 'all' } : { folder: 'all', tag: t.name })}
-              >
-                {t.name} {t.count}
-              </Badge>
-            ))}
-          </Group>
-        </>
-      )}
+      <TagNav active={tag} onSelect={(name) => go(name ? { folder: 'all', tag: name } : { folder: 'all' })} />
       <CollectionNav onNavigate={onNavigate} />
       <Divider my="sm" />
       <NavLink
