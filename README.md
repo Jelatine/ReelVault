@@ -54,7 +54,7 @@
 - 合集可排序与连续播放，一个视频可加入多个合集
 - Shift 连选、Ctrl/⌘ 多选、框选、Esc 取消；拖到侧栏文件夹移动
 - 多级文件夹、标签、FTS5 全文搜索与结果高亮、排序、网格/列表视图
-- 标签管理：重命名、颜色、分组、合并及删除，保留视频文件
+- 标签管理：重命名、颜色、分组、合并及删除，保留视频文件；侧栏标签超过 16 个时按英文或拼音首字母（其他为 #）分组，标签区可收起；视频详情页的标签可直接跳转到同标签视频
 - 智能文件夹：按账号保存组合筛选与排序，侧栏打开当前匹配结果
 - 拍摄元数据：时间、设备、GPS、自定义字段及人工修订，编辑结果继承
 - 重复视频检测：完整文件哈希、跨时间点抽帧相似候选、信息汇集及可恢复处理
@@ -201,7 +201,7 @@ tail -f ~/ReelVault/reelvault.log            # 查看日志
 
 ### Windows（原生运行）
 
-直接读写 NTFS，没有 Docker 跨文件系统挂载的开销，也可直接使用 NVENC/QSV 硬件编码。适用于 Windows 10/11；原生运行支持较新，CI 在 Windows 上验证任务控制、编辑、启动脚本与计划任务，其余功能主要在 Linux/macOS 上测试。
+直接读写 NTFS，没有 Docker 跨文件系统挂载的开销，也可直接使用 NVENC/QSV 硬件编码。适用于 Windows 10/11；原生运行支持较新，Integration 工作流在 Windows 上验证任务控制、编辑、启动脚本与计划任务，其余功能主要在 Linux/macOS 上测试。
 
 **1. 安装依赖**（PowerShell，装完重新打开终端）
 
@@ -255,7 +255,7 @@ Ubuntu 的新版安装脚本会安装 root 所有的 `reelvault-service-sync.pat
 
 同步目前针对标准 `/opt/reelvault` Ubuntu 安装；源码、Docker 和 macOS 升级沿用各自方式。显式设置 `REELVAULT_SYSTEMD_SYNC=false` 可选择只升级程序，此时需自行同步 systemd 配置。
 
-Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https://github.com/Jelatine/ReelVault/actions/runs/37580047332)：实际安装与重复安装、在主服务权限限制下在线升级并自动重启、依赖/摘要/配置确认失败回滚，以及环境文件、drop-in、元数据和媒体保留。CI 持续运行两种 Ubuntu 的测试。
+Ubuntu 22.04/24.04 的安装与升级已在 [GitHub 托管虚拟机验证](https://github.com/Jelatine/ReelVault/actions/runs/37580047332)：实际安装与重复安装、在主服务权限限制下在线升级并自动重启、依赖/摘要/配置确认失败回滚，以及环境文件、drop-in、元数据和媒体保留。Integration 工作流每周及发版时运行两种 Ubuntu 的测试。
 
 不希望服务器访问 GitHub 时，设置 `REELVAULT_UPDATE_CHECK=false` 关闭自动检查；`REELVAULT_ALLOW_SELF_UPDATE=false` 只保留检查、禁用一键升级。
 
@@ -478,7 +478,7 @@ API 错误保留原有 HTTP 状态与 `detail`，另外返回稳定的 `code` �
 git tag v0.2.6 && git push origin v0.2.6
 ```
 
-GitHub Actions 会构建 `linux/amd64`、`linux/arm64` 镜像并推送到 `ghcr.io/jelatine/reelvault`，同时创建 Release 并附带 Ubuntu 安装包与 SHA256 校验文件。
+GitHub Actions 会构建 `linux/amd64`、`linux/arm64` 镜像并推送到 `ghcr.io/jelatine/reelvault`，同时创建 Release 并附带 Ubuntu 安装包与 SHA256 校验文件。日常提交与 PR 的 CI 只运行后端、前端和浏览器端到端测试；Windows、S3、Whisper、CLIP、Docker、systemd 与 HEVC 专项在 Integration 工作流中运行（手动触发、每周一次及推送 `v*` 标签时）。
 
 ## 路线图
 
@@ -489,7 +489,7 @@ GitHub Actions 会构建 `linux/amd64`、`linux/arm64` 镜像并推送到 `ghcr.
 
 MIT
 
-浏览器端到端测试：先安装后端依赖（`cd backend && uv sync --frozen --extra link-import`），在 `frontend/` 执行 `npm ci`、`npx playwright install chromium`、`npm run build`、`npm run test:e2e`。需要本机 ffmpeg；测试自动启动端口 18089 的临时后端并使用独立数据库，退出后清理。配置遵循 [Playwright webServer](https://playwright.dev/docs/test-webserver)，CI 安装方式见 [Playwright CI](https://playwright.dev/docs/ci)。按需 HEVC 专项运行 `REELVAULT_PLAYABLE_EAGER_MAX_MB=0 npm run test:e2e -- playback-cache.spec.ts`；CI 额外执行此专项，使用小型真实 HEVC 代替上传巨大文件。失败报告位于 `frontend/playwright-report/`，截图与 trace 位于 `frontend/test-results/`。
+浏览器端到端测试：先安装后端依赖（`cd backend && uv sync --frozen --extra link-import`），在 `frontend/` 执行 `npm ci`、`npx playwright install chromium`、`npm run build`、`npm run test:e2e`。需要本机 ffmpeg；测试自动启动端口 18089 的临时后端并使用独立数据库，退出后清理。配置遵循 [Playwright webServer](https://playwright.dev/docs/test-webserver)，CI 安装方式见 [Playwright CI](https://playwright.dev/docs/ci)。按需 HEVC 专项运行 `REELVAULT_PLAYABLE_EAGER_MAX_MB=0 npm run test:e2e -- playback-cache.spec.ts`；Integration 工作流执行此专项，使用小型真实 HEVC 代替上传巨大文件。失败报告位于 `frontend/playwright-report/`，截图与 trace 位于 `frontend/test-results/`。
 
 
 备份与恢复：设置页的「导出数据库与配置」生成 ZIP，包含 SQLite 一致性快照、当前配置和 SHA256 校验清单，支持数据库使用 WAL 时在线导出。实现采用 [SQLite backup API](https://docs.python.org/3/library/sqlite3.html#sqlite3.Connection.backup)。包内包含密码哈希、设备会话记录和配置凭据，请保存在受保护的位置；服务端备份文件权限为 0600。
@@ -828,7 +828,7 @@ docker exec reelvault python -m reelvault.media.transcription_worker \
 
 模型加载、识别和音轨提取均在可控制子进程中，接入现有暂停/继续/取消、优先级和失败重试。不同视频仍可并行，同源操作串行；每个并行转写任务会各自加载模型，低内存部署可减少 `REELVAULT_WORKERS` 或选用较小模型。在线升级保留启用或已安装的可选依赖，回滚旧版本时按旧清单同步。PyAV 锁定兼容版本，避免其新接口变化导致识别无法启动。
 
-验证真实识别时可提供自备语音视频与已准备的 tiny 模型缓存，执行 `REELVAULT_TEST_WHISPER_CACHE=/path/to/cache REELVAULT_TEST_SPEECH=/path/to/speech.mp4 .venv/bin/pytest -q tests/test_content_search.py::test_real_whisper_transcribes_and_indexes_speech`。CI 单独合成语音并验证 CPU 模型、字幕发布与时间索引；普通测试不会自行下载模型。
+验证真实识别时可提供自备语音视频与已准备的 tiny 模型缓存，执行 `REELVAULT_TEST_WHISPER_CACHE=/path/to/cache REELVAULT_TEST_SPEECH=/path/to/speech.mp4 .venv/bin/pytest -q tests/test_content_search.py::test_real_whisper_transcribes_and_indexes_speech`。Integration 工作流单独合成语音并验证 CPU 模型、字幕发布与时间索引；普通测试不会自行下载模型。
 
 ### 可选视觉模型服务
 
