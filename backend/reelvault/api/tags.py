@@ -14,6 +14,7 @@ from ..auth import require_auth
 from ..db import get_db
 from ..errors import APIError
 from ..models import SmartFolder, Tag, TagGroup, Upload, Video, video_tags
+from ..pinyin_search import index_letter
 from ..search_syntax import rename_query_tag
 
 router = APIRouter(prefix="/api/tags", tags=["tags"], dependencies=[Depends(require_auth)])
@@ -90,6 +91,7 @@ def tag_dict(db: Session, tag: Tag, counts: dict[bool, int] | None = None) -> di
     return {
         "id": tag.id,
         "name": tag.name,
+        "initial": index_letter(tag.name),
         "color": tag.color,
         "group_id": tag.group_id,
         "group_name": tag.group.name if tag.group else None,

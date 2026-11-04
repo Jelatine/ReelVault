@@ -3,6 +3,7 @@ import { tr } from '../lib/i18n'
 import {
   Alert,
   Anchor,
+  Badge,
   Box,
   Breadcrumbs,
   Button,
@@ -27,6 +28,7 @@ import {
   IconCamera,
   IconCut,
   IconDownload,
+  IconHash,
   IconPhoto,
   IconRefresh,
   IconRestore,
@@ -68,7 +70,7 @@ import Timeline from '../editor/Timeline'
 import TrimPanel from '../editor/TrimPanel'
 import { api, errorText } from '../lib/api'
 import { formatBytes, formatDate, formatDuration } from '../lib/format'
-import { useJobs, useVideo } from '../lib/queries'
+import { useJobs, useTags, useVideo } from '../lib/queries'
 import type { Video, VideoMedia } from '../lib/types'
 import TranscriptionPanel from '../components/TranscriptionPanel'
 import VisualIndexPanel from '../components/VisualIndexPanel'
@@ -121,6 +123,8 @@ function InfoPanel({ video }: { video: Video }) {
   const navigate = useNavigate()
   const [title, setTitle] = useState(video.title)
   const [description, setDescription] = useState(video.description)
+  const tags = useTags()
+  const tagColors = new Map(tags.data?.map((t) => [t.name, t.color]))
 
   const save = async (patch: Record<string, unknown>) => {
     try {
@@ -206,6 +210,18 @@ function InfoPanel({ video }: { video: Video }) {
         onBlur={() => description !== video.description && save({ description })}
       />
       <TagsInput label={tr("标签")} value={video.tags} onChange={(tags) => save({ tags })} placeholder={tr("输入后回车")} clearable />
+      {video.tags.length > 0 && (
+        <Group gap={6} mt={-6}>
+          {video.tags.map((name) => (
+            <Badge key={name} component={Link} to={`/library?${new URLSearchParams({ folder: 'all', tag: name })}`}
+              variant="light" color={tagColors.get(name) ?? 'violet'} autoContrast leftSection={<IconHash size={10} />}
+              style={{ cursor: 'pointer', textTransform: 'none' }}
+              aria-label={tr("查看标签 {{v0}} 的视频", { v0: name })}>
+              {name}
+            </Badge>
+          ))}
+        </Group>
+      )}
       <FolderSelect label={tr("文件夹")} value={video.folder_id} onChange={(folder_id) => save({ folder_id, move: true })} />
       <Table withRowBorders={false} verticalSpacing={4} fz="sm">
         <Table.Tbody>

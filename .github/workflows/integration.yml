@@ -1,0 +1,307 @@
+name: Integration
+
+# Slower platform, packaging and optional-model suites. CI keeps the fast checks.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows native
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install FFmpeg
+        run: choco install ffmpeg --no-progress -y
+      - run: uv sync --frozen --extra link-import
+      # Runs alongside e2e, which stays the longest job.
+      - name: Test
+        run: uv run pytest -q -n auto
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Verify start script in foreground and as a scheduled task
+        working-directory: .
+        shell: pwsh
+        run: ./deploy/windows/test-start.ps1
+
+  s3:
+    name: S3 (MinIO)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      REELVAULT_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      REELVAULT_TEST_S3_ACCESS_KEY: reelvault-test-only
+      REELVAULT_TEST_S3_SECRET_KEY: reelvault-test-only-secret-0123456789
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Install optional S3 support and media fixture tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+          cd backend
+          uv sync --frozen --extra s3
+      - uses: docker/setup-buildx-action@v4
+      - name: Build independent S3 test server from pinned official source
+        uses: docker/build-push-action@v7
+        with:
+          context: backend/tests/s3
+          load: true
+          tags: reelvault-minio-test:ci
+          cache-from: type=gha,scope=reelvault-minio-test
+          cache-to: type=gha,scope=reelvault-minio-test,mode=max
+      - name: Start isolated loopback-only test server
+        run: |
+          docker run -d --name rv-s3 -p 127.0.0.1:9000:9000 \
+            -e MINIO_ROOT_USER="$REELVAULT_TEST_S3_ACCESS_KEY" \
+            -e MINIO_ROOT_PASSWORD="$REELVAULT_TEST_S3_SECRET_KEY" \
+            reelvault-minio-test:ci server /data --address :9000 --console-address :9001
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 "$REELVAULT_TEST_S3_ENDPOINT/minio/health/ready"; then exit 0; fi
+            sleep 1
+          done
+          docker logs rv-s3
+          exit 1
+      - name: Verify multipart, integrity, real subprocess pause/cancel and recovery
+        working-directory: backend
+        run: uv run --frozen --extra s3 pytest -q tests/test_object_store.py tests/test_object_transfer.py tests/test_object_integration.py
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Verify S3 originals in Chromium
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run build
+          npm run test:e2e -- s3.spec.ts
+      - name: Stop owned S3 test server
+        if: always()
+        run: docker rm -f rv-s3 || true
+
+  whisper:
+    name: Whisper (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Install transcription and speech fixture tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg espeak
+          cd backend
+          uv sync --frozen --extra transcription
+      - name: Verify real offline Whisper inference and timed subtitle search
+        env:
+          REELVAULT_TEST_WHISPER_CACHE: ${{ runner.temp }}/whisper-models
+          REELVAULT_TEST_SPEECH: ${{ runner.temp }}/whisper-speech.mp4
+        run: |
+          espeak -s 140 -w "$RUNNER_TEMP/speech.wav" "The secret phrase is purple elephant. We remember every word."
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i color=c=blue:s=320x180:r=15 -i "$RUNNER_TEMP/speech.wav" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$REELVAULT_TEST_SPEECH"
+          cd backend
+          uv run --frozen --extra transcription python -m reelvault.media.transcription_worker --prepare --model tiny --cache "$REELVAULT_TEST_WHISPER_CACHE"
+          uv run --frozen --extra transcription pytest -q tests/test_content_search.py::test_real_whisper_transcribes_and_indexes_speech
+
+  vision:
+    name: CLIP (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: vision
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: vision/uv.lock
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/clip-models
+          key: clip-b32-327ab672-multilingual-58edf8ca-yunet-sface-v2
+          restore-keys: clip-b32-327ab672-multilingual-58edf8ca-safetensors-v1
+      - run: uv sync --frozen --extra faces
+      - name: Lint and verify real offline multilingual CLIP
+        env:
+          REELVAULT_TEST_CLIP_CACHE: ${{ runner.temp }}/clip-models
+          REELVAULT_TEST_FACE_CACHE: ${{ runner.temp }}/clip-models
+          REELVAULT_TEST_FACE_IMAGE: ${{ runner.temp }}/face-fixture.jpg
+        run: |
+          uv run --frozen --extra faces ruff check .
+          uv run --frozen --extra faces ruff format --check .
+          uv run --frozen --extra faces reelvault-vision --cache "$REELVAULT_TEST_CLIP_CACHE" --prepare
+          uv run --frozen --extra faces reelvault-vision --cache "$REELVAULT_TEST_FACE_CACHE" --prepare-faces
+          curl -fL --connect-timeout 15 --max-time 60 -o "$REELVAULT_TEST_FACE_IMAGE" https://raw.githubusercontent.com/opencv/opencv/4.11.0/samples/data/lena.jpg
+          printf '%s  %s\n' 7de7ed51a1594fff247f4cae2301eceacf5313d6011e37b4a4c8733f7bb72c07 "$REELVAULT_TEST_FACE_IMAGE" | sha256sum -c -
+          uv run --frozen --extra faces pytest -q
+      - name: Verify independent container starts offline
+        run: |
+          docker build --build-arg REELVAULT_FACES_EXTRA=1 -t reelvault-vision:ci .
+          docker run -d --name rv-vision --read-only --tmpfs /tmp:size=64m -p 127.0.0.1:8091:8091 -v "$RUNNER_TEMP/clip-models:/models:ro" -e REELVAULT_VISION_TOKEN=ci-vision-token-0123456789abcdef0123456789abcdef reelvault-vision:ci --host 0.0.0.0 --faces
+          for i in $(seq 1 60); do
+            if curl -fsS -H 'Authorization: Bearer ci-vision-token-0123456789abcdef0123456789abcdef' http://127.0.0.1:8091/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs rv-vision
+          exit 1
+
+      - name: Verify real offline face inference over authenticated container HTTP
+        run: |
+          curl -fsS --max-time 30 -H 'Authorization: Bearer ci-vision-token-0123456789abcdef0123456789abcdef' -H 'Content-Type: image/jpeg' --data-binary "@$RUNNER_TEMP/face-fixture.jpg" http://127.0.0.1:8091/embed/faces -o "$RUNNER_TEMP/face-result.json"
+          python -c 'import json, math, os; data=json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "face-result.json"))); assert data["face_dimension"] == 128; assert data["face_model"] == "yunet-sface-4f3f83ee562f91109d0098a7"; assert data["faces"]; vector=data["faces"][0]["vector"]; assert len(vector) == 128 and all(math.isfinite(v) for v in vector); assert abs(sum(v*v for v in vector)-1) < 0.0001'
+
+      - name: Verify indexing, search and reviewed AI analysis against the real private container
+        working-directory: backend
+        env:
+          REELVAULT_TEST_VISION_URL: http://127.0.0.1:8091
+          REELVAULT_TEST_VISION_TOKEN: ci-vision-token-0123456789abcdef0123456789abcdef
+          REELVAULT_TEST_FACE_IMAGE: ${{ runner.temp }}/face-fixture.jpg
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+          uv sync --frozen --extra link-import
+          uv run --frozen pytest -q tests/test_visual_search.py tests/test_ai.py
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Verify reviewed AI features in Chromium with real private models
+        working-directory: frontend
+        env:
+          REELVAULT_AI_ENABLED: "true"
+          REELVAULT_AI_FACES_ENABLED: "true"
+          REELVAULT_VISION_ENABLED: "true"
+          REELVAULT_VISION_URL: http://127.0.0.1:8091
+          REELVAULT_VISION_TOKEN: ci-vision-token-0123456789abcdef0123456789abcdef
+          REELVAULT_TEST_FACE_IMAGE: ${{ runner.temp }}/face-fixture.jpg
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run build
+          npm run test:e2e -- ai.spec.ts
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: reelvault:ci
+          build-args: REELVAULT_LINK_IMPORT_EXTRA=1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test
+        run: |
+          docker run --rm --entrypoint deno reelvault:ci --version
+          docker run --rm --entrypoint python reelvault:ci -c "import yt_dlp, yt_dlp_ejs"
+          # S3 originals are usable from a pulled image without rebuilding.
+          docker run --rm --entrypoint python reelvault:ci -c "import boto3, reelvault.object_store"
+          docker run -d --name rv -p 34123:34123 reelvault:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:34123/healthz; then exit 0; fi
+            sleep 2
+          done
+          docker logs rv
+          exit 1
+
+  systemd:
+    name: systemd (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: astral-sh/setup-uv@v7
+      - name: Build release package
+        run: |
+          cd frontend
+          npm ci
+          cd ..
+          make package VERSION=ci
+      - name: Use HTTPS Ubuntu mirror for installation checks
+        run: |
+          sudo python3 - <<'PY'
+          from pathlib import Path
+
+          # Hosted images use both legacy .list and Deb822 .sources files.
+          # Updating only sources.list leaves the slow Azure HTTP mirror active.
+          paths = [Path('/etc/apt/sources.list')]
+          paths += list(Path('/etc/apt/sources.list.d').glob('*.list'))
+          paths += list(Path('/etc/apt/sources.list.d').glob('*.sources'))
+          for path in paths:
+              if not path.is_file():
+                  continue
+              original = path.read_text()
+              updated = original.replace('http://azure.archive.ubuntu.com/ubuntu', 'https://archive.ubuntu.com/ubuntu')
+              updated = updated.replace('https://azure.archive.ubuntu.com/ubuntu', 'https://archive.ubuntu.com/ubuntu')
+              if updated != original:
+                  path.write_text(updated)
+                  print(f'Updated Ubuntu mirror in {path}')
+          PY
+      - name: Verify real install and online upgrade under systemd
+        run: sudo env GITHUB_ACTIONS=true python3 deploy/test-systemd.py
+
+  hevc-playback:
+    name: On-demand HEVC playback (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend and ffmpeg
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+          cd backend
+          uv sync --frozen --extra link-import
+      - name: Install Chromium and build
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run build
+      - name: Verify on-demand HEVC playback in Chromium
+        working-directory: frontend
+        env:
+          REELVAULT_PLAYABLE_EAGER_MAX_MB: "0"
+        run: npm run test:e2e -- playback-cache.spec.ts

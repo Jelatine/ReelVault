@@ -24,9 +24,9 @@
 | 5 缓存预算与释放 | 已完成：归档及任务结束后释放未固定的副本（`KEEP_LOCAL` 可保留）；用户请求的副本固定至手动释放；正在被任务使用或尚未归档的文件不会释放；下载期间预约主存储预算。 |
 | 6 彻底删除 | 已完成：单个、批量、清空回收站和保留期清理先删除远端固定版本，失败时不删除任何记录。 |
 | 7 设置页 | 已完成：显示可用性、容量未知、视频数、默认目标与本地化错误；视频详情显示本地副本状态及下载／释放；中英文与移动端。 |
-| 8 安装、升级、备份恢复、浏览器回归 | 已完成：Docker 默认包含 `s3` 依赖，`install.sh`（`REELVAULT_S3_EXTRA=1` 或已配置）与在线升级保留该依赖；备份恢复无需本地副本；Playwright `s3.spec.ts` 在 CI `S3 (MinIO)` 作业中运行。 |
+| 8 安装、升级、备份恢复、浏览器回归 | 已完成：Docker 默认包含 `s3` 依赖，`install.sh`（`REELVAULT_S3_EXTRA=1` 或已配置）与在线升级保留该依赖；备份恢复无需本地副本；Playwright `s3.spec.ts` 在 Integration 工作流的 `S3 (MinIO)` 作业中运行。 |
 
-真实服务测试：后端 `tests/test_object_integration.py` 与浏览器 `frontend/e2e/s3.spec.ts`，均在 CI 的 `S3 (MinIO)` 作业中运行。
+真实服务测试：后端 `tests/test_object_integration.py` 与浏览器 `frontend/e2e/s3.spec.ts`，均在 Integration 工作流的 `S3 (MinIO)` 作业中运行。
 
 ## 完成 TODO 前必须接入并验证
 
@@ -53,4 +53,4 @@ cd backend
 uv run --frozen --extra s3 pytest -q tests/test_object_store.py tests/test_object_transfer.py
 ```
 
-未提供测试 endpoint 时真实服务测试跳过；CI 的独立 `S3 (MinIO)` 作业会构建服务并提供配置，因此不会跳过这些验证。
+未提供测试 endpoint 时真实服务测试跳过；Integration 工作流的 `S3 (MinIO)` 作业会构建服务并提供配置，因此不会跳过这些验证。
